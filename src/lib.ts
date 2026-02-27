@@ -1,5 +1,5 @@
 /**
- * Library module for x-gateway
+ * Library module for x-sdk-test
  */
 
 /**

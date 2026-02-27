@@ -79,7 +79,7 @@ Large features are split into multiple related plans with cross-references.
 
 | Plan | Status | Design Reference | Last Updated |
 |------|--------|------------------|--------------|
-| (No active plans yet) | - | - | - |
+| `active/x-gateway-full-api-coverage.md` | Ready | `design-docs/specs/architecture.md#capability-matrix-implementation-target` | 2026-02-27 |
 
 ## Completed Plans
 
@@ -106,7 +106,7 @@ Only plans from eligible phases should be read to minimize context loading.
 ```
 PHASE_TO_PLANS = {
   1: [
-    # Add Phase 1 plan files here
+    "active/x-gateway-full-api-coverage.md"
   ],
   2: [
     # Add Phase 2 plan files here

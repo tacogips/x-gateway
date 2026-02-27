@@ -131,6 +131,30 @@ feat: implement user authentication system
 
 This is x-gateway - a TypeScript project with Bun runtime and Nix flake development environment support.
 
+### Product Direction (Bootstrap Scope)
+
+- `x-gateway` is a command-line client that enables X (Twitter) API usage through the `x-gateway` command.
+- Primary usage assumes invocation from AI agents/tools, so operational errors must be highly explanatory and remediation-oriented.
+- The same repository must provide both:
+  - CLI interface (`x-gateway ...`)
+  - TypeScript library interface (`import { ... } from "x-gateway"`)
+- API/auth configuration must be accepted by both:
+  - environment variables
+  - explicit function parameters (for embedders that avoid environment coupling)
+- Target API coverage is full X API coverage exposed by selected API versions/scopes, with comprehensive support for post patterns including:
+  - normal post
+  - reply
+  - quote post
+  - repost/retweet
+  - image attachment
+  - video attachment
+  - article/long-form publishing patterns
+  - referenced/original post retrieval for quote/reply/repost chains
+- Error handling requirements:
+  - Always explain what failed and why (not only status code)
+  - Distinguish likely root causes (permission/scope deficit, expired token, revoked credential, rate limiting, missing resource, validation failure, network failure)
+  - Include concrete recovery actions where possible
+
 ## Development Environment
 - **Language**: TypeScript
 - **Runtime**: Bun

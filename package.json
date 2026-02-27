@@ -1,7 +1,7 @@
 {
   "name": "x-gateway",
-  "version": "0.0.1",
-  "description": "x api client",
+  "version": "0.1.0",
+  "description": "AI-oriented CLI and library gateway for X API",
   "type": "module",
   "main": "dist/main.js",
   "module": "dist/main.js",
@@ -17,6 +17,7 @@
     "dev": "bun run --watch src/main.ts",
     "build": "bun build src/main.ts --outdir dist --target bun",
     "start": "bun run src/main.ts",
+    "fetch:x-account": "bun run src/x-account-fetch.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
@@ -31,7 +32,6 @@
     "type": "git",
     "url": "https://github.com/user/repo"
   },
-
   "license": "MIT",
   "trustedDependencies": [],
   "devDependencies": {
@@ -40,5 +40,8 @@
     "typescript": "5.7.2",
     "prettier": "3.4.2",
     "vitest": "2.1.8"
+  },
+  "dependencies": {
+    "twitter-api-v2": "1.29.0"
   }
 }

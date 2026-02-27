@@ -1,7 +1,7 @@
 /**
- * x-gateway - Main entry point
+ * x-sdk-test - Main entry point
  *
- * x api client
+ * asdf
  */
 
 import { greet } from "./lib";
