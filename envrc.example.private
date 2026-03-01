@@ -1,0 +1,52 @@
+# Copy this file to .envrc.private and fill in real values.
+# .envrc loads this file automatically via: source_env_if_exists .envrc.private
+
+# -----------------------------------------------------------------------------
+# Authentication (recommended for account actions: OAuth 1.0a user context)
+# -----------------------------------------------------------------------------
+
+# Recommended mode: OAuth 1.0a user context
+export X_GW_AUTH_MODE="oauth1"
+export X_GW_CONSUMER_KEY="your-consumer-key"
+export X_GW_CONSUMER_SECRET="your-consumer-secret"
+export X_GW_ACCESS_TOKEN="your-access-token"
+export X_GW_ACCESS_TOKEN_SECRET="your-access-token-secret"
+
+# IMPORTANT:
+# If X_GW_TOKEN is set, x-gateway currently prefers bearer auth.
+# Keep X_GW_TOKEN commented out when using OAuth1 user-context writes.
+
+# Optional mode: Bearer token auth (read-focused usage)
+# export X_GW_AUTH_MODE="bearer"
+# export X_GW_TOKEN="x-bearer-token"
+
+# Optional mode: OAuth 2 client credentials (for flows that need it)
+# export X_GW_AUTH_MODE="oauth2-client"
+# export X_GW_CLIENT_ID="your-client-id"
+# export X_GW_CLIENT_SECRET="your-client-secret"
+
+# -----------------------------------------------------------------------------
+# Optional gateway behavior
+# -----------------------------------------------------------------------------
+
+# export X_GW_API_BASE_URL="https://api.x.com/2"
+# export X_GW_OUTPUT="text"                    # text | json
+# export X_GW_TIMEOUT_MS="30000"               # default: 30000
+# export X_GW_RETRY="2"                        # default: 2
+# export X_GW_RETRY_BACKOFF="exponential-jitter"  # exponential-jitter | fixed | none
+# export X_GW_RETRY_BASE_MS="300"              # default: 300
+# export X_GW_RETRY_MAX_MS="10000"             # default: 10000
+# export X_GW_STRICT_CAPABILITY_CHECKS="false" # true | false
+
+# -----------------------------------------------------------------------------
+# Optional variables for src/x-account-fetch.ts helper script
+# -----------------------------------------------------------------------------
+
+# Required for that script:
+# export X_GW_ACCOUNT_USERNAME="your_handle"
+
+# Optional for that script:
+# export X_GW_LIKED_LIMIT="100"
+# export X_GW_FOLLOWING_LIMIT="100"
+# export X_GW_TWEETS_PER_FOLLOWING_USER="5"
+# export X_GW_OUTPUT_DIR="./x_data"
