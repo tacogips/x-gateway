@@ -32,6 +32,11 @@
 
           # Development tools
           fd
+          coreutils
+          curl
+          git
+          gnutar
+          gzip
           gnused
           gh
           go-task

@@ -82,3 +82,127 @@ tasks:
       - task: typecheck
       - task: test
       - task: build
+
+  # -------------------------
+  # Release tasks
+  # -------------------------
+
+  release:clean:
+    desc: Clean release artifacts
+    cmds:
+      - rm -rf release
+
+  release:prepare:
+    desc: Run CI and build before release packaging
+    cmds:
+      - task: ci
+
+  release:binary:
+    desc: Build compiled binaries for a specific target (internal)
+    internal: true
+    requires:
+      vars: [TARGET, SUFFIX]
+    vars:
+      VERSION:
+        sh: bun -e "const p = await Bun.file('./package.json').json(); console.log(p.version)"
+      RELEASE_DIR: 'release/{{.PROJECT_NAME}}-v{{.VERSION}}-{{.SUFFIX}}'
+    cmds:
+      - mkdir -p {{.RELEASE_DIR}}
+      - bun build src/main.ts --compile --target {{.TARGET}} --outfile {{.RELEASE_DIR}}/x-gateway
+      - bun build src/main-reader.ts --compile --target {{.TARGET}} --outfile {{.RELEASE_DIR}}/x-gateway-reader
+      - cd release && tar -czf {{.PROJECT_NAME}}-v{{.VERSION}}-{{.SUFFIX}}.tar.gz $(basename {{.RELEASE_DIR}})
+      - echo "Built release/{{.PROJECT_NAME}}-v{{.VERSION}}-{{.SUFFIX}}.tar.gz"
+
+  release:binaries:
+    desc: Build all binary release archives (macOS + Linux)
+    cmds:
+      - task: release:prepare
+      - task: release:binary
+        vars:
+          TARGET: bun-darwin-arm64
+          SUFFIX: darwin-arm64
+      - task: release:binary
+        vars:
+          TARGET: bun-darwin-x64
+          SUFFIX: darwin-x64
+      - task: release:binary
+        vars:
+          TARGET: bun-linux-x64
+          SUFFIX: linux-x64
+      - task: release:binary
+        vars:
+          TARGET: bun-linux-arm64
+          SUFFIX: linux-arm64
+
+  release:npm:
+    desc: Build npm tarball into release/
+    vars:
+      VERSION:
+        sh: bun -e "const p = await Bun.file('./package.json').json(); console.log(p.version)"
+    cmds:
+      - task: release:prepare
+      - mkdir -p release
+      - bun pm pack --destination release
+      - echo "Built release/{{.PROJECT_NAME}}-{{.VERSION}}.tgz"
+
+  release:checksums:
+    desc: Generate SHA256 checksums for release assets
+    cmds:
+      - test -d release
+      - cd release && sha256sum *.tar.gz *.tgz > SHA256SUMS.txt
+      - echo "Wrote release/SHA256SUMS.txt"
+
+  release:nix:
+    desc: Validate Nix flake for release
+    cmds:
+      - nix flake check
+
+  release:all:
+    desc: Build all release artifacts (binaries + npm tarball + checksums)
+    cmds:
+      - task: release:clean
+      - task: release:binaries
+      - task: release:npm
+      - task: release:checksums
+
+  release:github:
+    desc: Publish release assets to GitHub Release
+    vars:
+      VERSION:
+        sh: bun -e "const p = await Bun.file('./package.json').json(); console.log(p.version)"
+      TAG: 'v{{.VERSION}}'
+    cmds:
+      - gh auth status
+      - task: release:nix
+      - task: release:all
+      - |
+        if git rev-parse "{{.TAG}}" >/dev/null 2>&1; then
+          echo "Tag {{.TAG}} already exists"
+        else
+          git tag -a "{{.TAG}}" -m "Release {{.TAG}}"
+          git push origin "{{.TAG}}"
+          echo "Created and pushed tag {{.TAG}}"
+        fi
+      - |
+        gh release view "{{.TAG}}" >/dev/null 2>&1 || \
+          gh release create "{{.TAG}}" --title "{{.PROJECT_NAME}} {{.TAG}}" --generate-notes
+      - gh release upload "{{.TAG}}" release/* --clobber
+      - echo "Published GitHub release {{.TAG}}"
+
+  release:npm-publish:
+    desc: Publish package to npm registry (requires NPM_TOKEN)
+    cmds:
+      - task: release:nix
+      - task: release:npm
+      - |
+        test -n "$NPM_TOKEN" || (echo "NPM_TOKEN is required" && exit 1)
+        TMP_NPMRC=$(mktemp)
+        printf '%s\n' '//registry.npmjs.org/:_authToken=${NPM_TOKEN}' > "$TMP_NPMRC"
+        NPM_CONFIG_USERCONFIG="$TMP_NPMRC" bunx npm publish --access public
+        rm -f "$TMP_NPMRC"
+
+  release:
+    desc: Full release (GitHub release + npm publish)
+    cmds:
+      - task: release:github
+      - task: release:npm-publish
