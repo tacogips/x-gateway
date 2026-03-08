@@ -1,9 +1,9 @@
 function failGraphqlOnly(): never {
   throw new Error(
     [
-      "x-account-fetch is disabled in GraphQL-only mode.",
-      "The previous implementation used twitter-api-v2 REST endpoints, which violates the repository-wide GraphQL-only access requirement.",
-      "If you need this workflow again, implement it with explicit GraphQL operation ids/documents and variables.",
+      "x-account-fetch is not part of the current stable x-gateway contract.",
+      "Use 'x-gateway account me' for the reviewed identity path, or add a dedicated capability adapter before restoring this standalone helper.",
+      "Do not reintroduce this file as a hidden transport shortcut that bypasses the documented CLI/SDK surface.",
     ].join(" "),
   );
 }

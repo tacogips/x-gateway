@@ -8,9 +8,19 @@ This document records additional design constraints and implementation notes.
 - PoC artifacts are imported to accelerate implementation, then refined into production architecture.
 - Sensitive local environment files may exist only for developer setup and must not be committed unintentionally.
 - Environment variable naming is standardized to `X_GW_` prefix for all gateway-specific keys.
-- The current delivery baseline is GraphQL-first raw operation input; legacy high-level wrappers must not claim support before concrete GraphQL mappings exist.
-- CLI and SDK surfaces should prefer removal or boundary rejection over placeholder methods when a GraphQL mapping does not exist.
-- Deprecated config aliases should be removed instead of kept as silent compatibility fallbacks when they weaken the stable GraphQL-only contract.
+- The current delivery baseline is a hybrid capability-adapter model: expose stable intent-level operations first, and keep raw GraphQL as a low-level fallback.
+- CLI and SDK surfaces should prefer reviewed adapters over exposing raw X internal GraphQL details as the default product interface.
+- Deprecated config aliases should be removed instead of kept as silent compatibility fallbacks when they weaken the stable configuration contract.
+- `X_GW_CONFIG_MODE` is the canonical config-resolution variable; `X_GW_AUTH_MODE` must no longer be overloaded with that meaning.
+- Capability inventory entries must be conservative about bearer-token support until a reviewed user-context flow exists in code and tests.
+- The current stable read/post baseline includes `post.get` plus OAuth1-backed create/delete/reply/quote/repost/unrepost; richer media and article patterns remain explicitly deferred.
+- The project-owned GraphQL request contract and capability planner now exist; the next missing slices are additional reviewed capabilities and transport adapters, not another public-contract redesign.
+- In mixed-auth shells, reviewed capability adapters must choose auth per capability. Bearer availability must not disable OAuth1-backed stable posting helpers.
+- Auth diagnostics must report capability readiness explicitly for the stable baseline; generic auth-family summaries are not enough for AI callers choosing the next command to run.
+- Operator-facing examples such as `.env.example` must be treated as part of the product contract; stale GraphQL-only guidance is a design bug because it pushes users toward the wrong auth model.
+- Planner diagnostics must name the actual reviewed route, including both transport and auth family, or mixed-auth failures become ambiguous.
+- The project-owned GraphQL field registry and the capability registry must be treated as one shared contract boundary with explicit drift checks.
+- Stable capability metadata, route planning, and executor dispatch must also be treated as one shared contract boundary with explicit drift checks.
 
 ## AI-Caller Expectations
 

@@ -1,7 +1,7 @@
 # X Gateway Full API Coverage Implementation Plan
 
-**Status**: In Progress
-**Design Reference**: design-docs/specs/architecture.md#graphql-first-contract
+**Status**: Superseded
+**Design Reference**: Historical baseline; superseded by `impl-plans/completed/x-gateway-hybrid-capability-adapters.md`
 **Created**: 2026-02-27
 **Last Updated**: 2026-03-08
 
@@ -15,7 +15,7 @@
 - design-docs/specs/notes.md
 
 ### Summary
-Implement `x-gateway` as an AI-optimized CLI plus reusable TypeScript library that currently stabilizes raw GraphQL request transport, rich diagnostics, and dual configuration input (env + parameters), while deferring high-level helpers until reviewed GraphQL mappings exist.
+This plan captures the earlier GraphQL-first baseline. It is retained for history only and is superseded for new implementation work by `impl-plans/completed/x-gateway-hybrid-capability-adapters.md`, which restores stable capability adapters as the primary contract.
 
 ### Scope
 **Included**:
@@ -29,6 +29,7 @@ Implement `x-gateway` as an AI-optimized CLI plus reusable TypeScript library th
 **Excluded**:
 - undocumented/private X API behavior
 - high-level helper reintroduction without committed GraphQL mapping artifacts
+- hybrid capability-adapter restoration work tracked in the superseding plan
 
 ---
 

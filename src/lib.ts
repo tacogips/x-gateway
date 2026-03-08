@@ -1,3 +1,41 @@
+import {
+  CAPABILITY_PLANNING_REGISTRY,
+  CAPABILITY_REGISTRY,
+  isStableCapabilityId,
+  type CapabilityDescriptor,
+  type CapabilityPlanningDefinition,
+  type StableCapabilityId,
+} from "./capability-metadata";
+import {
+  buildAuthCapabilityReadiness,
+  type CapabilityExecutionContext,
+  type ResolvedCapabilityAuth,
+  type XGatewayCapabilityReadiness,
+} from "./capability-runtime";
+import { createCapabilityAdapterFactories } from "./capability-adapters";
+import { inferPublicGraphqlOperationType } from "./public-graphql-parser";
+import {
+  createPublicApiRequestPlan,
+  projectPublicSelection,
+} from "./public-api-contract";
+import {
+  createStableCapabilityExecutor,
+  type StableCapabilityInputById,
+} from "./stable-capability-executor";
+import { createRawGraphqlRequester } from "./raw-graphql-client";
+
+export type {
+  CapabilityDescriptor,
+  CapabilitySurfaceCategory,
+  CapabilityStatus,
+  CapabilityTransportStrategy,
+  StableCapabilityId,
+  XGatewayCapabilityAccessType,
+  XGatewayCapabilityReadinessStatus,
+  XGatewayCapabilityRequirement,
+} from "./capability-metadata";
+export type { XGatewayCapabilityReadiness } from "./capability-runtime";
+
 export type XGatewayErrorCode =
   | "VALIDATION_ERROR"
   | "AUTH_MISSING"
@@ -24,7 +62,8 @@ export type XGatewayErrorClassification =
   | "internal";
 
 export type RetryBackoffStrategy = "exponential-jitter" | "fixed" | "none";
-export type XGatewayAuthMode = "env" | "params" | "mixed";
+export type XGatewayConfigMode = "env" | "params" | "mixed";
+export type XGatewayAuthMode = XGatewayConfigMode;
 export type XGatewayOperationType = "query" | "mutation";
 
 export type XGatewayAuthConfig = Readonly<{
@@ -45,6 +84,7 @@ export type XGatewayRetryConfig = Readonly<{
 }>;
 
 export type XGatewayConfig = Readonly<{
+  configMode?: XGatewayConfigMode | undefined;
   authMode?: XGatewayAuthMode | undefined;
   auth?: XGatewayAuthConfig | undefined;
   graphqlBaseUrl?: string | undefined;
@@ -54,7 +94,7 @@ export type XGatewayConfig = Readonly<{
 }>;
 
 export type XGatewayResolvedConfig = Readonly<{
-  authMode: XGatewayAuthMode;
+  configMode: XGatewayConfigMode;
   auth: XGatewayAuthConfig;
   graphqlBaseUrl?: string;
   timeoutMs: number;
@@ -87,83 +127,6 @@ const DEFAULT_RETRY_COUNT = 2;
 const DEFAULT_RETRY_BASE_MS = 300;
 const DEFAULT_RETRY_MAX_MS = 10_000;
 const DEFAULT_GRAPHQL_BASE_URL = "https://x.com/i/api/graphql";
-
-const CAPABILITY_REGISTRY: readonly CapabilityDescriptor[] = [
-  {
-    id: "graphql.request",
-    endpointFamily: "graphql",
-    operation: "raw GraphQL query or mutation execution",
-    status: "implemented",
-    authModes: ["bearer"],
-    notes:
-      "Primary GraphQL-first interface. Requires operationName plus documentId or inline query, and bearer auth.",
-  },
-  {
-    id: "auth.verify",
-    endpointFamily: "auth",
-    operation: "verify identity and access",
-    status: "blocked_by_plan",
-    authModes: ["bearer", "oauth1"],
-    notes: "GraphQL-only transport is enforced; operation mapping is not defined yet.",
-  },
-  {
-    id: "post.create",
-    endpointFamily: "posts",
-    operation: "create post/reply/quote",
-    status: "blocked_by_plan",
-    authModes: ["bearer", "oauth1"],
-    notes: "GraphQL-only transport is enforced; mutation mapping is not defined yet.",
-  },
-  {
-    id: "post.article",
-    endpointFamily: "posts",
-    operation: "long-form article style post",
-    status: "blocked_by_scope",
-    authModes: ["bearer", "oauth1"],
-    notes: "Depends on provider-level article availability; strict mode can block.",
-  },
-  {
-    id: "media.upload",
-    endpointFamily: "media",
-    operation: "upload media and set alt text",
-    status: "blocked_by_plan",
-    authModes: ["oauth1", "bearer"],
-    notes: "REST v1 upload flow was removed; GraphQL/media upload mapping is pending.",
-  },
-  {
-    id: "tweet.references",
-    endpointFamily: "tweets",
-    operation: "thread, quote, likes, retweet user views",
-    status: "blocked_by_plan",
-    authModes: ["bearer", "oauth1"],
-    notes: "GraphQL-only transport is enforced; query mapping is not defined yet.",
-  },
-  {
-    id: "timeline.search",
-    endpointFamily: "timelines",
-    operation: "home/user/mentions/recent search with pagination",
-    status: "blocked_by_plan",
-    authModes: ["bearer", "oauth1"],
-    notes: "GraphQL-only transport is enforced; query mapping is not defined yet.",
-  },
-  {
-    id: "social.follows",
-    endpointFamily: "social-graph",
-    operation: "followers/following and follow/unfollow mutations",
-    status: "blocked_by_plan",
-    authModes: ["bearer", "oauth1"],
-    notes: "GraphQL-only transport is enforced; query and mutation mapping is not defined yet.",
-  },
-  {
-    id: "dm.core",
-    endpointFamily: "dm",
-    operation: "send/list direct messages",
-    status: "blocked_by_scope",
-    authModes: ["oauth1", "bearer"],
-    notes: "Availability varies by auth mode and API tier.",
-  },
-];
-
 function readEnv(name: string): string | undefined {
   const raw = process.env[name];
   if (!raw) {
@@ -204,11 +167,7 @@ function validateRetryBackoff(
   if (!input) {
     return fallback;
   }
-  if (
-    input === "exponential-jitter" ||
-    input === "fixed" ||
-    input === "none"
-  ) {
+  if (input === "exponential-jitter" || input === "fixed" || input === "none") {
     return input;
   }
   throw createValidationError(
@@ -216,11 +175,11 @@ function validateRetryBackoff(
   );
 }
 
-function validateAuthMode(
+function validateConfigMode(
   input: string | undefined,
-  fallback: XGatewayAuthMode,
+  fallback: XGatewayConfigMode,
   name: string,
-): XGatewayAuthMode {
+): XGatewayConfigMode {
   if (!input) {
     return fallback;
   }
@@ -229,6 +188,31 @@ function validateAuthMode(
   }
   throw createValidationError(
     `${name} must be one of 'env', 'params', or 'mixed'.`,
+  );
+}
+
+function readConfigModeEnv(): string | undefined {
+  const explicitConfigMode = readEnv("X_GW_CONFIG_MODE");
+  if (explicitConfigMode !== undefined) {
+    return explicitConfigMode;
+  }
+
+  const legacyAuthMode = readEnv("X_GW_AUTH_MODE");
+  if (legacyAuthMode === undefined) {
+    return undefined;
+  }
+  if (
+    legacyAuthMode === "env" ||
+    legacyAuthMode === "params" ||
+    legacyAuthMode === "mixed"
+  ) {
+    return legacyAuthMode;
+  }
+  if (legacyAuthMode === "oauth1" || legacyAuthMode === "bearer") {
+    return undefined;
+  }
+  throw createValidationError(
+    "X_GW_AUTH_MODE must be one of 'oauth1', 'bearer', 'env', 'params', or 'mixed'. Use X_GW_CONFIG_MODE for env/params/mixed config resolution.",
   );
 }
 
@@ -247,7 +231,9 @@ function parseBoolean(
   if (normalized === "false" || normalized === "0" || normalized === "no") {
     return false;
   }
-  throw createValidationError(`${name} must be a boolean value ('true' or 'false').`);
+  throw createValidationError(
+    `${name} must be a boolean value ('true' or 'false').`,
+  );
 }
 
 function validateOptionalInteger(
@@ -289,11 +275,17 @@ function validateOptionalGraphqlBaseUrl(
   return trimmed;
 }
 
-export function resolveConfig(config: XGatewayConfig = {}): XGatewayResolvedConfig {
-  const authMode = validateAuthMode(
-    config.authMode ?? readEnv("X_GW_AUTH_MODE"),
+export function resolveConfig(
+  config: XGatewayConfig = {},
+): XGatewayResolvedConfig {
+  const configMode = validateConfigMode(
+    config.configMode ?? config.authMode ?? readConfigModeEnv(),
     "mixed",
-    config.authMode === undefined ? "X_GW_AUTH_MODE" : "config.authMode",
+    config.configMode !== undefined
+      ? "config.configMode"
+      : config.authMode !== undefined
+        ? "config.authMode"
+        : "X_GW_CONFIG_MODE",
   );
   const envAuth: XGatewayAuthConfig = {
     token: readEnv("X_GW_TOKEN"),
@@ -307,9 +299,9 @@ export function resolveConfig(config: XGatewayConfig = {}): XGatewayResolvedConf
 
   const paramAuth = config.auth ?? {};
   const mergedAuth: XGatewayAuthConfig =
-    authMode === "env"
+    configMode === "env"
       ? envAuth
-      : authMode === "params"
+      : configMode === "params"
         ? {
             token: paramAuth.token,
             consumerKey: paramAuth.consumerKey,
@@ -340,17 +332,25 @@ export function resolveConfig(config: XGatewayConfig = {}): XGatewayResolvedConf
     );
   const retries =
     validateOptionalInteger(config.retry?.retries, "config.retry.retries", 0) ??
-    parseIntegerEnv(readEnv("X_GW_RETRY"), DEFAULT_RETRY_COUNT, "X_GW_RETRY", 0);
-  const backoff =
-    validateRetryBackoff(
-      config.retry?.backoff ?? readEnv("X_GW_RETRY_BACKOFF"),
-      "exponential-jitter",
-      config.retry?.backoff === undefined
-        ? "X_GW_RETRY_BACKOFF"
-        : "config.retry.backoff",
+    parseIntegerEnv(
+      readEnv("X_GW_RETRY"),
+      DEFAULT_RETRY_COUNT,
+      "X_GW_RETRY",
+      0,
     );
+  const backoff = validateRetryBackoff(
+    config.retry?.backoff ?? readEnv("X_GW_RETRY_BACKOFF"),
+    "exponential-jitter",
+    config.retry?.backoff === undefined
+      ? "X_GW_RETRY_BACKOFF"
+      : "config.retry.backoff",
+  );
   const baseDelayMs =
-    validateOptionalInteger(config.retry?.baseDelayMs, "config.retry.baseDelayMs", 0) ??
+    validateOptionalInteger(
+      config.retry?.baseDelayMs,
+      "config.retry.baseDelayMs",
+      0,
+    ) ??
     parseIntegerEnv(
       readEnv("X_GW_RETRY_BASE_MS"),
       DEFAULT_RETRY_BASE_MS,
@@ -358,7 +358,11 @@ export function resolveConfig(config: XGatewayConfig = {}): XGatewayResolvedConf
       0,
     );
   const maxDelayMs =
-    validateOptionalInteger(config.retry?.maxDelayMs, "config.retry.maxDelayMs", 0) ??
+    validateOptionalInteger(
+      config.retry?.maxDelayMs,
+      "config.retry.maxDelayMs",
+      0,
+    ) ??
     parseIntegerEnv(
       readEnv("X_GW_RETRY_MAX_MS"),
       DEFAULT_RETRY_MAX_MS,
@@ -373,7 +377,7 @@ export function resolveConfig(config: XGatewayConfig = {}): XGatewayResolvedConf
       : "X_GW_GRAPHQL_BASE_URL",
   );
   return {
-    authMode,
+    configMode,
     auth: mergedAuth,
     ...(graphqlBaseUrl === undefined ? {} : { graphqlBaseUrl }),
     timeoutMs,
@@ -402,10 +406,37 @@ function hasOauth1(auth: XGatewayAuthConfig): boolean {
   );
 }
 
+function hasBearerToken(auth: XGatewayAuthConfig): boolean {
+  return isNonEmpty(auth.token);
+}
+
+function getAvailableAuthModes(
+  auth: XGatewayAuthConfig,
+): readonly ("oauth1" | "bearer")[] {
+  const modes: ("oauth1" | "bearer")[] = [];
+  if (hasOauth1(auth)) {
+    modes.push("oauth1");
+  }
+  if (hasBearerToken(auth)) {
+    modes.push("bearer");
+  }
+  return modes;
+}
+
+function createResolvedCapabilityAuth(
+  auth: XGatewayAuthConfig,
+): ResolvedCapabilityAuth {
+  return {
+    hasOauth1: hasOauth1(auth),
+    hasBearerToken: hasBearerToken(auth),
+    availableAuthModes: getAvailableAuthModes(auth),
+  };
+}
+
 function getConfiguredAuthMode(
   auth: XGatewayAuthConfig,
 ): "bearer" | "oauth1" | undefined {
-  if (isNonEmpty(auth.token)) {
+  if (hasBearerToken(auth)) {
     return "bearer";
   }
   if (hasOauth1(auth)) {
@@ -477,6 +508,26 @@ function createUnsupportedError(
   });
 }
 
+function createStablePayloadShapeError(
+  fieldName: string,
+  detail: string,
+): XGatewayError {
+  return createError({
+    code: "UPSTREAM_FAILURE",
+    summary: `Stable capability '${fieldName}' returned an unexpected payload`,
+    details: `The reviewed adapter for '${fieldName}' returned a payload that does not match the stable contract. ${detail}`,
+    likelyCauses: [
+      "The upstream adapter returned a different response shape than expected",
+      "The normalization layer is out of sync with the selected transport",
+    ],
+    remediations: [
+      "Inspect the adapter response and update the project-owned response mapper.",
+    ],
+    classification: "upstream",
+    retryable: false,
+  });
+}
+
 function deriveAuthErrorCode(detail: string): XGatewayErrorCode {
   const lower = detail.toLowerCase();
   if (lower.includes("expired") || lower.includes("expire")) {
@@ -526,8 +577,7 @@ function isLegacyApiResponseError(
   };
 
   return (
-    typeof candidate.code === "number" &&
-    typeof candidate.message === "string"
+    typeof candidate.code === "number" && typeof candidate.message === "string"
   );
 }
 
@@ -593,7 +643,10 @@ function normalizeApiError(
       code: "RESOURCE_NOT_FOUND",
       summary: "Requested resource was not found",
       details: `${title}: ${detail}`,
-      likelyCauses: ["Resource id is invalid", "Resource is deleted or inaccessible"],
+      likelyCauses: [
+        "Resource id is invalid",
+        "Resource is deleted or inaccessible",
+      ],
       remediations: ["Verify resource identifier", "Check resource visibility"],
       classification: "upstream",
       retryable: false,
@@ -608,7 +661,10 @@ function normalizeApiError(
       summary: "Request conflicted with current remote state",
       details: `${title}: ${detail}`,
       likelyCauses: ["Duplicate action", "State changed between requests"],
-      remediations: ["Fetch latest state and retry once", "Use idempotency key"],
+      remediations: [
+        "Fetch latest state and retry once",
+        "Use idempotency key",
+      ],
       classification: "upstream",
       retryable: false,
       httpStatus: status,
@@ -663,7 +719,10 @@ function normalizeApiError(
   });
 }
 
-export function normalizeError(error: unknown, traceId?: string): XGatewayError {
+export function normalizeError(
+  error: unknown,
+  traceId?: string,
+): XGatewayError {
   if (error instanceof XGatewayError) {
     return error;
   }
@@ -698,7 +757,10 @@ export function normalizeError(error: unknown, traceId?: string): XGatewayError 
       summary: "Unexpected internal error",
       details: error.message,
       likelyCauses: ["Unhandled runtime failure"],
-      remediations: ["Inspect stack trace and input payload", "Retry after validation"],
+      remediations: [
+        "Inspect stack trace and input payload",
+        "Retry after validation",
+      ],
       classification: "internal",
       retryable: false,
       ...withOptionalTrace(traceId),
@@ -741,7 +803,10 @@ function sleep(ms: number): Promise<void> {
   });
 }
 
-async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     const timeoutPromise = new Promise<T>((_resolve, reject) => {
@@ -768,61 +833,111 @@ export type XGatewayRequestOptions = Readonly<{
   traceId?: string;
 }>;
 
-function parseRetryAfterMs(headerValue: string | null): number | undefined {
-  if (headerValue === null || !isNonEmpty(headerValue)) {
-    return undefined;
-  }
-
-  const seconds = Number(headerValue);
-  if (Number.isFinite(seconds) && seconds >= 0) {
-    return Math.floor(seconds * 1000);
-  }
-
-  const retryAt = Date.parse(headerValue);
-  if (!Number.isFinite(retryAt)) {
-    return undefined;
-  }
-
-  return Math.max(retryAt - Date.now(), 0);
-}
-
-function validateOperationType(
-  operationType: XGatewayOperationType | undefined,
-): XGatewayOperationType {
-  if (
-    operationType === undefined ||
-    operationType === "query" ||
-    operationType === "mutation"
-  ) {
-    return operationType ?? "query";
-  }
-
-  throw createValidationError(
-    "operationType must be either 'query' or 'mutation'.",
-  );
-}
-
-export type CapabilityStatus =
-  | "implemented"
-  | "planned"
-  | "blocked_by_scope"
-  | "blocked_by_plan"
-  | "unsupported";
-
-export type CapabilityDescriptor = Readonly<{
+export type XGatewayAccountProfile = Readonly<{
   id: string;
-  endpointFamily: string;
-  operation: string;
-  status: CapabilityStatus;
-  authModes: readonly ("bearer" | "oauth1")[];
-  notes: string;
+  username: string;
+  name: string;
+}>;
+
+export type XGatewayPostCreateOptions = Readonly<{
+  text: string;
+}>;
+
+export type XGatewayPostGetOptions = Readonly<{
+  postId: string;
+}>;
+
+export type XGatewayLikesListOptions = Readonly<{
+  userId: string;
+  limit?: number;
+}>;
+
+export type XGatewayPostReplyOptions = Readonly<{
+  text: string;
+  replyToPostId: string;
+}>;
+
+export type XGatewayPostDeleteOptions = Readonly<{
+  postId: string;
+}>;
+
+export type XGatewayPostSummary = Readonly<{
+  id: string;
+  text: string;
+  author?: XGatewayAccountProfile;
+  createdAt?: string;
+  conversationId?: string;
+  replyToUserId?: string;
+}>;
+
+export type XGatewayPostReferenceRelation =
+  | "replied_to"
+  | "quoted"
+  | "retweeted";
+
+export type XGatewayReferencedPost = Readonly<
+  XGatewayPostSummary & {
+    relation: XGatewayPostReferenceRelation;
+  }
+>;
+
+export type XGatewayPostLookupResult = Readonly<{
+  post: XGatewayPostSummary;
+  referencedPosts: readonly XGatewayReferencedPost[];
+}>;
+
+export type XGatewayLikesListResult = Readonly<{
+  userId: string;
+  posts: readonly XGatewayPostSummary[];
+}>;
+
+export type XGatewayPostQuoteOptions = Readonly<{
+  text: string;
+  quotedPostId: string;
+}>;
+
+export type XGatewayPostRepostOptions = Readonly<{
+  postId: string;
+}>;
+
+export type XGatewayAuthVerifyResult = Readonly<{
+  ready: boolean;
+  verifiedAt: string;
+  authMode: string;
+  availableAuthModes: readonly ("oauth1" | "bearer")[];
+  transport: "hybrid";
+  message: string;
+  capabilities: readonly XGatewayCapabilityReadiness[];
+}>;
+
+export type XGatewayApiRequestOptions = Readonly<{
+  query: string;
+  traceId?: string;
 }>;
 
 export type XGatewayClient = Readonly<{
   getResolvedConfig: () => XGatewayResolvedConfig;
   request: <T>(options: XGatewayRequestOptions) => Promise<T>;
-  authVerify: () => Promise<unknown>;
-  authScopes: () => Promise<Readonly<{ authMode: string; notes: readonly string[] }>>;
+  apiRequest: (
+    options: XGatewayApiRequestOptions,
+  ) => Promise<Readonly<{ data: Readonly<Record<string, unknown>> }>>;
+  authVerify: () => Promise<XGatewayAuthVerifyResult>;
+  authScopes: () => Promise<
+    Readonly<{ authMode: string; notes: readonly string[] }>
+  >;
+  accountMe: () => Promise<XGatewayAccountProfile>;
+  postGet: (
+    options: XGatewayPostGetOptions,
+  ) => Promise<XGatewayPostLookupResult>;
+  likesList: (
+    options: XGatewayLikesListOptions,
+  ) => Promise<XGatewayLikesListResult>;
+  postCreate: (options: XGatewayPostCreateOptions) => Promise<unknown>;
+  postDelete: (options: XGatewayPostDeleteOptions) => Promise<unknown>;
+  postReply: (options: XGatewayPostReplyOptions) => Promise<unknown>;
+  postQuote: (options: XGatewayPostQuoteOptions) => Promise<unknown>;
+  postRepost: (options: XGatewayPostRepostOptions) => Promise<unknown>;
+  postUndoRepost: (options: XGatewayPostRepostOptions) => Promise<unknown>;
   capabilitiesList: () => readonly CapabilityDescriptor[];
   capabilitiesGet: (id: string) => CapabilityDescriptor;
 }>;
@@ -875,62 +990,257 @@ function ensureRequired(value: string | undefined, fieldName: string): string {
   return value;
 }
 
-function encodeGraphqlOperationName(operationName: string): string {
-  return encodeURIComponent(operationName);
+export function inferApiRequestOperationType(
+  query: string,
+): XGatewayOperationType {
+  return inferPublicGraphqlOperationType(query, createValidationError);
 }
 
-function joinGraphqlEndpoint(baseUrl: string, documentId: string, operationName: string): string {
-  const trimmedBase = baseUrl.replace(/\/+$/, "");
-  return `${trimmedBase}/${encodeURIComponent(documentId)}/${encodeGraphqlOperationName(operationName)}`;
+function dedupeStrings(items: readonly string[]): readonly string[] {
+  return [...new Set(items)];
 }
 
-async function parseResponseBody(response: Response): Promise<unknown> {
-  const contentType = response.headers.get("content-type") ?? "";
-  if (
-    contentType.includes("application/json") ||
-    contentType.includes("+json")
-  ) {
-    return (await response.json()) as unknown;
-  }
-  const text = await response.text();
-  return { raw: text };
-}
-
-export function createXGatewayClient(config: XGatewayConfig = {}): XGatewayClient {
+export function createXGatewayClient(
+  config: XGatewayConfig = {},
+): XGatewayClient {
   const resolved = resolveConfig(config);
+  const resolvedCapabilityAuth = createResolvedCapabilityAuth(resolved.auth);
   const graphQlBaseUrl = resolved.graphqlBaseUrl ?? DEFAULT_GRAPHQL_BASE_URL;
+  const capabilityAdapterFactories = createCapabilityAdapterFactories({
+    auth: resolved.auth,
+    createError,
+    createValidationError,
+    ensureRequired,
+  });
 
-  function getGraphqlBearerToken(): string {
-    const configuredAuthMode = getConfiguredAuthMode(resolved.auth);
-    if (configuredAuthMode === "bearer" && isNonEmpty(resolved.auth.token)) {
-      return resolved.auth.token;
-    }
-    if (configuredAuthMode === "oauth1") {
-      throw createUnsupportedError(
-        "GraphQL transport authentication",
-        "GraphQL-only mode currently supports bearer-token authentication only. OAuth1 credentials cannot be translated automatically.",
-        [
-          "Set X_GW_TOKEN or pass auth.token when creating the client.",
-          "Add an explicit GraphQL auth adapter before enabling OAuth1-only callers.",
-        ],
-      );
-    }
-    throw createError({
+  function createCapabilityAuthMissingError(
+    capability: CapabilityDescriptor,
+    planning: CapabilityPlanningDefinition,
+  ): XGatewayError {
+    const remediations =
+      planning.missingAuthRequirement === "oauth1"
+        ? [
+            "Set X_GW_CONSUMER_KEY, X_GW_CONSUMER_SECRET, X_GW_ACCESS_TOKEN, and X_GW_ACCESS_TOKEN_SECRET for OAuth1 usage.",
+          ]
+        : planning.missingAuthRequirement === "bearer"
+          ? ["Set X_GW_TOKEN for bearer-token usage."]
+          : planning.missingAuthRequirement === "user-context-bearer"
+            ? [
+                "Set X_GW_TOKEN with a reviewed user-context bearer token for this capability.",
+              ]
+            : [
+                "Set X_GW_CONSUMER_KEY, X_GW_CONSUMER_SECRET, X_GW_ACCESS_TOKEN, and X_GW_ACCESS_TOKEN_SECRET for OAuth1 usage.",
+                "Or set X_GW_TOKEN for bearer-token usage where supported.",
+              ];
+
+    return createError({
       code: "AUTH_MISSING",
       summary: "Authentication configuration missing",
-      details:
-        "GraphQL requests require X_GW_TOKEN or auth.token. OAuth1-only credentials are not sufficient in the current GraphQL-only transport.",
+      details: `${capability.operation} is unavailable. ${planning.missingAuthReason}`,
       likelyCauses: [
-        "Bearer token was not configured",
-        "Only OAuth1 credentials were provided",
+        "No supported credentials were configured",
+        "Credential values were empty after environment resolution",
       ],
-      remediations: [
-        "Set X_GW_TOKEN for CLI usage.",
-        "Or pass auth.token when creating the client.",
-      ],
+      remediations,
       classification: "auth",
       retryable: false,
     });
+  }
+
+  function normalizeCapabilityError(
+    error: unknown,
+    context: CapabilityExecutionContext,
+  ): XGatewayError {
+    const normalized = normalizeError(error, context.traceId);
+    const capabilityPrefix = `${context.capabilityLabel} via ${context.transportLabel}`;
+    const extraCause = `Capability '${context.capabilityId}' failed on the ${context.transportLabel} adapter.`;
+    const extraRemediations =
+      normalized.payload.code === "AUTH_MISSING"
+        ? [
+            "Configure credentials supported by this capability before retrying.",
+            "Use 'auth verify' to inspect the resolved auth mode and transport readiness.",
+          ]
+        : normalized.payload.code === "PERMISSION_DENIED"
+          ? [
+              "Confirm the configured app/user credential has permission for this capability.",
+            ]
+          : normalized.payload.code === "AUTH_INVALID" ||
+              normalized.payload.code === "AUTH_EXPIRED" ||
+              normalized.payload.code === "AUTH_REVOKED"
+            ? [
+                "Refresh or replace the configured credential, then retry the same capability.",
+              ]
+            : normalized.payload.code === "RATE_LIMITED"
+              ? [
+                  "Delay retries for this capability until the rate-limit window resets.",
+                ]
+              : normalized.payload.code === "NETWORK_FAILURE"
+                ? [
+                    "Retry the same capability after confirming connectivity to the selected upstream transport.",
+                  ]
+                : normalized.payload.code === "UPSTREAM_FAILURE"
+                  ? [
+                      "Inspect the selected transport and adapter mapping for this capability before retrying.",
+                    ]
+                  : [];
+
+    return createError({
+      ...normalized.payload,
+      summary: `${context.capabilityLabel} failed`,
+      details: `${capabilityPrefix} failed. ${normalized.payload.details}`,
+      likelyCauses: dedupeStrings([
+        extraCause,
+        ...normalized.payload.likelyCauses,
+      ]),
+      remediations: dedupeStrings([
+        ...normalized.payload.remediations,
+        ...extraRemediations,
+      ]),
+    });
+  }
+
+  async function executeCapabilityOperation<T>(
+    context: CapabilityExecutionContext,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    return executeWithRetry(async () => {
+      try {
+        return await operation();
+      } catch (error) {
+        throw normalizeCapabilityError(error, context);
+      }
+    }, context.traceId);
+  }
+
+  function getCapabilityDescriptorById(
+    capabilityId: string,
+  ): CapabilityDescriptor {
+    const capability = CAPABILITY_REGISTRY.find(
+      (entry) => entry.id === capabilityId,
+    );
+    if (!capability) {
+      throw createError({
+        code: "INTERNAL_ERROR",
+        summary: "Capability registry entry missing",
+        details: `Capability '${capabilityId}' was requested internally, but no registry entry exists for it.`,
+        likelyCauses: [
+          "The execution planner references an unregistered capability id",
+        ],
+        remediations: [
+          "Add the missing capability registry row before routing requests to this capability.",
+        ],
+        classification: "internal",
+        retryable: false,
+      });
+    }
+    return capability;
+  }
+
+  function createConfiguredAuthUnsupportedError(
+    capabilityLabel: string,
+    planning: CapabilityPlanningDefinition,
+  ): XGatewayError {
+    return createUnsupportedError(
+      capabilityLabel,
+      planning.unsupportedConfiguredAuthReason ??
+        `${capabilityLabel} does not support the configured credential family in the current reviewed adapter set.`,
+      planning.unsupportedConfiguredAuthRemediations ?? [
+        "Configure credentials supported by this capability before retrying.",
+      ],
+    );
+  }
+
+  const stableCapabilityExecutor = createStableCapabilityExecutor({
+    auth: resolvedCapabilityAuth,
+    withOptionalTrace,
+    executeCapabilityOperation,
+    adapters: capabilityAdapterFactories,
+    errors: {
+      createCapabilityRegistryMissingError: (missingCapabilityId: string) =>
+        createError({
+          code: "INTERNAL_ERROR",
+          summary: "Capability registry entry missing",
+          details: `Capability '${missingCapabilityId}' was requested internally, but no registry entry exists for it.`,
+          likelyCauses: [
+            "The execution planner references an unregistered capability id",
+          ],
+          remediations: [
+            "Add the missing capability registry row before routing requests to this capability.",
+          ],
+          classification: "internal",
+          retryable: false,
+        }),
+      createCapabilityPlanningMissingError: (missingCapabilityId: string) =>
+        createError({
+          code: "INTERNAL_ERROR",
+          summary: "Capability planning registry entry missing",
+          details: `Capability '${missingCapabilityId}' was requested internally, but no planning metadata exists for it.`,
+          likelyCauses: [
+            "The execution planner references an unregistered planning definition",
+          ],
+          remediations: [
+            "Add the missing capability planning row before routing requests to this capability.",
+          ],
+          classification: "internal",
+          retryable: false,
+        }),
+      createConfiguredAuthUnsupportedError,
+      createCapabilityAuthMissingError,
+      createHandlerMissingError: (
+        missingCapabilityId: StableCapabilityId,
+        adapterKind: "read-capability" | "stable-posting",
+      ) =>
+        createError({
+          code: "INTERNAL_ERROR",
+          summary:
+            adapterKind === "read-capability"
+              ? "Read capability handler missing"
+              : "Stable posting handler missing",
+          details:
+            adapterKind === "read-capability"
+              ? `Capability '${missingCapabilityId}' selected a read adapter route, but no read handler was provided.`
+              : `Capability '${missingCapabilityId}' selected a stable-posting route, but no posting handler was provided.`,
+          likelyCauses: [
+            "The planner routing metadata and execution callback are out of sync",
+          ],
+          remediations: [
+            adapterKind === "read-capability"
+              ? "Provide a read handler for this capability before advertising the route."
+              : "Provide a stable posting handler for this capability before advertising the route.",
+          ],
+          classification: "internal",
+          retryable: false,
+        }),
+      createUnsupportedAdapterKindError: (
+        invalidCapabilityId: StableCapabilityId,
+        adapterKind: "graphql-request" | "read-capability" | "stable-posting",
+      ) =>
+        createError({
+          code: "INTERNAL_ERROR",
+          summary: "Unsupported capability route adapter kind",
+          details: `Capability '${invalidCapabilityId}' selected adapter kind '${adapterKind}', which is not valid for the stable capability planner.`,
+          likelyCauses: [
+            "A raw GraphQL-only route was incorrectly wired into the stable capability planner",
+          ],
+          remediations: [
+            "Restrict the stable capability planner to reviewed read/stable-posting adapter kinds.",
+          ],
+          classification: "internal",
+          retryable: false,
+        }),
+    },
+  });
+
+  async function executeStableCapability<K extends StableCapabilityId>(
+    capabilityId: K,
+    input: StableCapabilityInputById[K],
+    traceId?: string,
+  ) {
+    return stableCapabilityExecutor.executeStableCapability(
+      capabilityId,
+      input,
+      traceId,
+    );
   }
 
   async function executeWithRetry<T>(
@@ -987,130 +1297,68 @@ export function createXGatewayClient(config: XGatewayConfig = {}): XGatewayClien
     );
   }
 
-  async function request<T>(options: XGatewayRequestOptions): Promise<T> {
-    const {
-      operationName,
-      operationType,
-      documentId,
-      query,
-      variables,
-      features,
-      fieldToggles,
-      traceId,
-    } = options;
-    const safeOperationName = ensureRequired(operationName, "operationName");
-    const safeOperationType = validateOperationType(operationType);
-    const hasDocumentId = isNonEmpty(documentId);
-    const hasQuery = isNonEmpty(query);
-    if (!hasDocumentId && !hasQuery) {
-      throw createValidationError(
-        "GraphQL request requires either documentId for persisted queries or query for an inline GraphQL document.",
+  const rawGraphqlRequester = createRawGraphqlRequester({
+    auth: resolved.auth,
+    configuredAuthMode: getConfiguredAuthMode(resolved.auth),
+    graphqlBaseUrl: graphQlBaseUrl,
+    executeWithRetry,
+    createError,
+    createValidationError,
+    createUnsupportedError: (subject, details, remediations) =>
+      createUnsupportedError(subject, details, remediations ?? []),
+    withOptionalTrace,
+  });
+
+  async function apiRequest(
+    options: XGatewayApiRequestOptions,
+  ): Promise<Readonly<{ data: Readonly<Record<string, unknown>> }>> {
+    const publicRequest = createPublicApiRequestPlan(
+      options,
+      createValidationError,
+      createStablePayloadShapeError,
+    );
+    const capability = getCapabilityDescriptorById(publicRequest.capabilityId);
+
+    if (capability.status !== "implemented") {
+      throw createUnsupportedError(
+        `Public GraphQL field '${publicRequest.fieldName}'`,
+        `Field '${publicRequest.fieldName}' maps to capability '${capability.id}', but that capability is currently ${capability.status}.`,
+        [
+          "Use a reviewed stable CLI/SDK capability if one already exists for this workflow.",
+          "Or keep using 'graphql request' only as a low-level escape hatch until the capability adapter is implemented.",
+        ],
       );
     }
-    if (hasDocumentId && hasQuery) {
-      throw createValidationError(
-        "GraphQL request must include exactly one request source: either documentId or query, but not both.",
+
+    if (!isStableCapabilityId(capability.id)) {
+      throw createUnsupportedError(
+        `Public GraphQL field '${publicRequest.fieldName}'`,
+        `Capability '${capability.id}' is not part of the stable capability executor registry.`,
+        [
+          "Use a reviewed stable CLI/SDK capability if one already exists.",
+          "Or implement the missing stable capability executor before advertising this field.",
+        ],
       );
     }
 
-    const token = getGraphqlBearerToken();
-    return executeWithRetry(async () => {
-      const endpoint = hasDocumentId
-        ? joinGraphqlEndpoint(graphQlBaseUrl, documentId, safeOperationName)
-        : graphQlBaseUrl;
-      const response = await fetch(endpoint, {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${token}`,
-          "content-type": "application/json",
-          "x-twitter-active-user": "yes",
-        },
-        body: JSON.stringify({
-          operationName: safeOperationName,
-          operationType: safeOperationType,
-          query,
-          variables: variables ?? {},
-          features: features ?? {},
-          fieldToggles: fieldToggles ?? {},
-        }),
-      });
-
-      const payload = await parseResponseBody(response);
-      if (!response.ok) {
-        const retryAfterMs = parseRetryAfterMs(response.headers.get("retry-after"));
-        const detail =
-          typeof payload === "object" && payload !== null
-            ? JSON.stringify(payload)
-            : String(payload);
-        throw createError({
-          code:
-            response.status === 401
-              ? "AUTH_INVALID"
-              : response.status === 403
-                ? "PERMISSION_DENIED"
-                : response.status === 404
-                  ? "RESOURCE_NOT_FOUND"
-                  : response.status === 409
-                    ? "CONFLICT"
-                    : response.status === 429
-                      ? "RATE_LIMITED"
-                      : response.status >= 500
-                        ? "UPSTREAM_FAILURE"
-                        : "UPSTREAM_FAILURE",
-          summary: "GraphQL request failed",
-          details: `HTTP ${response.status} returned from GraphQL endpoint for operation '${safeOperationName}'. Response body: ${detail}`,
-          likelyCauses: [
-            "Persisted query id is invalid or stale",
-            "GraphQL operation variables/features do not match upstream expectations",
-            "Credential lacks permission for the requested GraphQL operation",
-          ],
-          remediations: [
-            "Verify the GraphQL documentId or inline query and retry.",
-            "Inspect the variables/features payload for schema mismatches.",
-            "Confirm the bearer token is valid for the target operation.",
-          ],
-          classification:
-            response.status === 401
-              ? "auth"
-              : response.status === 403
-                ? "permission"
-                : response.status === 429
-                  ? "rate_limit"
-                  : "upstream",
-          retryable: response.status === 429 || response.status >= 500,
-          httpStatus: response.status,
-          ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
-          ...withOptionalTrace(traceId),
-        });
-      }
-
-      if (
-        typeof payload === "object" &&
-        payload !== null &&
-        "errors" in payload &&
-        Array.isArray((payload as { errors?: unknown }).errors) &&
-        ((payload as { errors?: readonly unknown[] }).errors?.length ?? 0) > 0
-      ) {
-        throw createError({
-          code: "UPSTREAM_FAILURE",
-          summary: "GraphQL response included errors",
-          details: JSON.stringify((payload as { errors: readonly unknown[] }).errors),
-          likelyCauses: [
-            "Operation variables or feature flags do not satisfy the upstream schema",
-            "The operation is blocked for the current account, scope, or rollout state",
-          ],
-          remediations: [
-            "Inspect GraphQL errors and align the request shape with the upstream schema.",
-            "Retry only after correcting variables, features, or credentials.",
-          ],
-          classification: "upstream",
-          retryable: false,
-          ...withOptionalTrace(traceId),
-        });
-      }
-
-      return payload as T;
-    }, traceId);
+    const normalizedResult = publicRequest.normalizeResult(
+      await executeStableCapability(
+        capability.id,
+        publicRequest.buildCapabilityInput(
+          publicRequest.arguments,
+        ) as StableCapabilityInputById[typeof capability.id],
+        publicRequest.traceId,
+      ),
+      publicRequest.fieldName,
+    );
+    return {
+      data: {
+        [publicRequest.fieldName]: projectPublicSelection(
+          normalizedResult,
+          publicRequest.selections,
+        ),
+      },
+    };
   }
 
   function capabilitiesList(): readonly CapabilityDescriptor[] {
@@ -1140,40 +1388,119 @@ export function createXGatewayClient(config: XGatewayConfig = {}): XGatewayClien
     return found;
   }
 
-  async function authVerify(): Promise<unknown> {
+  async function authVerify(): Promise<XGatewayAuthVerifyResult> {
+    const availableAuthModes = resolvedCapabilityAuth.availableAuthModes;
     const configuredAuthMode = getConfiguredAuthMode(resolved.auth);
+    const capabilities = buildAuthCapabilityReadiness(
+      CAPABILITY_PLANNING_REGISTRY,
+      resolvedCapabilityAuth,
+    );
     return {
-      ready: configuredAuthMode === "bearer",
+      ready: configuredAuthMode !== undefined,
       verifiedAt: new Date().toISOString(),
       authMode: configuredAuthMode ?? "unconfigured",
-      transport: "graphql-only",
+      availableAuthModes,
+      transport: "hybrid",
+      capabilities,
       message:
-        configuredAuthMode === "bearer"
-          ? "Bearer token is configured. Use graphql request or client.request(...) with a concrete GraphQL operation to perform a live verification."
-          : configuredAuthMode === "oauth1"
-            ? "OAuth1 credentials are configured, but GraphQL-only transport currently requires bearer auth."
-            : "No GraphQL-capable bearer token is configured.",
+        availableAuthModes.length === 2
+          ? "Bearer and OAuth1 credentials are both configured. Raw GraphQL requests use bearer auth, while stable posting helpers prefer OAuth1 and stable read helpers can use either reviewed path."
+          : configuredAuthMode === "bearer"
+            ? "Bearer token is configured. GraphQL requests can run directly, stable post lookup can use the public read API, and account/profile reads may work if the token has user context. Stable posting mutations currently require OAuth1 credentials."
+            : configuredAuthMode === "oauth1"
+              ? "OAuth1 credentials are configured. REST compatibility commands such as account/profile reads, post lookup, and stable posting mutations can run, but raw GraphQL requests still require bearer auth."
+              : "No supported credentials are configured.",
     };
   }
 
-  async function authScopes(): Promise<Readonly<{ authMode: string; notes: readonly string[] }>> {
+  async function authScopes(): Promise<
+    Readonly<{ authMode: string; notes: readonly string[] }>
+  > {
     const authMode = getConfiguredAuthMode(resolved.auth) ?? "unconfigured";
+    const availableAuthModes = resolvedCapabilityAuth.availableAuthModes;
     return {
       authMode,
       notes: [
         "Scope introspection endpoint availability differs by auth mode and X plan.",
         "Use permission-denied errors from concrete operations as authoritative diagnostics.",
-        `Configured auth resolution mode: ${resolved.authMode}.`,
-        "GraphQL-only transport currently requires bearer auth for live requests.",
+        `Configured auth resolution mode: ${resolved.configMode}.`,
+        `Available credential families: ${availableAuthModes.length > 0 ? availableAuthModes.join(", ") : "none"}.`,
+        "Raw GraphQL requests currently require bearer auth for live requests.",
+        "Account/profile reads can use OAuth1 or a user-context bearer token where the upstream endpoint supports them.",
+        "Stable post lookup prefers OAuth1 when both OAuth1 and bearer credentials are present, and otherwise falls back to bearer-token reads through the public REST API.",
+        "Stable liked-post lookup prefers OAuth1 when both OAuth1 and bearer credentials are present, and otherwise falls back to bearer-token reads through the public REST API.",
+        "Stable posting helpers (create/delete/reply/quote/repost/unrepost) prefer OAuth1 whenever it is configured and otherwise remain unavailable to bearer-only environments.",
       ],
     };
   }
 
+  async function accountMe(): Promise<XGatewayAccountProfile> {
+    return executeStableCapability("account.me", undefined);
+  }
+
+  async function postGet(
+    options: XGatewayPostGetOptions,
+  ): Promise<XGatewayPostLookupResult> {
+    return executeStableCapability("post.get", options);
+  }
+
+  async function likesList(
+    options: XGatewayLikesListOptions,
+  ): Promise<XGatewayLikesListResult> {
+    return executeStableCapability("likes.list", options);
+  }
+
+  async function postCreate(
+    options: XGatewayPostCreateOptions,
+  ): Promise<unknown> {
+    return executeStableCapability("post.create", options);
+  }
+
+  async function postDelete(
+    options: XGatewayPostDeleteOptions,
+  ): Promise<unknown> {
+    return executeStableCapability("post.delete", options);
+  }
+
+  async function postReply(
+    options: XGatewayPostReplyOptions,
+  ): Promise<unknown> {
+    return executeStableCapability("post.reply", options);
+  }
+
+  async function postQuote(
+    options: XGatewayPostQuoteOptions,
+  ): Promise<unknown> {
+    return executeStableCapability("post.quote", options);
+  }
+
+  async function postRepost(
+    options: XGatewayPostRepostOptions,
+  ): Promise<unknown> {
+    return executeStableCapability("post.repost", options);
+  }
+
+  async function postUndoRepost(
+    options: XGatewayPostRepostOptions,
+  ): Promise<unknown> {
+    return executeStableCapability("post.unrepost", options);
+  }
+
   return {
     getResolvedConfig: () => resolved,
-    request,
+    request: rawGraphqlRequester.request,
+    apiRequest,
     authVerify,
     authScopes,
+    accountMe,
+    postGet,
+    likesList,
+    postCreate,
+    postDelete,
+    postReply,
+    postQuote,
+    postRepost,
+    postUndoRepost,
     capabilitiesList,
     capabilitiesGet,
   };

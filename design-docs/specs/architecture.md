@@ -6,8 +6,8 @@ This document defines the architecture for `x-gateway` as both CLI and library.
 
 `x-gateway` is a dual-surface TypeScript system with two CLI binaries:
 
-- Surface A1: AI-first full CLI (`x-gateway ...`) for GraphQL query + mutation workflows
-- Surface A2: AI-first read-only CLI (`x-gateway-reader ...`) for GraphQL query workflows
+- Surface A1: AI-first full CLI (`x-gateway ...`) for stable capability commands plus low-level GraphQL access
+- Surface A2: AI-first read-only CLI (`x-gateway-reader ...`) for read-safe capability commands plus query-only GraphQL access
 - Surface B: programmatic SDK/library API
 
 Both surfaces share one core service layer so behavior is consistent for auth, retries, rate handling, and error semantics.
@@ -16,22 +16,35 @@ Policy decision:
 
 - Write operations are enforced as unavailable in `x-gateway-reader` at command-dispatch time.
 - Rejected write operations return deterministic `UNSUPPORTED` errors with explicit remediation (`use x-gateway`).
-- Raw GraphQL operation input is the primary supported network contract for both CLI and SDK surfaces.
-- Unmapped high-level endpoint wrappers are not part of the stable public surface; they must be rejected at the CLI boundary instead of being advertised as available.
+- Stable high-level CLI commands and SDK helpers are the primary product contract when a capability has a reviewed adapter.
+- A project-owned GraphQL-shaped request contract may also be exposed as a stable public surface when it maps to those same reviewed capabilities.
+- Raw GraphQL operation input remains available as a low-level escape hatch for gaps, diagnostics, and intentionally unmapped operations.
+- Transport choice is internal: use REST where it is stable and compatible with configured auth, and use X web GraphQL only where a capability requires it.
+- Unsupported capabilities must be rejected at the boundary with explicit guidance instead of being advertised as generally available.
+- Capability docs must not overclaim bearer support when the repository does not yet provide a reviewed user-context flow for that operation.
 
 ## Architectural Layers
 
 1. Interface Layer
 - CLI command parser, argument validation, output renderer
-- Library exports with typed GraphQL request/response contracts plus local diagnostics helpers
+- Library exports with typed capability APIs, project-owned GraphQL request/response contracts, and local diagnostics helpers
 
 2. Application Layer
-- GraphQL operation input validation and capability gating
-- Use-case services per capability only after a concrete GraphQL mapping is defined
-- Orchestration for chained operations only after underlying GraphQL operations are available
+- Capability-level input validation and capability gating
+- Use-case services expose stable operations such as account lookup and post creation
+- Public GraphQL request parsing and request-to-capability planning
+- Orchestration for chained operations chooses internal adapters per capability
 - Unsupported command-group detection so callers fail before assuming a non-existent mapping exists
 
-3. Gateway Layer
+3. Capability Adapter Layer
+- Capability-specific adapters map the stable product contract onto one or more upstream transports
+- Adapter selection depends on auth mode, endpoint availability, and maturity of the transport mapping
+- When multiple credential families are configured at once, adapter selection must be capability-specific rather than globally pinned to one auth family
+- Read adapters and stable posting adapters must remain separate contracts so unsupported auth families cannot retain latent mutation methods behind a shared interface
+- REST/v1.1 or v2 endpoints are preferred for OAuth1-compatible flows when they provide stable coverage
+- X web GraphQL is used only for capabilities that cannot be served reliably through public REST endpoints
+
+4. Gateway Layer
 - HTTP transport, auth injectors, retry policy, pagination helpers
 - Request/response normalization across X API endpoints
 - GraphQL response parsing that accepts standard JSON and `application/*+json` media types used by GraphQL servers
@@ -45,11 +58,11 @@ Policy decision:
 - Mutating operations must use idempotency controls where available before retrying.
 - Retry exhaustion must emit a detailed diagnostic including attempts, elapsed time, and final error classification.
 
-4. Error Intelligence Layer
+5. Error Intelligence Layer
 - Maps API/HTTP/runtime failures to typed domain errors
 - Generates human-readable and AI-actionable diagnostic payloads
 
-5. Configuration Layer
+6. Configuration Layer
 - Merged resolution from env vars + explicit parameter objects
 - Validation with actionable error reports
 
@@ -60,15 +73,24 @@ Policy decision:
 - CLI commands call the same internal service methods exposed for library consumers.
 - No separate logic branches for equivalent operations.
 
-### GraphQL-First Contract
+### Stable Contract with Internal Adapters
 
-- The stable cross-surface contract is `operationName` plus either `documentId` or inline `query`.
-- Optional structured inputs are `variables`, `features`, and `fieldToggles`.
-- CLI and SDK must treat this raw GraphQL request shape as first-class, not as an escape hatch.
-- A convenience command or SDK helper is considered implemented only when it is backed by a reviewed GraphQL mapping artifact.
-- Capability-registry rows outside raw GraphQL transport are planning/diagnostic metadata, not proof that a high-level helper exists.
-- Until such mappings exist, the stable SDK surface is `request`, configuration resolution, auth diagnostics, and capability inspection.
-- The CLI may expose local/non-network diagnostics (`health`, `version`, capability inspection, auth configuration diagnostics) even when no GraphQL mapping exists.
+- The stable product contract is capability-oriented: CLI commands and SDK methods should describe user intent, not X internal transport details.
+- If a GraphQL-shaped public interface is exposed, it must be project-owned and capability-oriented rather than a passthrough of raw X web GraphQL.
+- Each exposed capability must declare its supported auth modes, transport strategy, and known limitations in the capability registry.
+- Each capability/inventory entry must also declare its surface category so stable contract operations, deferred capabilities, and the raw GraphQL escape hatch are distinguishable in one place.
+- The capability planner is the authoritative layer that maps public operations such as `accountMe` or `createPost` to capability ids such as `account.me` and `post.create`.
+- Planner logic should be explicit in code: a project-owned public-operation registry maps request fields to capabilities, and a separate reviewed route registry selects auth family plus transport per capability.
+- Inventory output must not present `graphql.request` as equivalent to stable user-facing capabilities; registry metadata should mark it as an `escape-hatch` surface while reviewed capability operations remain `stable-contract`.
+- Registry coherence is part of the architecture, not just a test convenience: project-owned public field names must stay in sync with capability metadata, and implemented stable capabilities must stay aligned across metadata, route planning, and executor dispatch.
+- Stable capability execution should also be registry-driven: once a capability id is selected, CLI helpers, SDK methods, and the public GraphQL contract should dispatch through the same internal execution registry instead of maintaining per-entrypoint switch statements.
+- Route order matters and must be data-driven rather than hidden in helper branching. Example: `post.get` may prefer OAuth1 REST while still declaring bearer REST as a reviewed fallback.
+- When both bearer and OAuth1 credentials are available, each capability should choose its reviewed auth path independently instead of letting one credential family shadow the other globally.
+- A reviewed adapter path counts as implemented only when the corresponding auth/transport contract is enforced in code, not merely mentioned in capability docs or left behind as unused methods.
+- Error diagnostics should identify the reviewed route that actually ran, including both transport family and auth family, so operators can distinguish `rest-v1/oauth1`, `rest-v2/bearer`, and `graphql-web/bearer` failures.
+- Raw GraphQL request input is supported, but it is treated as a low-level interface for escape-hatch access and for capabilities that do not yet have a reviewed adapter.
+- A convenience command or SDK helper is considered implemented only when it is backed by a reviewed adapter contract and tests.
+- The CLI may expose local/non-network diagnostics (`health`, `version`, capability inspection, auth configuration diagnostics) even when no live transport is configured.
 
 ### Configuration Precedence
 
@@ -85,6 +107,8 @@ This enables library embedding in multi-tenant systems without global environmen
 - Example keys: `X_GW_TOKEN`, `X_GW_ACCESS_TOKEN`, `X_GW_GRAPHQL_BASE_URL`.
 - Legacy `X_` keys are out of design scope unless an explicit compatibility shim is approved.
 - The stable configuration surface does not accept generic API-base aliases such as `apiBaseUrl`, `--api-base-url`, or `X_GW_API_BASE_URL`.
+- `X_GW_CONFIG_MODE` is the canonical config-resolution variable.
+- `X_GW_AUTH_MODE` is reserved for legacy auth-type shells (`oauth1` or `bearer`) and must not be overloaded as the stable config-resolution variable going forward.
 
 ### Auth Mode Abstraction
 
@@ -100,10 +124,12 @@ All failures map to stable internal codes. Messages include probable root cause 
 
 ## Capability Matrix (Implementation Target)
 
-The long-term implementation target remains broad coverage of X API capabilities available to the configured app tier and scopes, but the current GraphQL-only pivot changes delivery sequencing:
+The long-term implementation target remains broad coverage of X API capabilities available to the configured app tier and scopes. Delivery is capability-by-capability rather than transport-first:
 
-- Phase 1: raw GraphQL request transport, capability registry, and accurate unsupported guidance
-- Phase 2+: high-level helpers only after concrete GraphQL mappings are checked into the repository
+- Phase 1: restore practical OAuth1-compatible operations through stable REST-backed adapters for the highest-value flows
+- Phase 1 current baseline: `account.me`, `post.get`, `likes.list`, `post.create`, `post.delete`, `post.reply`, `post.quote`, `post.repost`, and `post.unrepost`
+- Phase 2: add GraphQL-backed adapters where public REST does not cover the required behavior
+- Phase 3: keep raw GraphQL available for explicit low-level usage and troubleshooting without making it the primary product surface
 
 Target capability families:
 
@@ -122,6 +148,7 @@ Target capability families:
 Publishing subsystem must model these patterns as first-class operations:
 
 - simple text post
+- delete post
 - reply post (with parent linkage)
 - quote post (with quoted post linkage)
 - repost/undo repost
@@ -159,8 +186,28 @@ Each category provides:
 ## Module Boundaries (Planned)
 
 - `src/cli.ts` command definitions and output formatting
-- `src/lib.ts` public SDK exports, GraphQL request types, GraphQL-base config resolution, and local diagnostics helpers
-- Future extractions when complexity warrants: `src/core/`, `src/gateway/x-api/`, `src/errors/`, and `src/config/`
+- `src/lib.ts` public SDK exports, config resolution, diagnostics, shared stable-capability execution, and temporary adapter composition
+- `src/capability-metadata.ts` capability registry rows plus reviewed route-planning metadata
+- `src/public-graphql-parser.ts` project-owned GraphQL document parsing for the stable public contract
+- `src/public-api-contract.ts` project-owned GraphQL field registry, request-to-capability mapping, and response projection helpers
+- `src/capability-runtime.ts` reviewed route selection, auth-readiness derivation, and planner-to-adapter execution wiring
+- `src/stable-capability-executor.ts` stable capability execution registry plus shared dispatch used by direct SDK helpers and the project-owned GraphQL surface
+- `src/capability-adapters.ts` reviewed REST capability adapters plus transport-specific response-mapping helpers for the stable baseline
+- `src/raw-graphql-client.ts` low-level raw GraphQL escape-hatch requester; this module is intentionally separate from the stable public-contract planner
+- Current implementation note: the public contract, planner/runtime, stable execution, reviewed REST adapter layer, and low-level raw GraphQL escape hatch now have dedicated modules. `src/lib.ts` still composes them and owns shared retry/config/error helpers.
+- Current implementation note: the first hardening step kept one shared execution registry inside `src/lib.ts` so capability dispatch is not duplicated across CLI, SDK, and public GraphQL entrypoints.
+- Current implementation note: planner metadata, public-contract parsing, and the public request mapper now have dedicated modules.
+- Current implementation note: capability runtime planning now lives in `src/capability-runtime.ts`, so `src/lib.ts` no longer owns route selection and auth-readiness assembly directly.
+- Current implementation note: stable capability execution now lives in a dedicated module so `src/lib.ts` no longer owns the registry-driven dispatch layer directly.
+- Current implementation note: reviewed REST capability adapters now live in `src/capability-adapters.ts`, and raw GraphQL request execution now lives in `src/raw-graphql-client.ts`.
+- Current implementation note: raw GraphQL request execution now lives in `src/raw-graphql-client.ts`, which keeps the low-level escape hatch separate from the stable capability planner and the project-owned GraphQL contract.
+- Future extractions when complexity warrants:
+  - `src/public-contract/` for project-owned GraphQL parsing and projection
+  - `src/planner/` for capability planning and transport/auth routing
+  - `src/capabilities/` for stable use-case interfaces
+  - `src/adapters/` for REST/GraphQL capability adapters
+  - `src/gateway/x-api/` for shared transport concerns
+  - `src/errors/` and `src/config/` for focused infrastructure modules
 
 ## Test Strategy (High Level)
 

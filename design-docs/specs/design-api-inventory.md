@@ -10,6 +10,7 @@ The inventory must distinguish between:
 
 - raw GraphQL transport support
 - reviewed GraphQL operation mappings
+- reviewed REST-backed capability adapters
 - high-level convenience helpers built on top of those mappings
 - intentionally deferred helper surfaces that must remain rejected at the boundary
 
@@ -27,20 +28,30 @@ A row cannot be marked `implemented` unless all required checks (contract tests,
 
 Current repository-state rule:
 
-- Only `graphql.request` may be treated as implemented without a higher-level mapping artifact.
-- Non-raw capability families must remain `planned` or `blocked_by_plan` until their concrete GraphQL documents/variables are committed and reviewed.
+- A capability may be treated as implemented when it has a reviewed adapter contract, matching tests, and documented auth/transport constraints.
+- Implemented capabilities may use REST, GraphQL, or a hybrid composition internally.
+- Unreachable placeholder methods inside an adapter for the wrong auth family do not count toward implementation status; the adapter boundary itself must enforce the reviewed auth contract.
+- Non-raw capability families must remain `planned` or `blocked_by_plan` until their concrete adapter contract is committed and reviewed.
+- Auth metadata must reflect the reviewed path actually implemented in the repository, not hypothetical upstream support.
 
 ## Capability Registry Schema
 
 Each capability entry must track:
 
 - capability id
+- public operation name
 - endpoint family
 - operation
+- read/write classification
+- transport strategy (`rest-v1`, `rest-v2`, `graphql-web`, `hybrid`)
+- preferred transport
+- fallback transport if any
 - auth mode (`oauth1`, `oauth2`, `bearer`, mixed)
 - required scopes/permissions
 - required API tier/plan (if applicable)
 - request/response type mapping status
+- public-field mapping status
+- capability-route planning status
 - CLI command mapping
 - SDK method mapping
 - error coverage status
@@ -101,8 +112,9 @@ Error output must include probable cause and recovery guidance.
 
 A capability reaches `implemented` only when:
 
-- raw transport capability exists if the capability depends on GraphQL execution
-- concrete GraphQL operation id/query and variable contract are documented
+- required transport capability exists
+- GraphQL-backed capabilities have concrete operation id/query and variable contract documented
+- REST-backed capabilities have concrete endpoint and auth contract documented
 - SDK method exists with typed request/response
 - CLI command path is wired (if capability is CLI-exposed)
 - unit test coverage exists for payload and error mapping
@@ -118,12 +130,15 @@ If any of the above is missing:
 ## Initial Implementation Sequence
 
 1. define registry artifact format (`design-docs/specs` + generated machine-readable index)
-2. implement posting and media capabilities first
-3. implement timeline/user/social capabilities
-4. implement remaining scoped capabilities and mark explicit limitations
+2. restore the highest-value stable adapters first (`auth.verify`, `account.me`, `post.get`, `likes.list`, `post.create`, `post.delete`, `post.reply`, `post.quote`, `post.repost`, `post.unrepost`)
+3. add a project-owned public GraphQL contract that maps those public fields onto the same reviewed capabilities
+4. expand posting and read capabilities where REST-backed adapters are reliable
+5. add GraphQL-backed adapters only for capabilities that cannot be covered cleanly by the public REST surface
+6. implement remaining scoped capabilities and mark explicit limitations
 
 ## References
 
 - `design-docs/specs/command.md`
 - `design-docs/specs/architecture.md`
 - `design-docs/specs/notes.md`
+- `design-docs/specs/design-public-graphql-contract.md`

@@ -79,13 +79,33 @@ Large features are split into multiple related plans with cross-references.
 
 | Plan | Status | Design Reference | Last Updated |
 |------|--------|------------------|--------------|
-| `active/x-gateway-full-api-coverage.md` | Ready | `design-docs/specs/architecture.md#capability-matrix-implementation-target` | 2026-02-27 |
+| `active/x-gateway-capability-execution-registry.md` | Completed | `design-docs/specs/architecture.md#stable-contract-with-internal-adapters` | 2026-03-08 |
+| `active/x-gateway-capability-runtime-extraction.md` | Completed | `design-docs/specs/architecture.md#module-boundaries-planned` | 2026-03-08 |
+| `active/x-gateway-layered-module-extraction.md` | Completed | `design-docs/specs/architecture.md#module-boundaries-planned` | 2026-03-08 |
+| `active/x-gateway-registry-driven-routing.md` | Completed | `design-docs/specs/architecture.md#stable-contract-with-internal-adapters` | 2026-03-08 |
+| `active/x-gateway-raw-graphql-isolation.md` | Completed | `design-docs/specs/architecture.md#module-boundaries-planned` | 2026-03-08 |
+| `active/x-gateway-stable-execution-module-extraction.md` | Completed | `design-docs/specs/architecture.md#module-boundaries-planned` | 2026-03-08 |
+| `active/x-gateway-transport-adapter-extraction.md` | Completed | `design-docs/specs/architecture.md#module-boundaries-planned` | 2026-03-08 |
+| `active/x-gateway-likes-list-baseline.md` | Completed | `design-docs/specs/architecture.md#capability-matrix-implementation-target` | 2026-03-08 |
+| `active/x-gateway-contract-coherence-hardening.md` | Completed | `design-docs/specs/architecture.md#stable-contract-with-internal-adapters` | 2026-03-08 |
+| `active/x-gateway-stable-capability-coherence.md` | Completed | `design-docs/specs/architecture.md#stable-contract-with-internal-adapters` | 2026-03-08 |
+| `active/x-gateway-surface-category-clarification.md` | Completed | `design-docs/specs/architecture.md#stable-contract-with-internal-adapters` | 2026-03-08 |
+| `active/x-gateway-media-upload-baseline.md` | Ready | `design-docs/specs/architecture.md#capability-matrix-implementation-target` | 2026-03-08 |
 
 ## Completed Plans
 
 | Plan | Completed | Design Reference |
 |------|-----------|------------------|
-| (No completed plans yet) | - | - |
+| `completed/x-gateway-public-contract-coverage-hardening.md` | 2026-03-08 | `design-docs/specs/design-public-graphql-contract.md#planner-responsibilities` |
+| `completed/x-gateway-full-api-coverage.md` | 2026-03-08 | historical GraphQL-first baseline; superseded by `completed/x-gateway-hybrid-capability-adapters.md` |
+| `completed/x-gateway-hybrid-capability-adapters.md` | 2026-03-08 | `design-docs/specs/architecture.md#stable-contract-with-internal-adapters` |
+| `completed/x-gateway-capability-planner-separation.md` | 2026-03-08 | `design-docs/specs/architecture.md#stable-contract-with-internal-adapters` |
+| `completed/x-gateway-mixed-auth-capability-selection.md` | 2026-03-08 | `design-docs/specs/architecture.md#stable-contract-with-internal-adapters` |
+| `completed/x-gateway-adapter-contract-hardening.md` | 2026-03-08 | `design-docs/specs/architecture.md#stable-contract-with-internal-adapters` |
+| `completed/x-gateway-post-delete-baseline.md` | 2026-03-08 | `design-docs/specs/architecture.md#stable-contract-with-internal-adapters` |
+| `completed/x-gateway-auth-readiness-diagnostics.md` | 2026-03-08 | `design-docs/specs/command.md#auth-and-session` |
+| `completed/x-gateway-public-graphql-contract.md` | 2026-03-08 | `design-docs/specs/design-public-graphql-contract.md` |
+| `completed/x-gateway-public-request-planner-extraction.md` | 2026-03-08 | `design-docs/specs/architecture.md#module-boundaries-planned` |
 
 ## Phase Dependencies (for impl-exec-auto)
 
@@ -106,7 +126,18 @@ Only plans from eligible phases should be read to minimize context loading.
 ```
 PHASE_TO_PLANS = {
   1: [
-    "active/x-gateway-full-api-coverage.md"
+    "active/x-gateway-capability-execution-registry.md",
+    "active/x-gateway-capability-runtime-extraction.md",
+    "active/x-gateway-layered-module-extraction.md",
+    "active/x-gateway-registry-driven-routing.md",
+    "active/x-gateway-raw-graphql-isolation.md",
+    "active/x-gateway-stable-execution-module-extraction.md",
+    "active/x-gateway-transport-adapter-extraction.md",
+    "active/x-gateway-likes-list-baseline.md",
+    "active/x-gateway-contract-coherence-hardening.md",
+    "active/x-gateway-stable-capability-coherence.md",
+    "active/x-gateway-surface-category-clarification.md",
+    "active/x-gateway-media-upload-baseline.md"
   ],
   2: [
     # Add Phase 2 plan files here

@@ -2,8 +2,9 @@ import packageJson from "../package.json";
 import {
   XGatewayError,
   createXGatewayClient,
+  inferApiRequestOperationType,
   toCommandError,
-  type XGatewayAuthMode,
+  type XGatewayConfigMode,
   type XGatewayConfig,
   type XGatewayOperationType,
 } from "./lib";
@@ -29,6 +30,7 @@ const GLOBAL_FLAG_NAMES = new Set([
   "json",
   "pretty",
   "trace-id",
+  "config-mode",
   "auth-mode",
   "graphql-base-url",
   "timeout-ms",
@@ -124,7 +126,10 @@ function getLastParsedFlag(
   return values[values.length - 1];
 }
 
-function getOptionalStringFlag(args: ParsedArgs, key: string): string | undefined {
+function getOptionalStringFlag(
+  args: ParsedArgs,
+  key: string,
+): string | undefined {
   const value = getLastParsedFlag(args, key);
   if (value === undefined) {
     return undefined;
@@ -232,8 +237,51 @@ function allowedCommandFlagNames(
     return allowed;
   }
 
+  if (group === "api" && action === "request") {
+    allowed.add("query");
+    return allowed;
+  }
+
   if (group === "capabilities" && action === "get") {
     allowed.add("id");
+    return allowed;
+  }
+
+  if (group === "post" && action === "create") {
+    allowed.add("text");
+    return allowed;
+  }
+
+  if (group === "post" && action === "delete") {
+    allowed.add("post-id");
+    return allowed;
+  }
+
+  if (group === "post" && action === "get") {
+    allowed.add("post-id");
+    return allowed;
+  }
+
+  if (group === "likes" && action === "list") {
+    allowed.add("user-id");
+    allowed.add("limit");
+    return allowed;
+  }
+
+  if (group === "post" && action === "reply") {
+    allowed.add("text");
+    allowed.add("reply-to-post-id");
+    return allowed;
+  }
+
+  if (group === "post" && action === "quote") {
+    allowed.add("text");
+    allowed.add("quoted-post-id");
+    return allowed;
+  }
+
+  if (group === "post" && (action === "repost" || action === "unrepost")) {
+    allowed.add("post-id");
     return allowed;
   }
 
@@ -274,8 +322,11 @@ function parseJsonRecordFlag(
   try {
     parsed = JSON.parse(value) as unknown;
   } catch (error: unknown) {
-    const detail = error instanceof Error ? error.message : "Unknown JSON parse error";
-    throw createFlagValidationError(`Flag --${key} must be valid JSON. ${detail}`);
+    const detail =
+      error instanceof Error ? error.message : "Unknown JSON parse error";
+    throw createFlagValidationError(
+      `Flag --${key} must be valid JSON. ${detail}`,
+    );
   }
 
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
@@ -366,15 +417,28 @@ function buildConfigFromFlags(args: ParsedArgs): XGatewayConfig {
               "Flag --retry-backoff must be one of 'exponential-jitter', 'fixed', or 'none'.",
             );
           })();
-  const authModeRaw = getOptionalStringFlag(args, "auth-mode");
-  const authMode: XGatewayAuthMode | undefined =
-    authModeRaw === "env" || authModeRaw === "params" || authModeRaw === "mixed"
-      ? authModeRaw
-      : authModeRaw === undefined
+  const configModeFlag = getOptionalStringFlag(args, "config-mode");
+  const authModeFlag = getOptionalStringFlag(args, "auth-mode");
+  if (
+    configModeFlag !== undefined &&
+    authModeFlag !== undefined &&
+    configModeFlag !== authModeFlag
+  ) {
+    throw createFlagValidationError(
+      "Flags --config-mode and --auth-mode must match when both are provided.",
+    );
+  }
+  const configModeRaw = configModeFlag ?? authModeFlag;
+  const configMode: XGatewayConfigMode | undefined =
+    configModeRaw === "env" ||
+    configModeRaw === "params" ||
+    configModeRaw === "mixed"
+      ? configModeRaw
+      : configModeRaw === undefined
         ? undefined
         : (() => {
             throw createFlagValidationError(
-              "Flag --auth-mode must be one of 'env', 'params', or 'mixed'.",
+              "Flag --config-mode must be one of 'env', 'params', or 'mixed'. --auth-mode is accepted as a deprecated alias.",
             );
           })();
   const timeoutMs = getOptionalNumberFlag(args, "timeout-ms");
@@ -387,7 +451,7 @@ function buildConfigFromFlags(args: ParsedArgs): XGatewayConfig {
   const maxDelayMs = getOptionalNumberFlag(args, "retry-max-ms");
 
   return {
-    ...(authMode === undefined ? {} : { authMode }),
+    ...(configMode === undefined ? {} : { configMode }),
     ...(timeoutMs === undefined ? {} : { timeoutMs }),
     ...(strictCapabilityChecks === undefined ? {} : { strictCapabilityChecks }),
     retry: {
@@ -418,6 +482,20 @@ function usage(commandName: string, surface: CliSurface): string {
   return [
     `${commandName} command usage:`,
     `  ${commandName} auth verify|scopes`,
+    `  ${commandName} api request --query <graphql>`,
+    `  ${commandName} account me`,
+    `  ${commandName} post get --post-id <postId>`,
+    `  ${commandName} likes list --user-id <userId> [--limit <count>]`,
+    ...(surface === "full"
+      ? [
+          `  ${commandName} post create --text <text>`,
+          `  ${commandName} post delete --post-id <postId>`,
+          `  ${commandName} post reply --text <text> --reply-to-post-id <postId>`,
+          `  ${commandName} post quote --text <text> --quoted-post-id <postId>`,
+          `  ${commandName} post repost --post-id <postId>`,
+          `  ${commandName} post unrepost --post-id <postId>`,
+        ]
+      : []),
     `${graphqlCommand} [--graphql-base-url <url>]`,
     `  ${commandName} capabilities list`,
     `  ${commandName} capabilities get --id <capabilityId>`,
@@ -425,8 +503,10 @@ function usage(commandName: string, surface: CliSurface): string {
     `  ${commandName} version`,
     "",
     "Notes:",
-    "  - 'graphql request' is the primary supported GraphQL-first interface.",
-    "  - Unmapped high-level endpoint commands are intentionally rejected until reviewed GraphQL mappings exist.",
+    "  - Stable capability commands are the primary interface for reviewed adapters.",
+    "  - 'api request' uses the project-owned GraphQL-shaped contract and routes internally.",
+    "  - 'graphql request' remains available as a low-level escape hatch.",
+    "  - Unimplemented high-level commands are rejected until a reviewed adapter exists.",
   ].join("\n");
 }
 
@@ -464,13 +544,16 @@ function ensureMutableCommand(
   }
 
   const blocked =
-    group === "post" ||
+    (group === "api" && action === "request" && operationType === "mutation") ||
+    (group === "post" && action !== undefined && action !== "get") ||
     (group === "media" && (action === "upload" || action === "alt-text")) ||
     (group === "follows" && (action === "add" || action === "remove")) ||
     (group === "likes" && (action === "add" || action === "remove")) ||
     (group === "bookmarks" && (action === "add" || action === "remove")) ||
     (group === "dm" && action === "send") ||
-    (group === "graphql" && action === "request" && operationType === "mutation");
+    (group === "graphql" &&
+      action === "request" &&
+      operationType === "mutation");
 
   if (blocked) {
     const attempted = action ? `${group} ${action}` : group;
@@ -485,15 +568,14 @@ function createUnsupportedCommandSurfaceError(
   return new XGatewayError({
     code: "UNSUPPORTED",
     summary: `${attempted} is not part of the stable ${commandName} contract`,
-    details:
-      `The command '${attempted}' depends on a high-level GraphQL mapping that is not implemented in this repository state.`,
+    details: `The command '${attempted}' does not have a reviewed capability adapter in this repository state.`,
     likelyCauses: [
-      "The tool was intentionally reduced to GraphQL-request input only",
+      "The capability has not been restored on the stable CLI/SDK surface yet",
       "A previous placeholder command surface remained in documentation or memory",
     ],
     remediations: [
-      `Use '${commandName} graphql request ...' with explicit GraphQL input.`,
-      "Add a reviewed GraphQL mapping before reintroducing this command group.",
+      `Use '${commandName} graphql request ...' only if you need the low-level GraphQL escape hatch.`,
+      "Add a reviewed capability adapter before reintroducing this command group.",
     ],
     classification: "unsupported",
     retryable: false,
@@ -526,12 +608,21 @@ function assertSupportedCommandSurface(
   group: string,
   action: string | undefined,
 ): void {
-  const supported = new Set(["health", "version", "graphql", "auth", "capabilities"]);
+  const supported = new Set([
+    "health",
+    "version",
+    "api",
+    "graphql",
+    "auth",
+    "capabilities",
+    "account",
+    "post",
+    "likes",
+  ]);
   if (supported.has(group)) {
     return;
   }
   const deferred = new Set([
-    "post",
     "media",
     "tweet",
     "timeline",
@@ -539,7 +630,6 @@ function assertSupportedCommandSurface(
     "likes",
     "bookmarks",
     "follows",
-    "account",
     "dm",
   ]);
   if (!deferred.has(group)) {
@@ -587,7 +677,10 @@ export async function executeCli(
     };
   }
 
-  const operationType = getOperationType(parsed);
+  const operationType =
+    group === "api" && action === "request"
+      ? inferApiRequestOperationType(getRequiredFlag(parsed, "query"))
+      : getOperationType(parsed);
   ensureMutableCommand(
     options.surface,
     options.commandName,
@@ -605,7 +698,10 @@ export async function executeCli(
     if (action === "scopes") {
       return client.authScopes();
     }
-    throw createUnknownCommandError(options.commandName, `${group} ${action ?? ""}`.trim());
+    throw createUnknownCommandError(
+      options.commandName,
+      `${group} ${action ?? ""}`.trim(),
+    );
   }
 
   if (group === "graphql" && action === "request") {
@@ -628,6 +724,89 @@ export async function executeCli(
     });
   }
 
+  if (group === "api" && action === "request") {
+    const query = getRequiredFlag(parsed, "query");
+    const traceId = getOptionalStringFlag(parsed, "trace-id");
+
+    return client.apiRequest({
+      query,
+      ...(traceId === undefined ? {} : { traceId }),
+    });
+  }
+
+  if (group === "account") {
+    if (action === "me") {
+      return client.accountMe();
+    }
+    throw createUnknownCommandError(
+      options.commandName,
+      `${group} ${action ?? ""}`.trim(),
+    );
+  }
+
+  if (group === "post") {
+    if (action === "get") {
+      return client.postGet({
+        postId: getRequiredFlag(parsed, "post-id"),
+      });
+    }
+    if (action === "create") {
+      return client.postCreate({
+        text: getRequiredFlag(parsed, "text"),
+      });
+    }
+    if (action === "delete") {
+      return client.postDelete({
+        postId: getRequiredFlag(parsed, "post-id"),
+      });
+    }
+    if (action === "reply") {
+      return client.postReply({
+        text: getRequiredFlag(parsed, "text"),
+        replyToPostId: getRequiredFlag(parsed, "reply-to-post-id"),
+      });
+    }
+    if (action === "quote") {
+      return client.postQuote({
+        text: getRequiredFlag(parsed, "text"),
+        quotedPostId: getRequiredFlag(parsed, "quoted-post-id"),
+      });
+    }
+    if (action === "repost") {
+      return client.postRepost({
+        postId: getRequiredFlag(parsed, "post-id"),
+      });
+    }
+    if (action === "unrepost") {
+      return client.postUndoRepost({
+        postId: getRequiredFlag(parsed, "post-id"),
+      });
+    }
+    throw createUnknownCommandError(
+      options.commandName,
+      `${group} ${action ?? ""}`.trim(),
+    );
+  }
+
+  if (group === "likes") {
+    if (action === "list") {
+      const limit = getOptionalNumberFlag(parsed, "limit");
+      if (limit !== undefined && (limit < 1 || limit > 100)) {
+        throw createFlagValidationError(
+          "Flag --limit must be between 1 and 100.",
+        );
+      }
+      return client.likesList({
+        userId: getRequiredFlag(parsed, "user-id"),
+        ...(limit === undefined ? {} : { limit }),
+      });
+    }
+    throw createUnknownCommandError(
+      options.commandName,
+      `${group} ${action ?? ""}`.trim(),
+    );
+  }
+
   if (group === "capabilities") {
     if (action === "list") {
       return client.capabilitiesList();
@@ -635,7 +814,10 @@ export async function executeCli(
     if (action === "get") {
       return client.capabilitiesGet(getRequiredFlag(parsed, "id"));
     }
-    throw createUnknownCommandError(options.commandName, `${group} ${action ?? ""}`.trim());
+    throw createUnknownCommandError(
+      options.commandName,
+      `${group} ${action ?? ""}`.trim(),
+    );
   }
 
   throw createUnknownCommandError(
