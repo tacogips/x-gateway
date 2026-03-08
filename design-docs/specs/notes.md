@@ -7,6 +7,10 @@ This document records additional design constraints and implementation notes.
 - This repository starts from a PoC baseline at `/g/gits/tacogips/x-sdk-test`.
 - PoC artifacts are imported to accelerate implementation, then refined into production architecture.
 - Sensitive local environment files may exist only for developer setup and must not be committed unintentionally.
+- Environment variable naming is standardized to `X_GW_` prefix for all gateway-specific keys.
+- The current delivery baseline is GraphQL-first raw operation input; legacy high-level wrappers must not claim support before concrete GraphQL mappings exist.
+- CLI and SDK surfaces should prefer removal or boundary rejection over placeholder methods when a GraphQL mapping does not exist.
+- Deprecated config aliases should be removed instead of kept as silent compatibility fallbacks when they weaken the stable GraphQL-only contract.
 
 ## AI-Caller Expectations
 

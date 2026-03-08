@@ -1,61 +1,48 @@
 # Command Design
 
-This document defines the `x-gateway` CLI contract.
+This document defines the CLI contract for `x-gateway` and `x-gateway-reader`.
 
 ## Overview
 
-`x-gateway` is an AI-oriented command-line client for X (Twitter) APIs.
-The CLI must be scriptable, deterministic, and return structured diagnostics suitable for automated callers.
+The repository ships two AI-oriented command-line clients for X (Twitter) APIs:
+
+- `x-gateway`: GraphQL query + mutation operations
+- `x-gateway-reader`: GraphQL query-only operations
+
+Both CLIs must be scriptable, deterministic, and return structured diagnostics suitable for automated callers.
+
+Primary contract:
+
+- `graphql request` is the primary supported network command for both binaries.
+- Local diagnostics commands are also supported when they do not require an unmapped upstream operation.
+- Unmapped high-level endpoint commands are out of the stable CLI contract and must fail immediately with `UNSUPPORTED`.
+
+## Command Policy
+
+- `x-gateway-reader` must reject all write/mutation commands with a stable `UNSUPPORTED` error and remediation to use `x-gateway`.
+- Stable commands are limited to raw GraphQL request execution, auth configuration diagnostics, capability inspection, and local system introspection.
+- Legacy command groups that imply hidden GraphQL mappings (`post`, `tweet`, `timeline`, `users`, `likes`, `bookmarks`, `follows`, `account`, `dm`, etc.) must be rejected unless and until a reviewed mapping is added back explicitly.
 
 ## Subcommands
+
+### Raw GraphQL
+
+- `x-gateway graphql request`
+- `x-gateway-reader graphql request` (query-only)
 
 ### Auth and Session
 
 - `x-gateway auth verify`
 - `x-gateway auth scopes`
-- `x-gateway auth whoami`
-
-### Posting and Engagement
-
-- `x-gateway post create`
-- `x-gateway post reply`
-- `x-gateway post quote`
-- `x-gateway post repost`
-- `x-gateway post delete`
-- `x-gateway media upload`
-
-### Timeline and Retrieval
-
-- `x-gateway tweet get`
-- `x-gateway tweet thread`
-- `x-gateway timeline home`
-- `x-gateway timeline user`
-- `x-gateway mentions list`
-
-### Social Graph
-
-- `x-gateway users get`
-- `x-gateway users lookup`
-- `x-gateway users followers`
-- `x-gateway users following`
-
-### Interactions
-
-- `x-gateway likes add`
-- `x-gateway likes remove`
-- `x-gateway bookmarks add`
-- `x-gateway bookmarks remove`
-
-### Account and Direct Message Scope
-
-- `x-gateway account me`
-- `x-gateway dm send`
-- `x-gateway dm list`
+- `x-gateway-reader auth verify`
+- `x-gateway-reader auth scopes`
 
 ### System
 
 - `x-gateway health`
 - `x-gateway version`
+- `x-gateway-reader health`
+- `x-gateway-reader version`
 
 ## Flags and Options
 
@@ -63,26 +50,43 @@ The CLI must be scriptable, deterministic, and return structured diagnostics sui
 |------|------|---------|-------------|
 | `--json` | boolean | `false` | Emit machine-readable JSON response envelope |
 | `--pretty` | boolean | `false` | Pretty-print JSON output |
-| `--trace-id` | string | auto | Request correlation id for logs and errors |
+| `--trace-id` | string | none | Optional request correlation id for logs and errors |
 | `--auth-mode` | enum(`env`,`params`,`mixed`) | `mixed` | Credential resolution mode |
-| `--dry-run` | boolean | `false` | Validate and plan request without mutating remote state |
+| `--operation-type` | enum(`query`,`mutation`) | `query` | GraphQL operation kind for policy/validation |
+| `--operation-name` | string | none | GraphQL operation name |
+| `--document-id` | string | none | Persisted GraphQL document id |
+| `--query` | string | none | Inline GraphQL document when no persisted id is used |
+| `--variables-json` | JSON object | none | GraphQL variables payload |
+| `--features-json` | JSON object | none | GraphQL features payload |
+| `--field-toggles-json` | JSON object | none | GraphQL field toggles payload |
+| `--graphql-base-url` | string | provider default | Override the GraphQL base endpoint only |
 | `--timeout-ms` | number | `30000` | Per-request timeout |
 | `--retry` | number | `2` | Retry count for retryable errors |
-| `--idempotency-key` | string | none | Idempotency control for create operations |
+| `--retry-backoff` | enum(`exponential-jitter`,`fixed`,`none`) | `exponential-jitter` | Retry delay strategy |
+| `--retry-base-ms` | number | `300` | Base delay for backoff calculation |
+| `--retry-max-ms` | number | `10000` | Upper bound for single retry delay |
 
 ## Environment Variables
 
+Naming convention: all environment variables owned by this project must use the `X_GW_` prefix.
+
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `X_BEARER_TOKEN` | Conditional | none | Bearer token for app/user operations |
-| `X_CONSUMER_KEY` | Conditional | none | OAuth 1.0a consumer key |
-| `X_SECRET_KEY` | Conditional | none | OAuth 1.0a consumer secret |
-| `X_ACCESS_TOKEN` | Conditional | none | OAuth 1.0a access token |
-| `X_ACCESS_TOKEN_SECRET` | Conditional | none | OAuth 1.0a access token secret |
-| `X_CLIENT_ID` | Conditional | none | OAuth 2.0 client id |
-| `X_CLIENT_SECRET` | Conditional | none | OAuth 2.0 client secret |
-| `X_API_BASE_URL` | No | provider default | Override API endpoint |
-| `X_GATEWAY_OUTPUT` | No | `text` | Output mode (`text` or `json`) |
+| `X_GW_TOKEN` | Conditional | none | Primary bearer token for app/user operations |
+| `X_GW_CONSUMER_KEY` | Conditional | none | OAuth 1.0a consumer key |
+| `X_GW_CONSUMER_SECRET` | Conditional | none | OAuth 1.0a consumer secret |
+| `X_GW_ACCESS_TOKEN` | Conditional | none | OAuth 1.0a access token |
+| `X_GW_ACCESS_TOKEN_SECRET` | Conditional | none | OAuth 1.0a access token secret |
+| `X_GW_CLIENT_ID` | Conditional | none | OAuth 2.0 client id |
+| `X_GW_CLIENT_SECRET` | Conditional | none | OAuth 2.0 client secret |
+| `X_GW_GRAPHQL_BASE_URL` | No | provider default | Override GraphQL endpoint |
+| `X_GW_OUTPUT` | No | `text` | Output mode (`text` or `json`) |
+| `X_GW_AUTH_MODE` | No | `mixed` | Default auth resolution mode |
+| `X_GW_RETRY` | No | `2` | Default retry count |
+| `X_GW_RETRY_BACKOFF` | No | `exponential-jitter` | Backoff strategy |
+| `X_GW_RETRY_BASE_MS` | No | `300` | Base delay in milliseconds |
+| `X_GW_RETRY_MAX_MS` | No | `10000` | Maximum single delay in milliseconds |
+| `X_GW_STRICT_CAPABILITY_CHECKS` | No | `false` | Enable stricter capability gating rules |
 
 Note: Library consumers must be able to pass equivalent credentials/config via function parameters instead of environment variables.
 
@@ -111,6 +115,24 @@ CLI errors must include:
 - remediations (`what to do next`)
 - trace metadata (`traceId`, request identifiers if available)
 
+GraphQL request rules:
+
+- Every live GraphQL request must include `operationName`.
+- A live GraphQL request must include exactly one request source: persisted `documentId` or inline `query`.
+- `variables-json`, `features-json`, and `field-toggles-json` must be JSON objects when provided.
+- `--graphql-base-url` and `X_GW_GRAPHQL_BASE_URL` target the GraphQL transport only; the stable surface no longer exposes a generic API-base override.
+- Deprecated alias inputs such as `--api-base-url` must fail validation; they must not be accepted as hidden compatibility shims.
+- Only boolean flags may use bare `--flag` form; string/number/JSON flags must provide an explicit value.
+- `x-gateway-reader` must reject `graphql request --operation-type mutation`.
+- Unknown commands, unknown flags, and invalid global flag values must fail with `VALIDATION_ERROR`; they must not be ignored or silently fall back to defaults.
+
+Retry behavior rules:
+
+- Retry is enabled only for retryable classes (`NETWORK_FAILURE`, transient `UPSTREAM_FAILURE`, and explicit rate-limit recoverable responses).
+- Default strategy is exponential backoff with jitter.
+- Non-retryable classes (`VALIDATION_ERROR`, `PERMISSION_DENIED`, `AUTH_INVALID`, `AUTH_REVOKED`) must fail immediately.
+- Error output for exhausted retries must include attempt count, total wait time, and last failure cause.
+
 When `--json` is enabled, all failures use a stable envelope:
 
 ```json
@@ -134,7 +156,7 @@ When `--json` is enabled, all failures use a stable envelope:
 }
 ```
 
-## Posting Pattern Coverage Requirements
+## Deferred High-Level Coverage Requirements
 
 `x-gateway` must explicitly support all publishing patterns used in X workflows:
 
@@ -146,3 +168,8 @@ When `--json` is enabled, all failures use a stable envelope:
 - video/media post
 - article or long-form publishing when available via API/product surface
 - retrieval of referenced/original content for quote/reply/repost chains
+
+Current implementation note:
+
+- The current GraphQL-only iteration does not yet satisfy these high-level requirements.
+- Until concrete GraphQL mappings are committed, related commands are intentionally absent from the stable CLI surface and must fail explicitly with `UNSUPPORTED` and remediation to use `graphql request` or add the missing mapping.

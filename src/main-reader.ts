@@ -3,6 +3,6 @@
 import { runCli } from "./cli";
 
 void runCli({
-  commandName: "x-gateway",
-  surface: "full",
+  commandName: "x-gateway-reader",
+  surface: "reader",
 });
