@@ -1,13 +1,24 @@
 import {
+  getNamedType,
+  isEnumType,
+  isListType,
+  isNonNullType,
+  isObjectType,
+  isScalarType,
+  type GraphQLOutputType,
+} from "graphql";
+import {
   CAPABILITY_REGISTRY,
   isStableCapabilityId,
   type StableCapabilityId,
 } from "./capability-metadata";
 import {
   parsePublicGraphqlDocument,
-  type PublicGraphqlLiteral,
+  type PublicGraphqlValue,
   type PublicGraphqlSelection,
 } from "./public-graphql-parser";
+import { PUBLIC_GRAPHQL_SCHEMA } from "./public-graphql-schema";
+import type { XGatewayPostAttachmentInput } from "./lib";
 
 type ValidationErrorFactory = (message: string) => Error;
 type PayloadErrorFactory = (fieldName: string, detail: string) => Error;
@@ -23,10 +34,11 @@ export type PlannedPublicApiRequest = Readonly<{
   capabilityId: StableCapabilityId;
   operationType: PublicApiOperationType;
   fieldName: string;
-  arguments: Readonly<Record<string, PublicGraphqlLiteral>>;
+  arguments: Readonly<Record<string, PublicGraphqlValue>>;
   selections: readonly PublicGraphqlSelection[];
+  selectionSchema: PublicSelectionSchema;
   buildCapabilityInput: (
-    args: Readonly<Record<string, PublicGraphqlLiteral>>,
+    args: Readonly<Record<string, PublicGraphqlValue>>,
   ) => unknown;
   normalizeResult: (value: unknown, fieldName: string) => unknown;
   traceId?: string;
@@ -36,16 +48,134 @@ type PublicApiFieldDefinition = Readonly<{
   fieldName: string;
   capabilityId: StableCapabilityId;
   operationType: PublicApiOperationType;
+  allowedArgumentNames: readonly string[];
+  selectionSchema: PublicSelectionSchema;
   buildCapabilityInput: (
-    args: Readonly<Record<string, PublicGraphqlLiteral>>,
+    args: Readonly<Record<string, PublicGraphqlValue>>,
   ) => unknown;
   normalizeResult: (value: unknown, fieldName: string) => unknown;
 }>;
 
 let publicApiFieldRegistryValidated = false;
 
+type PublicSelectionSchema =
+  | Readonly<{ kind: "scalar"; optional?: boolean }>
+  | Readonly<{
+      kind: "object";
+      fields: Readonly<Record<string, PublicSelectionSchema>>;
+      optional?: boolean;
+    }>
+  | Readonly<{
+      kind: "list";
+      item: PublicSelectionSchema;
+      optional?: boolean;
+    }>;
+
+function buildSelectionSchemaFromOutputType(
+  outputType: GraphQLOutputType,
+  optional = true,
+): PublicSelectionSchema {
+  if (isNonNullType(outputType)) {
+    return buildSelectionSchemaFromOutputType(outputType.ofType, false);
+  }
+
+  if (isListType(outputType)) {
+    return {
+      kind: "list",
+      item: buildSelectionSchemaFromOutputType(outputType.ofType),
+      ...(optional ? { optional: true } : {}),
+    };
+  }
+
+  const namedType = getNamedType(outputType);
+  if (isScalarType(namedType) || isEnumType(namedType)) {
+    return optional ? { kind: "scalar", optional: true } : { kind: "scalar" };
+  }
+
+  if (isObjectType(namedType)) {
+    const fields = Object.fromEntries(
+      Object.entries(namedType.getFields()).map(
+        ([fieldName, fieldDefinition]) => [
+          fieldName,
+          buildSelectionSchemaFromOutputType(fieldDefinition.type),
+        ],
+      ),
+    );
+    return {
+      kind: "object",
+      fields,
+      ...(optional ? { optional: true } : {}),
+    };
+  }
+
+  throw new Error(
+    `Public GraphQL schema contains unsupported output type '${namedType.toString()}'.`,
+  );
+}
+
+function getPublicRootType(operationType: PublicApiOperationType) {
+  const rootType =
+    operationType === "query"
+      ? PUBLIC_GRAPHQL_SCHEMA.getQueryType()
+      : PUBLIC_GRAPHQL_SCHEMA.getMutationType();
+  if (!rootType) {
+    throw new Error(
+      `Public GraphQL schema is missing a ${operationType} root type.`,
+    );
+  }
+  return rootType;
+}
+
+function readSchemaFieldArgumentNames(
+  fieldName: string,
+  operationType: PublicApiOperationType,
+): readonly string[] {
+  const fieldDefinition =
+    getPublicRootType(operationType).getFields()[fieldName];
+  if (!fieldDefinition) {
+    throw new Error(
+      `Public GraphQL schema is missing ${operationType} field '${fieldName}'.`,
+    );
+  }
+  return fieldDefinition.args.map((argument) => argument.name);
+}
+
+function readSchemaFieldSelectionSchema(
+  fieldName: string,
+  operationType: PublicApiOperationType,
+): PublicSelectionSchema {
+  const fieldDefinition =
+    getPublicRootType(operationType).getFields()[fieldName];
+  if (!fieldDefinition) {
+    throw new Error(
+      `Public GraphQL schema is missing ${operationType} field '${fieldName}'.`,
+    );
+  }
+  return buildSelectionSchemaFromOutputType(fieldDefinition.type);
+}
+
+function rejectDeprecatedPublicFieldName(
+  fieldName: string,
+  createValidationError: ValidationErrorFactory,
+): never {
+  if (fieldName === "likedPosts") {
+    throw createValidationError(
+      "Public GraphQL field 'likedPosts' is not part of the current stable x-gateway contract. Stable liked-post lookup is deferred until a reviewed live adapter route is verified.",
+    );
+  }
+  if (fieldName === "likes") {
+    throw createValidationError(
+      "Public GraphQL field 'likes' is not part of the current stable x-gateway contract. Stable liked-post lookup is deferred until a reviewed live adapter route is verified.",
+    );
+  }
+
+  throw createValidationError(
+    `Public GraphQL field '${fieldName}' is not part of the stable x-gateway contract.`,
+  );
+}
+
 function readStringLiteral(
-  args: Readonly<Record<string, PublicGraphqlLiteral>>,
+  args: Readonly<Record<string, PublicGraphqlValue>>,
   name: string,
   createValidationError: ValidationErrorFactory,
 ): string {
@@ -58,27 +188,106 @@ function readStringLiteral(
   return value;
 }
 
-function readOptionalPositiveIntegerLiteral(
-  args: Readonly<Record<string, PublicGraphqlLiteral>>,
-  name: string,
-  maximum: number,
+function rejectUnexpectedArguments(
+  fieldName: string,
+  args: Readonly<Record<string, PublicGraphqlValue>>,
+  allowedArgumentNames: readonly string[],
   createValidationError: ValidationErrorFactory,
-): number | undefined {
+): void {
+  const allowed = new Set(allowedArgumentNames);
+  const unexpectedArgumentName = Object.keys(args).find(
+    (name) => !allowed.has(name),
+  );
+  if (unexpectedArgumentName) {
+    throw createValidationError(
+      `Public GraphQL field '${fieldName}' does not accept argument '${unexpectedArgumentName}'. Supported arguments: ${allowedArgumentNames.join(", ") || "(none)"}.`,
+    );
+  }
+}
+
+function rejectDeprecatedMutationArgumentName(
+  fieldName: string,
+  args: Readonly<Record<string, PublicGraphqlValue>>,
+  expectedName: string,
+  createValidationError: ValidationErrorFactory,
+): void {
+  if ("id" in args && expectedName !== "id") {
+    throw createValidationError(
+      `Public GraphQL field '${fieldName}' uses '${expectedName}' instead of 'id'. Update the request to ${fieldName}(${expectedName}: "...").`,
+    );
+  }
+}
+
+function readAttachmentObject(
+  value: PublicGraphqlValue,
+  argumentName: string,
+  index: number,
+  createValidationError: ValidationErrorFactory,
+): XGatewayPostAttachmentInput {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw createValidationError(
+      `Public GraphQL argument '${argumentName}[${index}]' must be an object literal with kind, filePath, and optional altText.`,
+    );
+  }
+  const objectValue = value as Record<string, PublicGraphqlValue>;
+  const allowedKeys = new Set(["kind", "filePath", "altText"]);
+  for (const key of Object.keys(objectValue)) {
+    if (!allowedKeys.has(key)) {
+      throw createValidationError(
+        `Public GraphQL argument '${argumentName}[${index}]' does not accept field '${key}'. Supported fields: kind, filePath, altText.`,
+      );
+    }
+  }
+  const kind = objectValue["kind"];
+  if (kind !== "image") {
+    throw createValidationError(
+      `Public GraphQL argument '${argumentName}[${index}].kind' must be 'image' in the current reviewed posting slice.`,
+    );
+  }
+  const filePath = objectValue["filePath"];
+  if (typeof filePath !== "string" || filePath.trim().length === 0) {
+    throw createValidationError(
+      `Public GraphQL argument '${argumentName}[${index}].filePath' must be a non-empty string.`,
+    );
+  }
+  const altText = objectValue["altText"];
+  if (
+    altText !== undefined &&
+    (typeof altText !== "string" || altText.trim().length === 0)
+  ) {
+    throw createValidationError(
+      `Public GraphQL argument '${argumentName}[${index}].altText' must be a non-empty string when provided.`,
+    );
+  }
+  if (typeof altText === "string" && altText.length > 1000) {
+    throw createValidationError(
+      `Public GraphQL argument '${argumentName}[${index}].altText' must be between 1 and 1000 characters when provided.`,
+    );
+  }
+  return {
+    kind,
+    filePath,
+    ...(typeof altText === "string" ? { altText } : {}),
+  };
+}
+
+function readOptionalAttachments(
+  args: Readonly<Record<string, PublicGraphqlValue>>,
+  name: string,
+  createValidationError: ValidationErrorFactory,
+): readonly XGatewayPostAttachmentInput[] | undefined {
   const value = args[name];
   if (value === undefined || value === null) {
     return undefined;
   }
-  if (
-    typeof value !== "number" ||
-    !Number.isInteger(value) ||
-    value < 1 ||
-    value > maximum
-  ) {
+  if (!Array.isArray(value) || value.length === 0 || value.length > 4) {
     throw createValidationError(
-      `Public GraphQL argument '${name}' must be an integer between 1 and ${maximum}.`,
+      `Public GraphQL argument '${name}' must be a list containing between 1 and 4 attachment objects.`,
     );
   }
-  return value;
+  return value.map((item, index) =>
+    readAttachmentObject(item, name, index, createValidationError),
+  );
 }
 
 function readObjectRecord(
@@ -153,70 +362,179 @@ function normalizePostLookupResult(
   };
 }
 
-function normalizeLikesListResult(
-  value: unknown,
-  fieldName: string,
-  createPayloadError: PayloadErrorFactory,
-): readonly unknown[] {
-  const result = readObjectRecord(
-    value,
-    fieldName,
-    "The liked-posts adapter did not return the expected { posts: ... } shape.",
-    createPayloadError,
-  );
-  return readArrayValue(
-    result["posts"],
-    fieldName,
-    "The liked-posts adapter returned a non-array 'posts' payload.",
-    createPayloadError,
-  );
+function validateSelectionsAgainstSchema(
+  topLevelFieldName: string,
+  selections: readonly PublicGraphqlSelection[],
+  schema: PublicSelectionSchema,
+  createValidationError: ValidationErrorFactory,
+  selectionPath = topLevelFieldName,
+): void {
+  if (schema.kind === "scalar") {
+    if (selections.length > 0) {
+      throw createValidationError(
+        `Public GraphQL selection '${selectionPath}' is scalar and cannot include nested fields.`,
+      );
+    }
+    return;
+  }
+
+  if (selections.length === 0) {
+    throw createValidationError(
+      `Public GraphQL selection '${selectionPath}' must include a nested selection set.`,
+    );
+  }
+
+  const objectSchema = schema.kind === "list" ? schema.item : schema;
+  if (objectSchema.kind !== "object") {
+    throw createValidationError(
+      `Public GraphQL selection '${selectionPath}' resolved to an unsupported schema shape.`,
+    );
+  }
+
+  for (const selection of selections) {
+    const childSchema = objectSchema.fields[selection.name];
+    const childPath = `${selectionPath}.${selection.name}`;
+    if (!childSchema) {
+      throw createValidationError(
+        `Public GraphQL selection '${childPath}' is not part of the stable x-gateway contract.`,
+      );
+    }
+    validateSelectionsAgainstSchema(
+      topLevelFieldName,
+      selection.selections,
+      childSchema,
+      createValidationError,
+      childPath,
+    );
+  }
 }
 
 function createPublicApiFieldRegistry(
   createValidationError: ValidationErrorFactory,
   createPayloadError: PayloadErrorFactory,
 ): readonly PublicApiFieldDefinition[] {
+  const accountMeAllowedArgumentNames = readSchemaFieldArgumentNames(
+    "accountMe",
+    "query",
+  );
+  const accountMeSelectionSchema = readSchemaFieldSelectionSchema(
+    "accountMe",
+    "query",
+  );
+  const postAllowedArgumentNames = readSchemaFieldArgumentNames(
+    "post",
+    "query",
+  );
+  const postSelectionSchema = readSchemaFieldSelectionSchema("post", "query");
+  const createPostAllowedArgumentNames = readSchemaFieldArgumentNames(
+    "createPost",
+    "mutation",
+  );
+  const createPostSelectionSchema = readSchemaFieldSelectionSchema(
+    "createPost",
+    "mutation",
+  );
+  const deletePostAllowedArgumentNames = readSchemaFieldArgumentNames(
+    "deletePost",
+    "mutation",
+  );
+  const deletePostSelectionSchema = readSchemaFieldSelectionSchema(
+    "deletePost",
+    "mutation",
+  );
+  const replyToPostAllowedArgumentNames = readSchemaFieldArgumentNames(
+    "replyToPost",
+    "mutation",
+  );
+  const replyToPostSelectionSchema = readSchemaFieldSelectionSchema(
+    "replyToPost",
+    "mutation",
+  );
+  const quotePostAllowedArgumentNames = readSchemaFieldArgumentNames(
+    "quotePost",
+    "mutation",
+  );
+  const quotePostSelectionSchema = readSchemaFieldSelectionSchema(
+    "quotePost",
+    "mutation",
+  );
+  const repostPostAllowedArgumentNames = readSchemaFieldArgumentNames(
+    "repostPost",
+    "mutation",
+  );
+  const repostPostSelectionSchema = readSchemaFieldSelectionSchema(
+    "repostPost",
+    "mutation",
+  );
+  const unrepostPostAllowedArgumentNames = readSchemaFieldArgumentNames(
+    "unrepostPost",
+    "mutation",
+  );
+  const unrepostPostSelectionSchema = readSchemaFieldSelectionSchema(
+    "unrepostPost",
+    "mutation",
+  );
+
   return [
     {
       fieldName: "accountMe",
       capabilityId: "account.me",
       operationType: "query",
-      buildCapabilityInput: () => undefined,
+      allowedArgumentNames: accountMeAllowedArgumentNames,
+      selectionSchema: accountMeSelectionSchema,
+      buildCapabilityInput: (args) => {
+        rejectUnexpectedArguments(
+          "accountMe",
+          args,
+          accountMeAllowedArgumentNames,
+          createValidationError,
+        );
+        return undefined;
+      },
       normalizeResult: (value) => value,
     },
     {
       fieldName: "post",
       capabilityId: "post.get",
       operationType: "query",
-      buildCapabilityInput: (args) => ({
-        postId: readStringLiteral(args, "id", createValidationError),
-      }),
+      allowedArgumentNames: postAllowedArgumentNames,
+      selectionSchema: postSelectionSchema,
+      buildCapabilityInput: (args) => {
+        rejectUnexpectedArguments(
+          "post",
+          args,
+          postAllowedArgumentNames,
+          createValidationError,
+        );
+        return {
+          postId: readStringLiteral(args, "id", createValidationError),
+        };
+      },
       normalizeResult: (value, fieldName) =>
         normalizePostLookupResult(value, fieldName, createPayloadError),
-    },
-    {
-      fieldName: "likedPosts",
-      capabilityId: "likes.list",
-      operationType: "query",
-      buildCapabilityInput: (args) => ({
-        userId: readStringLiteral(args, "userId", createValidationError),
-        limit: readOptionalPositiveIntegerLiteral(
-          args,
-          "limit",
-          100,
-          createValidationError,
-        ),
-      }),
-      normalizeResult: (value, fieldName) =>
-        normalizeLikesListResult(value, fieldName, createPayloadError),
     },
     {
       fieldName: "createPost",
       capabilityId: "post.create",
       operationType: "mutation",
-      buildCapabilityInput: (args) => ({
-        text: readStringLiteral(args, "text", createValidationError),
-      }),
+      allowedArgumentNames: createPostAllowedArgumentNames,
+      selectionSchema: createPostSelectionSchema,
+      buildCapabilityInput: (args) => {
+        rejectUnexpectedArguments(
+          "createPost",
+          args,
+          createPostAllowedArgumentNames,
+          createValidationError,
+        );
+        return {
+          text: readStringLiteral(args, "text", createValidationError),
+          attachments: readOptionalAttachments(
+            args,
+            "attachments",
+            createValidationError,
+          ),
+        };
+      },
       normalizeResult: (value, fieldName) => {
         const data = readTransportDataRecord(
           value,
@@ -233,9 +551,25 @@ function createPublicApiFieldRegistry(
       fieldName: "deletePost",
       capabilityId: "post.delete",
       operationType: "mutation",
-      buildCapabilityInput: (args) => ({
-        postId: readStringLiteral(args, "id", createValidationError),
-      }),
+      allowedArgumentNames: deletePostAllowedArgumentNames,
+      selectionSchema: deletePostSelectionSchema,
+      buildCapabilityInput: (args) => {
+        rejectDeprecatedMutationArgumentName(
+          "deletePost",
+          args,
+          "postId",
+          createValidationError,
+        );
+        rejectUnexpectedArguments(
+          "deletePost",
+          args,
+          deletePostAllowedArgumentNames,
+          createValidationError,
+        );
+        return {
+          postId: readStringLiteral(args, "postId", createValidationError),
+        };
+      },
       normalizeResult: (value, fieldName) => {
         const data = readTransportDataRecord(
           value,
@@ -252,14 +586,29 @@ function createPublicApiFieldRegistry(
       fieldName: "replyToPost",
       capabilityId: "post.reply",
       operationType: "mutation",
-      buildCapabilityInput: (args) => ({
-        text: readStringLiteral(args, "text", createValidationError),
-        replyToPostId: readStringLiteral(
+      allowedArgumentNames: replyToPostAllowedArgumentNames,
+      selectionSchema: replyToPostSelectionSchema,
+      buildCapabilityInput: (args) => {
+        rejectUnexpectedArguments(
+          "replyToPost",
           args,
-          "replyToPostId",
+          replyToPostAllowedArgumentNames,
           createValidationError,
-        ),
-      }),
+        );
+        return {
+          text: readStringLiteral(args, "text", createValidationError),
+          replyToPostId: readStringLiteral(
+            args,
+            "replyToPostId",
+            createValidationError,
+          ),
+          attachments: readOptionalAttachments(
+            args,
+            "attachments",
+            createValidationError,
+          ),
+        };
+      },
       normalizeResult: (value, fieldName) => {
         const data = readTransportDataRecord(
           value,
@@ -276,14 +625,29 @@ function createPublicApiFieldRegistry(
       fieldName: "quotePost",
       capabilityId: "post.quote",
       operationType: "mutation",
-      buildCapabilityInput: (args) => ({
-        text: readStringLiteral(args, "text", createValidationError),
-        quotedPostId: readStringLiteral(
+      allowedArgumentNames: quotePostAllowedArgumentNames,
+      selectionSchema: quotePostSelectionSchema,
+      buildCapabilityInput: (args) => {
+        rejectUnexpectedArguments(
+          "quotePost",
           args,
-          "quotedPostId",
+          quotePostAllowedArgumentNames,
           createValidationError,
-        ),
-      }),
+        );
+        return {
+          text: readStringLiteral(args, "text", createValidationError),
+          quotedPostId: readStringLiteral(
+            args,
+            "quotedPostId",
+            createValidationError,
+          ),
+          attachments: readOptionalAttachments(
+            args,
+            "attachments",
+            createValidationError,
+          ),
+        };
+      },
       normalizeResult: (value, fieldName) => {
         const data = readTransportDataRecord(
           value,
@@ -300,9 +664,25 @@ function createPublicApiFieldRegistry(
       fieldName: "repostPost",
       capabilityId: "post.repost",
       operationType: "mutation",
-      buildCapabilityInput: (args) => ({
-        postId: readStringLiteral(args, "id", createValidationError),
-      }),
+      allowedArgumentNames: repostPostAllowedArgumentNames,
+      selectionSchema: repostPostSelectionSchema,
+      buildCapabilityInput: (args) => {
+        rejectDeprecatedMutationArgumentName(
+          "repostPost",
+          args,
+          "postId",
+          createValidationError,
+        );
+        rejectUnexpectedArguments(
+          "repostPost",
+          args,
+          repostPostAllowedArgumentNames,
+          createValidationError,
+        );
+        return {
+          postId: readStringLiteral(args, "postId", createValidationError),
+        };
+      },
       normalizeResult: (value, fieldName) => {
         const data = readTransportDataRecord(
           value,
@@ -319,9 +699,25 @@ function createPublicApiFieldRegistry(
       fieldName: "unrepostPost",
       capabilityId: "post.unrepost",
       operationType: "mutation",
-      buildCapabilityInput: (args) => ({
-        postId: readStringLiteral(args, "id", createValidationError),
-      }),
+      allowedArgumentNames: unrepostPostAllowedArgumentNames,
+      selectionSchema: unrepostPostSelectionSchema,
+      buildCapabilityInput: (args) => {
+        rejectDeprecatedMutationArgumentName(
+          "unrepostPost",
+          args,
+          "postId",
+          createValidationError,
+        );
+        rejectUnexpectedArguments(
+          "unrepostPost",
+          args,
+          unrepostPostAllowedArgumentNames,
+          createValidationError,
+        );
+        return {
+          postId: readStringLiteral(args, "postId", createValidationError),
+        };
+      },
       normalizeResult: (value, fieldName) => {
         const data = readTransportDataRecord(
           value,
@@ -378,6 +774,31 @@ function ensurePublicApiFieldRegistryCoherent(
       );
     }
 
+    const schemaField = getPublicRootType(
+      fieldDefinition.operationType,
+    ).getFields()[fieldDefinition.fieldName];
+    if (!schemaField) {
+      throw new Error(
+        `Public GraphQL schema is missing ${fieldDefinition.operationType} field '${fieldDefinition.fieldName}'.`,
+      );
+    }
+
+    const schemaArgumentNames = schemaField.args.map(
+      (argument) => argument.name,
+    );
+    if (
+      schemaArgumentNames.length !==
+        fieldDefinition.allowedArgumentNames.length ||
+      schemaArgumentNames.some(
+        (argumentName, index) =>
+          argumentName !== fieldDefinition.allowedArgumentNames[index],
+      )
+    ) {
+      throw new Error(
+        `Public GraphQL field '${fieldDefinition.fieldName}' argument metadata is out of sync with the Yoga schema.`,
+      );
+    }
+
     referencedCapabilityIds.add(capability.id);
   }
 
@@ -423,9 +844,7 @@ export function createPublicApiRequestPlan(
   );
 
   if (!fieldDefinition) {
-    throw createValidationError(
-      `Public GraphQL field '${document.field.name}' is not part of the stable x-gateway contract.`,
-    );
+    rejectDeprecatedPublicFieldName(document.field.name, createValidationError);
   }
 
   if (document.operationType !== fieldDefinition.operationType) {
@@ -434,12 +853,20 @@ export function createPublicApiRequestPlan(
     );
   }
 
+  validateSelectionsAgainstSchema(
+    fieldDefinition.fieldName,
+    document.field.selections,
+    fieldDefinition.selectionSchema,
+    createValidationError,
+  );
+
   return {
     capabilityId: fieldDefinition.capabilityId,
     operationType: document.operationType,
     fieldName: document.field.name,
     arguments: document.field.arguments,
     selections: document.field.selections,
+    selectionSchema: fieldDefinition.selectionSchema,
     buildCapabilityInput: fieldDefinition.buildCapabilityInput,
     normalizeResult: fieldDefinition.normalizeResult,
     ...(input.traceId === undefined ? {} : { traceId: input.traceId }),
@@ -449,28 +876,98 @@ export function createPublicApiRequestPlan(
 export function projectPublicSelection(
   value: unknown,
   selections: readonly PublicGraphqlSelection[],
+  selectionPath: string,
+  schema: PublicSelectionSchema,
+  createPayloadError: PayloadErrorFactory,
 ): unknown {
-  if (selections.length === 0 || value === null || value === undefined) {
+  if (value === null || value === undefined) {
+    if (schema.optional) {
+      return value;
+    }
+    throw createPayloadError(
+      selectionPath,
+      `Projected selection '${selectionPath}' is required by the stable payload schema, but received ${value === null ? "null" : "undefined"}.`,
+    );
+  }
+
+  if (schema.kind === "scalar") {
+    if (selections.length > 0) {
+      throw createPayloadError(
+        selectionPath,
+        `Projected selection '${selectionPath}' is scalar and cannot include nested fields.`,
+      );
+    }
+    if (typeof value === "object") {
+      throw createPayloadError(
+        selectionPath,
+        `Projected selection '${selectionPath}' expected a scalar payload, but received an object or list value.`,
+      );
+    }
     return value;
   }
-  if (Array.isArray(value)) {
-    return value.map((item) => projectPublicSelection(item, selections));
+
+  if (schema.kind === "list") {
+    if (!Array.isArray(value)) {
+      throw createPayloadError(
+        selectionPath,
+        `Projected selection '${selectionPath}' expected a list payload.`,
+      );
+    }
+    return value.map((item, index) =>
+      projectPublicSelection(
+        item,
+        selections,
+        `${selectionPath}[${index}]`,
+        schema.item,
+        createPayloadError,
+      ),
+    );
   }
-  if (typeof value !== "object") {
-    return value;
+
+  if (selections.length === 0) {
+    throw createPayloadError(
+      selectionPath,
+      `Projected selection '${selectionPath}' expected nested fields for an object payload.`,
+    );
+  }
+  if (typeof value !== "object" || Array.isArray(value)) {
+    throw createPayloadError(
+      selectionPath,
+      `Projected selection '${selectionPath}' expected an object payload.`,
+    );
   }
 
   const record = value as Record<string, unknown>;
   const projected: Record<string, unknown> = {};
   for (const selection of selections) {
+    const childPath = `${selectionPath}.${selection.name}`;
+    const childSchema = schema.fields[selection.name];
+    if (!childSchema) {
+      throw createPayloadError(
+        selectionPath,
+        `Projected selection '${childPath}' is not part of the stable payload schema.`,
+      );
+    }
     if (!(selection.name in record)) {
-      continue;
+      if (childSchema.optional) {
+        continue;
+      }
+      throw createPayloadError(
+        selectionPath,
+        `Projected selection '${childPath}' is missing from the stable payload.`,
+      );
     }
     const selectedValue = record[selection.name];
-    projected[selection.name] =
-      selection.selections.length > 0
-        ? projectPublicSelection(selectedValue, selection.selections)
-        : selectedValue;
+    if (selectedValue === undefined && childSchema.optional) {
+      continue;
+    }
+    projected[selection.name] = projectPublicSelection(
+      selectedValue,
+      selection.selections,
+      childPath,
+      childSchema,
+      createPayloadError,
+    );
   }
   return projected;
 }

@@ -50,6 +50,7 @@
     "vitest": "2.1.8"
   },
   "dependencies": {
+    "graphql": "16.13.1",
     "twitter-api-v2": "1.29.0"
   }
 }
