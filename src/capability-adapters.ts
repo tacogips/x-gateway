@@ -13,6 +13,7 @@ import type {
   XGatewayError,
   XGatewayErrorPayload,
   XGatewayPostAttachmentInput,
+  XGatewayPostPage,
   XGatewayPostCreateOptions,
   XGatewayPostDeleteOptions,
   XGatewayPostGetOptions,
@@ -23,6 +24,9 @@ import type {
   XGatewayPostRepostOptions,
   XGatewayReferencedPost,
   XGatewayPostSummary,
+  XGatewayTimelinePageOptions,
+  XGatewayTimelineSearchOptions,
+  XGatewayTimelineUserOptions,
 } from "./lib";
 import type {
   XGatewayReadCapabilityAdapter,
@@ -51,6 +55,23 @@ type CapabilityAdapterDependencies = Readonly<{
   createError: (payload: XGatewayErrorPayload) => XGatewayError;
   createValidationError: (message: string) => XGatewayError;
   ensureRequired: (value: string | undefined, fieldName: string) => string;
+}>;
+
+type V2TimelineMeta = Readonly<{
+  result_count?: number;
+  next_token?: string;
+  previous_token?: string;
+  newest_id?: string;
+  oldest_id?: string;
+}>;
+
+type V2TimelinePayload = Readonly<{
+  data?: readonly TweetV2[];
+  includes?: Readonly<{
+    tweets?: readonly TweetV2[];
+    users?: readonly UserV2[];
+  }>;
+  meta?: V2TimelineMeta;
 }>;
 
 function isNonEmpty(value: string | undefined): value is string {
@@ -137,6 +158,38 @@ function mapPostLookupResult(
   };
 }
 
+function mapPostPage(response: V2TimelinePayload): XGatewayPostPage {
+  const tweets = response.data ?? [];
+  const includesHelper = new TwitterV2IncludesHelper({
+    ...(response.data === undefined ? {} : { data: [...response.data] }),
+    ...(response.includes === undefined
+      ? {}
+      : {
+          includes: {
+            ...(response.includes.tweets === undefined
+              ? {}
+              : { tweets: [...response.includes.tweets] }),
+            ...(response.includes.users === undefined
+              ? {}
+              : { users: [...response.includes.users] }),
+          },
+        }),
+  });
+  const meta = response.meta;
+  return {
+    posts: tweets.map((tweet) => mapPostSummary(tweet, includesHelper)),
+    pageInfo: {
+      resultCount: meta?.result_count ?? tweets.length,
+      ...(meta?.next_token === undefined ? {} : { nextToken: meta.next_token }),
+      ...(meta?.previous_token === undefined
+        ? {}
+        : { previousToken: meta.previous_token }),
+      ...(meta?.newest_id === undefined ? {} : { newestId: meta.newest_id }),
+      ...(meta?.oldest_id === undefined ? {} : { oldestId: meta.oldest_id }),
+    },
+  };
+}
+
 function mapBearerAccountProfile(
   response: Readonly<{ data?: unknown }>,
   createError: (payload: XGatewayErrorPayload) => XGatewayError,
@@ -195,6 +248,39 @@ function toSendTweetMediaIds(
   return mediaIds as SupportedMediaIds;
 }
 
+function validateOptionalPaginationToken(
+  value: string | undefined,
+  fieldName: string,
+  createValidationError: (message: string) => XGatewayError,
+): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    throw createValidationError(`${fieldName} must be a non-empty string.`);
+  }
+  return trimmed;
+}
+
+function validateOptionalMaxResults(
+  value: number | undefined,
+  fieldName: string,
+  minimum: number,
+  maximum: number,
+  createValidationError: (message: string) => XGatewayError,
+): number | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!Number.isInteger(value) || value < minimum || value > maximum) {
+    throw createValidationError(
+      `${fieldName} must be an integer between ${minimum} and ${maximum}.`,
+    );
+  }
+  return value;
+}
+
 export function createCapabilityAdapterFactories(
   dependencies: CapabilityAdapterDependencies,
 ): Readonly<{
@@ -251,6 +337,105 @@ export function createCapabilityAdapterFactories(
 
   function createOauth1ReadCapabilityAdapter(): XGatewayReadCapabilityAdapter {
     const client = createOauth1RestClient();
+    const timelineHome = async (
+      options: XGatewayTimelinePageOptions,
+    ): Promise<XGatewayPostPage> => {
+      const response = await client.v2.homeTimeline({
+        ...(validateOptionalMaxResults(
+          options.maxResults,
+          "maxResults",
+          5,
+          100,
+          dependencies.createValidationError,
+        ) === undefined
+          ? {}
+          : { max_results: options.maxResults }),
+        ...(validateOptionalPaginationToken(
+          options.paginationToken,
+          "paginationToken",
+          dependencies.createValidationError,
+        ) === undefined
+          ? {}
+          : { pagination_token: options.paginationToken }),
+        ...POST_LOOKUP_FIELDS,
+      });
+      return mapPostPage(response.data as V2TimelinePayload);
+    };
+    const timelineUser = async (
+      options: XGatewayTimelineUserOptions,
+    ): Promise<XGatewayPostPage> => {
+      const userId = dependencies.ensureRequired(options.userId, "userId");
+      const response = await client.v2.userTimeline(userId, {
+        ...(validateOptionalMaxResults(
+          options.maxResults,
+          "maxResults",
+          5,
+          100,
+          dependencies.createValidationError,
+        ) === undefined
+          ? {}
+          : { max_results: options.maxResults }),
+        ...(validateOptionalPaginationToken(
+          options.paginationToken,
+          "paginationToken",
+          dependencies.createValidationError,
+        ) === undefined
+          ? {}
+          : { pagination_token: options.paginationToken }),
+        ...POST_LOOKUP_FIELDS,
+      });
+      return mapPostPage(response.data as V2TimelinePayload);
+    };
+    const timelineMentions = async (
+      options: XGatewayTimelineUserOptions,
+    ): Promise<XGatewayPostPage> => {
+      const userId = dependencies.ensureRequired(options.userId, "userId");
+      const response = await client.v2.userMentionTimeline(userId, {
+        ...(validateOptionalMaxResults(
+          options.maxResults,
+          "maxResults",
+          5,
+          100,
+          dependencies.createValidationError,
+        ) === undefined
+          ? {}
+          : { max_results: options.maxResults }),
+        ...(validateOptionalPaginationToken(
+          options.paginationToken,
+          "paginationToken",
+          dependencies.createValidationError,
+        ) === undefined
+          ? {}
+          : { pagination_token: options.paginationToken }),
+        ...POST_LOOKUP_FIELDS,
+      });
+      return mapPostPage(response.data as V2TimelinePayload);
+    };
+    const timelineSearch = async (
+      options: XGatewayTimelineSearchOptions,
+    ): Promise<XGatewayPostPage> => {
+      const query = dependencies.ensureRequired(options.query, "query");
+      const response = await client.v2.search(query, {
+        ...(validateOptionalMaxResults(
+          options.maxResults,
+          "maxResults",
+          10,
+          100,
+          dependencies.createValidationError,
+        ) === undefined
+          ? {}
+          : { max_results: options.maxResults }),
+        ...(validateOptionalPaginationToken(
+          options.paginationToken,
+          "paginationToken",
+          dependencies.createValidationError,
+        ) === undefined
+          ? {}
+          : { next_token: options.paginationToken }),
+        ...POST_LOOKUP_FIELDS,
+      });
+      return mapPostPage(response.data as V2TimelinePayload);
+    };
     const postGet = async (
       options: XGatewayPostGetOptions,
     ): Promise<XGatewayPostLookupResult> => {
@@ -273,11 +458,114 @@ export function createCapabilityAdapterFactories(
         };
       },
       postGet,
+      timelineSearch,
+      timelineHome,
+      timelineUser,
+      timelineMentions,
     };
   }
 
   function createBearerReadCapabilityAdapter(): XGatewayReadCapabilityAdapter {
     const client = createBearerRestClient();
+    const timelineHome = async (
+      options: XGatewayTimelinePageOptions,
+    ): Promise<XGatewayPostPage> => {
+      const response = await client.v2.homeTimeline({
+        ...(validateOptionalMaxResults(
+          options.maxResults,
+          "maxResults",
+          5,
+          100,
+          dependencies.createValidationError,
+        ) === undefined
+          ? {}
+          : { max_results: options.maxResults }),
+        ...(validateOptionalPaginationToken(
+          options.paginationToken,
+          "paginationToken",
+          dependencies.createValidationError,
+        ) === undefined
+          ? {}
+          : { pagination_token: options.paginationToken }),
+        ...POST_LOOKUP_FIELDS,
+      });
+      return mapPostPage(response.data as V2TimelinePayload);
+    };
+    const timelineUser = async (
+      options: XGatewayTimelineUserOptions,
+    ): Promise<XGatewayPostPage> => {
+      const userId = dependencies.ensureRequired(options.userId, "userId");
+      const response = await client.v2.userTimeline(userId, {
+        ...(validateOptionalMaxResults(
+          options.maxResults,
+          "maxResults",
+          5,
+          100,
+          dependencies.createValidationError,
+        ) === undefined
+          ? {}
+          : { max_results: options.maxResults }),
+        ...(validateOptionalPaginationToken(
+          options.paginationToken,
+          "paginationToken",
+          dependencies.createValidationError,
+        ) === undefined
+          ? {}
+          : { pagination_token: options.paginationToken }),
+        ...POST_LOOKUP_FIELDS,
+      });
+      return mapPostPage(response.data as V2TimelinePayload);
+    };
+    const timelineMentions = async (
+      options: XGatewayTimelineUserOptions,
+    ): Promise<XGatewayPostPage> => {
+      const userId = dependencies.ensureRequired(options.userId, "userId");
+      const response = await client.v2.userMentionTimeline(userId, {
+        ...(validateOptionalMaxResults(
+          options.maxResults,
+          "maxResults",
+          5,
+          100,
+          dependencies.createValidationError,
+        ) === undefined
+          ? {}
+          : { max_results: options.maxResults }),
+        ...(validateOptionalPaginationToken(
+          options.paginationToken,
+          "paginationToken",
+          dependencies.createValidationError,
+        ) === undefined
+          ? {}
+          : { pagination_token: options.paginationToken }),
+        ...POST_LOOKUP_FIELDS,
+      });
+      return mapPostPage(response.data as V2TimelinePayload);
+    };
+    const timelineSearch = async (
+      options: XGatewayTimelineSearchOptions,
+    ): Promise<XGatewayPostPage> => {
+      const query = dependencies.ensureRequired(options.query, "query");
+      const response = await client.v2.search(query, {
+        ...(validateOptionalMaxResults(
+          options.maxResults,
+          "maxResults",
+          10,
+          100,
+          dependencies.createValidationError,
+        ) === undefined
+          ? {}
+          : { max_results: options.maxResults }),
+        ...(validateOptionalPaginationToken(
+          options.paginationToken,
+          "paginationToken",
+          dependencies.createValidationError,
+        ) === undefined
+          ? {}
+          : { next_token: options.paginationToken }),
+        ...POST_LOOKUP_FIELDS,
+      });
+      return mapPostPage(response.data as V2TimelinePayload);
+    };
     const postGet = async (
       options: XGatewayPostGetOptions,
     ): Promise<XGatewayPostLookupResult> => {
@@ -292,9 +580,13 @@ export function createCapabilityAdapterFactories(
         const response = await client.v2.me({
           "user.fields": ["id", "name", "username"],
         });
-        return mapBearerAccountProfile(response, dependencies.createError);
+      return mapBearerAccountProfile(response, dependencies.createError);
       },
       postGet,
+      timelineSearch,
+      timelineHome,
+      timelineUser,
+      timelineMentions,
     };
   }
 

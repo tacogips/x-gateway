@@ -33,6 +33,19 @@ export const PUBLIC_GRAPHQL_TYPE_DEFS = /* GraphQL */ `
     referencedPosts: [ReferencedPost!]
   }
 
+  type PageInfo {
+    resultCount: Int!
+    nextToken: String
+    previousToken: String
+    newestId: String
+    oldestId: String
+  }
+
+  type PostPage {
+    posts: [Post!]!
+    pageInfo: PageInfo!
+  }
+
   type CreatedPost {
     id: String!
     text: String!
@@ -51,6 +64,22 @@ export const PUBLIC_GRAPHQL_TYPE_DEFS = /* GraphQL */ `
   type Query {
     accountMe: Account!
     post(id: String!): Post!
+    searchPosts(
+      query: String!
+      maxResults: Int
+      paginationToken: String
+    ): PostPage!
+    homeTimeline(maxResults: Int, paginationToken: String): PostPage!
+    userTimeline(
+      userId: String!
+      maxResults: Int
+      paginationToken: String
+    ): PostPage!
+    mentionsTimeline(
+      userId: String!
+      maxResults: Int
+      paginationToken: String
+    ): PostPage!
   }
 
   type Mutation {

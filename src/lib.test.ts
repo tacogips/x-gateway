@@ -26,6 +26,16 @@ const twitterMockState = {
       kind: "tweet" | "reply" | "quote";
     }>
   >,
+  timelineCalls: [] as Array<
+    Readonly<{
+      kind: "search" | "home" | "user" | "mentions";
+      authMode: "oauth1" | "bearer";
+      query?: string;
+      userId?: string;
+      maxResults?: number;
+      paginationToken?: string;
+    }>
+  >,
 };
 
 vi.mock("twitter-api-v2", () => {
@@ -46,6 +56,20 @@ vi.mock("twitter-api-v2", () => {
     id: string;
     username: string;
     name: string;
+  }>;
+
+  type MockTimelinePayload = Readonly<{
+    data: readonly MockTweet[];
+    includes: {
+      users: readonly MockUser[];
+    };
+    meta: {
+      result_count: number;
+      next_token?: string;
+      previous_token?: string;
+      newest_id: string;
+      oldest_id: string;
+    };
   }>;
 
   class ApiResponseError extends Error {
@@ -170,6 +194,21 @@ vi.mock("twitter-api-v2", () => {
     }
 
     get v2(): {
+      search: (
+        query: string,
+        options?: { max_results?: number; next_token?: string },
+      ) => Promise<{ data: MockTimelinePayload }>;
+      homeTimeline: (
+        options?: { max_results?: number; pagination_token?: string },
+      ) => Promise<{ data: MockTimelinePayload }>;
+      userTimeline: (
+        userId: string,
+        options?: { max_results?: number; pagination_token?: string },
+      ) => Promise<{ data: MockTimelinePayload }>;
+      userMentionTimeline: (
+        userId: string,
+        options?: { max_results?: number; pagination_token?: string },
+      ) => Promise<{ data: MockTimelinePayload }>;
       me: () => Promise<{
         data: { id: string; username: string; name: string };
       }>;
@@ -266,7 +305,149 @@ vi.mock("twitter-api-v2", () => {
         data: { retweeted: boolean; userId: string; postId: string };
       }>;
     } {
+      const buildTimelinePayload = (
+        prefix: string,
+        count: number,
+        page: 1 | 2,
+      ): MockTimelinePayload => {
+        const base = page === 1 ? 1 : count + 1;
+        const tweets = Array.from({ length: count }, (_, index) => {
+          const ordinal = base + index;
+          return {
+            id: `${prefix}-${ordinal}`,
+            text: `${prefix} post ${ordinal}`,
+            author_id: ordinal % 2 === 0 ? "author-2" : "author-1",
+            created_at: `2026-03-08T0${(ordinal % 4) + 1}:00:00.000Z`,
+            conversation_id: `${prefix}-conversation-${ordinal}`,
+          };
+        });
+        return {
+          data: tweets,
+          includes: {
+            users: [
+              { id: "author-1", username: "author_one", name: "Author One" },
+              { id: "author-2", username: "author_two", name: "Author Two" },
+            ],
+          },
+          meta: {
+            result_count: tweets.length,
+            ...(page === 1 ? { next_token: "page-2" } : {}),
+            ...(page === 2 ? { previous_token: "page-1" } : {}),
+            newest_id: tweets[0]?.id ?? `${prefix}-missing`,
+            oldest_id:
+              tweets[tweets.length - 1]?.id ?? `${prefix}-missing-oldest`,
+          },
+        };
+      };
+      const authMode =
+        typeof this.auth === "string" ? ("bearer" as const) : ("oauth1" as const);
       return {
+        search: async (
+          query: string,
+          options?: { max_results?: number; next_token?: string },
+        ) => {
+          if (this.auth === "bad-token") {
+            throw new ApiResponseError("Unauthorized", {
+              code: 401,
+              data: { title: "Unauthorized", detail: "Token expired" },
+            });
+          }
+          twitterMockState.timelineCalls.push({
+            kind: "search",
+            authMode,
+            query,
+            ...(options?.max_results === undefined
+              ? {}
+              : { maxResults: options.max_results }),
+            ...(options?.next_token === undefined
+              ? {}
+              : { paginationToken: options.next_token }),
+          });
+          const count = options?.max_results ?? 10;
+          const page = options?.next_token === "page-2" ? 2 : 1;
+          return {
+            data: buildTimelinePayload(`search-${query}`, count, page),
+          };
+        },
+        homeTimeline: async (
+          options?: { max_results?: number; pagination_token?: string },
+        ) => {
+          if (this.auth === "bad-token") {
+            throw new ApiResponseError("Unauthorized", {
+              code: 401,
+              data: { title: "Unauthorized", detail: "Token expired" },
+            });
+          }
+          twitterMockState.timelineCalls.push({
+            kind: "home",
+            authMode,
+            ...(options?.max_results === undefined
+              ? {}
+              : { maxResults: options.max_results }),
+            ...(options?.pagination_token === undefined
+              ? {}
+              : { paginationToken: options.pagination_token }),
+          });
+          const count = options?.max_results ?? 5;
+          const page = options?.pagination_token === "page-2" ? 2 : 1;
+          return {
+            data: buildTimelinePayload("home", count, page),
+          };
+        },
+        userTimeline: async (
+          userId: string,
+          options?: { max_results?: number; pagination_token?: string },
+        ) => {
+          if (this.auth === "bad-token") {
+            throw new ApiResponseError("Unauthorized", {
+              code: 401,
+              data: { title: "Unauthorized", detail: "Token expired" },
+            });
+          }
+          twitterMockState.timelineCalls.push({
+            kind: "user",
+            authMode,
+            userId,
+            ...(options?.max_results === undefined
+              ? {}
+              : { maxResults: options.max_results }),
+            ...(options?.pagination_token === undefined
+              ? {}
+              : { paginationToken: options.pagination_token }),
+          });
+          const count = options?.max_results ?? 5;
+          const page = options?.pagination_token === "page-2" ? 2 : 1;
+          return {
+            data: buildTimelinePayload(`user-${userId}`, count, page),
+          };
+        },
+        userMentionTimeline: async (
+          userId: string,
+          options?: { max_results?: number; pagination_token?: string },
+        ) => {
+          if (this.auth === "bad-token") {
+            throw new ApiResponseError("Unauthorized", {
+              code: 401,
+              data: { title: "Unauthorized", detail: "Token expired" },
+            });
+          }
+          twitterMockState.timelineCalls.push({
+            kind: "mentions",
+            authMode,
+            userId,
+            ...(options?.max_results === undefined
+              ? {}
+              : { maxResults: options.max_results }),
+            ...(options?.pagination_token === undefined
+              ? {}
+              : { paginationToken: options.pagination_token }),
+          });
+          const count = options?.max_results ?? 5;
+          const page = options?.pagination_token === "page-2" ? 2 : 1;
+          return {
+            data: buildTimelinePayload(`mentions-${userId}`, count, page),
+          };
+        },
         me: async () => {
           if (this.auth === "bad-token") {
             throw new ApiResponseError("Unauthorized", {
@@ -472,6 +653,7 @@ afterEach(() => {
   twitterMockState.uploadedMedia.length = 0;
   twitterMockState.mediaMetadata.length = 0;
   twitterMockState.tweetCalls.length = 0;
+  twitterMockState.timelineCalls.length = 0;
 });
 
 describe("resolveConfig", () => {
@@ -930,6 +1112,10 @@ describe("createXGatewayClient", () => {
     expect("capabilitiesList" in client).toBe(true);
     expect("accountMe" in client).toBe(true);
     expect("postGet" in client).toBe(true);
+    expect("timelineSearch" in client).toBe(true);
+    expect("timelineHome" in client).toBe(true);
+    expect("timelineUser" in client).toBe(true);
+    expect("timelineMentions" in client).toBe(true);
     expect("likesList" in client).toBe(false);
     expect("postCreate" in client).toBe(true);
     expect("postDelete" in client).toBe(true);
@@ -1031,6 +1217,222 @@ describe("createXGatewayClient", () => {
       post: {
         id: "post-mixed",
       },
+    });
+  });
+
+  test("supports stable recent search with explicit pagination through the SDK", async () => {
+    process.env["X_GW_TOKEN"] = "bearer-token";
+
+    const client = createXGatewayClient();
+
+    await expect(
+      client.timelineSearch({
+        query: "bun",
+        maxResults: 10,
+        paginationToken: "page-2",
+      }),
+    ).resolves.toEqual({
+      posts: [
+        {
+          id: "search-bun-11",
+          text: "search-bun post 11",
+          createdAt: "2026-03-08T04:00:00.000Z",
+          conversationId: "search-bun-conversation-11",
+          author: {
+            id: "author-1",
+            username: "author_one",
+            name: "Author One",
+          },
+        },
+        {
+          id: "search-bun-12",
+          text: "search-bun post 12",
+          createdAt: "2026-03-08T01:00:00.000Z",
+          conversationId: "search-bun-conversation-12",
+          author: {
+            id: "author-2",
+            username: "author_two",
+            name: "Author Two",
+          },
+        },
+        {
+          id: "search-bun-13",
+          text: "search-bun post 13",
+          createdAt: "2026-03-08T02:00:00.000Z",
+          conversationId: "search-bun-conversation-13",
+          author: {
+            id: "author-1",
+            username: "author_one",
+            name: "Author One",
+          },
+        },
+        {
+          id: "search-bun-14",
+          text: "search-bun post 14",
+          createdAt: "2026-03-08T03:00:00.000Z",
+          conversationId: "search-bun-conversation-14",
+          author: {
+            id: "author-2",
+            username: "author_two",
+            name: "Author Two",
+          },
+        },
+        {
+          id: "search-bun-15",
+          text: "search-bun post 15",
+          createdAt: "2026-03-08T04:00:00.000Z",
+          conversationId: "search-bun-conversation-15",
+          author: {
+            id: "author-1",
+            username: "author_one",
+            name: "Author One",
+          },
+        },
+        {
+          id: "search-bun-16",
+          text: "search-bun post 16",
+          createdAt: "2026-03-08T01:00:00.000Z",
+          conversationId: "search-bun-conversation-16",
+          author: {
+            id: "author-2",
+            username: "author_two",
+            name: "Author Two",
+          },
+        },
+        {
+          id: "search-bun-17",
+          text: "search-bun post 17",
+          createdAt: "2026-03-08T02:00:00.000Z",
+          conversationId: "search-bun-conversation-17",
+          author: {
+            id: "author-1",
+            username: "author_one",
+            name: "Author One",
+          },
+        },
+        {
+          id: "search-bun-18",
+          text: "search-bun post 18",
+          createdAt: "2026-03-08T03:00:00.000Z",
+          conversationId: "search-bun-conversation-18",
+          author: {
+            id: "author-2",
+            username: "author_two",
+            name: "Author Two",
+          },
+        },
+        {
+          id: "search-bun-19",
+          text: "search-bun post 19",
+          createdAt: "2026-03-08T04:00:00.000Z",
+          conversationId: "search-bun-conversation-19",
+          author: {
+            id: "author-1",
+            username: "author_one",
+            name: "Author One",
+          },
+        },
+        {
+          id: "search-bun-20",
+          text: "search-bun post 20",
+          createdAt: "2026-03-08T01:00:00.000Z",
+          conversationId: "search-bun-conversation-20",
+          author: {
+            id: "author-2",
+            username: "author_two",
+            name: "Author Two",
+          },
+        },
+      ],
+      pageInfo: {
+        resultCount: 10,
+        previousToken: "page-1",
+        newestId: "search-bun-11",
+        oldestId: "search-bun-20",
+      },
+    });
+
+    expect(twitterMockState.timelineCalls).toContainEqual({
+      kind: "search",
+      authMode: "bearer",
+      query: "bun",
+      maxResults: 10,
+      paginationToken: "page-2",
+    });
+  });
+
+  test("supports stable home, user, and mentions timelines through the SDK", async () => {
+    process.env["X_GW_CONSUMER_KEY"] = "ck";
+    process.env["X_GW_CONSUMER_SECRET"] = "cs";
+    process.env["X_GW_ACCESS_TOKEN"] = "at";
+    process.env["X_GW_ACCESS_TOKEN_SECRET"] = "ats";
+
+    const client = createXGatewayClient();
+
+    const homeTimeline = await client.timelineHome({
+      maxResults: 5,
+    });
+    expect(homeTimeline.posts[0]).toMatchObject({ id: "home-1" });
+    expect(homeTimeline.posts[1]).toMatchObject({ id: "home-2" });
+    expect(homeTimeline.pageInfo).toMatchObject({
+      resultCount: 5,
+      nextToken: "page-2",
+    });
+
+    const userTimeline = await client.timelineUser({
+      userId: "user-42",
+      maxResults: 5,
+      paginationToken: "page-2",
+    });
+    expect(userTimeline.posts[0]).toMatchObject({ id: "user-user-42-6" });
+    expect(userTimeline.pageInfo).toMatchObject({
+      resultCount: 5,
+      previousToken: "page-1",
+    });
+
+    const mentionsTimeline = await client.timelineMentions({
+      userId: "user-42",
+      maxResults: 5,
+    });
+    expect(mentionsTimeline.posts[0]).toMatchObject({
+      id: "mentions-user-42-1",
+    });
+    expect(mentionsTimeline.pageInfo).toMatchObject({
+      resultCount: 5,
+      nextToken: "page-2",
+    });
+  });
+
+  test("validates stable timeline pagination bounds through the SDK", async () => {
+    process.env["X_GW_TOKEN"] = "bearer-token";
+
+    const client = createXGatewayClient();
+
+    await expect(
+      client.timelineSearch({
+        query: "bun",
+        maxResults: 9,
+      }),
+    ).rejects.toMatchObject({
+      payload: expect.objectContaining({
+        code: "VALIDATION_ERROR",
+        details: expect.stringContaining(
+          "maxResults must be an integer between 10 and 100.",
+        ),
+      }),
+    });
+
+    await expect(
+      client.timelineHome({
+        maxResults: 4,
+      }),
+    ).rejects.toMatchObject({
+      payload: expect.objectContaining({
+        code: "VALIDATION_ERROR",
+        details: expect.stringContaining(
+          "maxResults must be an integer between 5 and 100.",
+        ),
+      }),
     });
   });
 
@@ -1288,6 +1690,41 @@ describe("createXGatewayClient", () => {
               id: "reply-1",
             },
           ],
+        },
+      },
+    });
+  });
+
+  test("supports paginated timeline fields through the project-owned GraphQL SDK contract", async () => {
+    process.env["X_GW_TOKEN"] = "bearer-token";
+
+    const client = createXGatewayClient();
+
+    await expect(
+      client.apiRequest({
+        query:
+          'query { searchPosts(query: "bun", maxResults: 10, paginationToken: "page-2") { posts { id author { username } } pageInfo { resultCount previousToken oldestId } } }',
+      }),
+    ).resolves.toEqual({
+      data: {
+        searchPosts: {
+          posts: [
+            { id: "search-bun-11", author: { username: "author_one" } },
+            { id: "search-bun-12", author: { username: "author_two" } },
+            { id: "search-bun-13", author: { username: "author_one" } },
+            { id: "search-bun-14", author: { username: "author_two" } },
+            { id: "search-bun-15", author: { username: "author_one" } },
+            { id: "search-bun-16", author: { username: "author_two" } },
+            { id: "search-bun-17", author: { username: "author_one" } },
+            { id: "search-bun-18", author: { username: "author_two" } },
+            { id: "search-bun-19", author: { username: "author_one" } },
+            { id: "search-bun-20", author: { username: "author_two" } },
+          ],
+          pageInfo: {
+            resultCount: 10,
+            previousToken: "page-1",
+            oldestId: "search-bun-20",
+          },
         },
       },
     });
@@ -2329,6 +2766,49 @@ describe("executeCli", () => {
     });
   });
 
+  test("supports stable timeline commands through the CLI", async () => {
+    process.env["X_GW_TOKEN"] = "bearer-token";
+
+    const searchResult = await executeCli(
+      [
+        "timeline",
+        "search",
+        "--query",
+        "bun",
+        "--max-results",
+        "10",
+        "--pagination-token",
+        "page-2",
+      ],
+      {
+        commandName: "x-gateway",
+        surface: "full",
+      },
+    );
+    expect(searchResult).toMatchObject({
+      pageInfo: expect.objectContaining({
+        resultCount: 10,
+        previousToken: "page-1",
+      }),
+    });
+    expect(
+      (searchResult as { posts: ReadonlyArray<{ id: string }> }).posts[0],
+    ).toMatchObject({ id: "search-bun-11" });
+
+    const homeResult = await executeCli(["timeline", "home", "--max-results", "5"], {
+      commandName: "x-gateway-reader",
+      surface: "reader",
+    });
+    expect(homeResult).toMatchObject({
+      pageInfo: expect.objectContaining({
+        nextToken: "page-2",
+      }),
+    });
+    expect(
+      (homeResult as { posts: ReadonlyArray<{ id: string }> }).posts[0],
+    ).toMatchObject({ id: "home-1" });
+  });
+
   test("supports the project-owned GraphQL contract through the CLI", async () => {
     process.env["X_GW_CONSUMER_KEY"] = "ck";
     process.env["X_GW_CONSUMER_SECRET"] = "cs";
@@ -2348,6 +2828,41 @@ describe("executeCli", () => {
         accountMe: {
           id: "oauth1-user",
           username: "oauth1_user",
+        },
+      },
+    });
+  });
+
+  test("supports paginated timeline fields through the project-owned GraphQL CLI contract", async () => {
+    process.env["X_GW_TOKEN"] = "bearer-token";
+
+    await expect(
+      executeCli(
+        [
+          "api",
+          "request",
+          "--query",
+          'query { userTimeline(userId: "user-42", maxResults: 5, paginationToken: "page-2") { posts { id } pageInfo { resultCount previousToken } } }',
+        ],
+        {
+          commandName: "x-gateway",
+          surface: "full",
+        },
+      ),
+    ).resolves.toEqual({
+      data: {
+        userTimeline: {
+          posts: [
+            { id: "user-user-42-6" },
+            { id: "user-user-42-7" },
+            { id: "user-user-42-8" },
+            { id: "user-user-42-9" },
+            { id: "user-user-42-10" },
+          ],
+          pageInfo: {
+            resultCount: 5,
+            previousToken: "page-1",
+          },
         },
       },
     });
@@ -3033,7 +3548,8 @@ describe("executeCli", () => {
   test("includes transport strategy and tightened auth metadata in capability inventory", () => {
     const client = createXGatewayClient();
     const capability = client.capabilitiesGet("post.delete");
-    const deferredRead = client.capabilitiesGet("timeline.search");
+    const timelineSearch = client.capabilitiesGet("timeline.search");
+    const timelineHome = client.capabilitiesGet("timeline.home");
     const deferredSocial = client.capabilitiesGet("social.follows");
     const stableLikes = client.capabilitiesGet("likes.list");
     const rawGraphql = client.capabilitiesGet("graphql.request");
@@ -3050,10 +3566,12 @@ describe("executeCli", () => {
     expect(stableLikes.transportStrategy).toBe("rest-v2");
     expect(stableLikes.authModes).toEqual(["oauth1"]);
     expect(rawGraphql.surfaceCategory).toBe("escape-hatch");
-    expect(deferredRead.notes).not.toContain(
-      "GraphQL-only transport is enforced",
-    );
-    expect(deferredRead.surfaceCategory).toBe("deferred");
+    expect(timelineSearch.publicOperationName).toBe("searchPosts");
+    expect(timelineSearch.surfaceCategory).toBe("stable-contract");
+    expect(timelineSearch.status).toBe("implemented");
+    expect(timelineSearch.transportStrategy).toBe("rest-v2");
+    expect(timelineHome.publicOperationName).toBe("homeTimeline");
+    expect(timelineHome.surfaceCategory).toBe("stable-contract");
     expect(deferredSocial.notes).not.toContain(
       "GraphQL-only transport is enforced",
     );
@@ -3076,11 +3594,15 @@ describe("executeCli", () => {
       "accountMe",
       "createPost",
       "deletePost",
+      "homeTimeline",
+      "mentionsTimeline",
       "post",
       "quotePost",
       "replyToPost",
       "repostPost",
+      "searchPosts",
       "unrepostPost",
+      "userTimeline",
     ]);
   });
 

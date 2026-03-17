@@ -189,6 +189,23 @@ function readStringLiteral(
   return value;
 }
 
+function readOptionalIntegerLiteral(
+  args: Readonly<Record<string, PublicGraphqlValue>>,
+  name: string,
+  createValidationError: ValidationErrorFactory,
+): number | undefined {
+  const value = args[name];
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value !== "number" || !Number.isInteger(value)) {
+    throw createValidationError(
+      `Public GraphQL argument '${name}' must be an integer when provided.`,
+    );
+  }
+  return value;
+}
+
 function rejectUnexpectedArguments(
   fieldName: string,
   args: Readonly<Record<string, PublicGraphqlValue>>,
@@ -319,6 +336,48 @@ function normalizePostLookupResult(
   };
 }
 
+function normalizePostSummary(
+  value: unknown,
+  fieldName: string,
+  createPayloadError: PayloadErrorFactory,
+): Readonly<Record<string, unknown>> {
+  return readObjectRecord(
+    value,
+    fieldName,
+    "The paginated post adapter returned a non-object post payload.",
+    createPayloadError,
+  );
+}
+
+function normalizePostPageResult(
+  value: unknown,
+  fieldName: string,
+  createPayloadError: PayloadErrorFactory,
+): Readonly<Record<string, unknown>> {
+  const result = readObjectRecord(
+    value,
+    fieldName,
+    "The paginated post adapter did not return the expected { posts, pageInfo } shape.",
+    createPayloadError,
+  );
+  const posts = readArrayValue(
+    result["posts"],
+    fieldName,
+    "The paginated post adapter returned a non-array 'posts' payload.",
+    createPayloadError,
+  ).map((entry) => normalizePostSummary(entry, fieldName, createPayloadError));
+  const pageInfo = readObjectRecord(
+    result["pageInfo"],
+    fieldName,
+    "The paginated post adapter returned a non-object 'pageInfo' payload.",
+    createPayloadError,
+  );
+  return {
+    posts,
+    pageInfo,
+  };
+}
+
 function validateSelectionsAgainstSchema(
   topLevelFieldName: string,
   selections: readonly PublicGraphqlSelection[],
@@ -383,6 +442,38 @@ function createPublicApiFieldRegistry(
     "query",
   );
   const postSelectionSchema = readSchemaFieldSelectionSchema("post", "query");
+  const searchPostsAllowedArgumentNames = readSchemaFieldArgumentNames(
+    "searchPosts",
+    "query",
+  );
+  const searchPostsSelectionSchema = readSchemaFieldSelectionSchema(
+    "searchPosts",
+    "query",
+  );
+  const homeTimelineAllowedArgumentNames = readSchemaFieldArgumentNames(
+    "homeTimeline",
+    "query",
+  );
+  const homeTimelineSelectionSchema = readSchemaFieldSelectionSchema(
+    "homeTimeline",
+    "query",
+  );
+  const userTimelineAllowedArgumentNames = readSchemaFieldArgumentNames(
+    "userTimeline",
+    "query",
+  );
+  const userTimelineSelectionSchema = readSchemaFieldSelectionSchema(
+    "userTimeline",
+    "query",
+  );
+  const mentionsTimelineAllowedArgumentNames = readSchemaFieldArgumentNames(
+    "mentionsTimeline",
+    "query",
+  );
+  const mentionsTimelineSelectionSchema = readSchemaFieldSelectionSchema(
+    "mentionsTimeline",
+    "query",
+  );
   const createPostAllowedArgumentNames = readSchemaFieldArgumentNames(
     "createPost",
     "mutation",
@@ -469,6 +560,173 @@ function createPublicApiFieldRegistry(
       },
       normalizeResult: (value, fieldName) =>
         normalizePostLookupResult(value, fieldName, createPayloadError),
+    },
+    {
+      fieldName: "searchPosts",
+      capabilityId: "timeline.search",
+      operationType: "query",
+      allowedArgumentNames: searchPostsAllowedArgumentNames,
+      selectionSchema: searchPostsSelectionSchema,
+      buildCapabilityInput: (args) => {
+        rejectUnexpectedArguments(
+          "searchPosts",
+          args,
+          searchPostsAllowedArgumentNames,
+          createValidationError,
+        );
+        return {
+          query: readStringLiteral(args, "query", createValidationError),
+          ...(readOptionalIntegerLiteral(
+            args,
+            "maxResults",
+            createValidationError,
+          ) === undefined
+            ? {}
+            : {
+                maxResults: readOptionalIntegerLiteral(
+                  args,
+                  "maxResults",
+                  createValidationError,
+                ),
+              }),
+          ...(args["paginationToken"] === undefined
+            ? {}
+            : {
+                paginationToken: readStringLiteral(
+                  args,
+                  "paginationToken",
+                  createValidationError,
+                ),
+              }),
+        };
+      },
+      normalizeResult: (value, fieldName) =>
+        normalizePostPageResult(value, fieldName, createPayloadError),
+    },
+    {
+      fieldName: "homeTimeline",
+      capabilityId: "timeline.home",
+      operationType: "query",
+      allowedArgumentNames: homeTimelineAllowedArgumentNames,
+      selectionSchema: homeTimelineSelectionSchema,
+      buildCapabilityInput: (args) => {
+        rejectUnexpectedArguments(
+          "homeTimeline",
+          args,
+          homeTimelineAllowedArgumentNames,
+          createValidationError,
+        );
+        return {
+          ...(readOptionalIntegerLiteral(
+            args,
+            "maxResults",
+            createValidationError,
+          ) === undefined
+            ? {}
+            : {
+                maxResults: readOptionalIntegerLiteral(
+                  args,
+                  "maxResults",
+                  createValidationError,
+                ),
+              }),
+          ...(args["paginationToken"] === undefined
+            ? {}
+            : {
+                paginationToken: readStringLiteral(
+                  args,
+                  "paginationToken",
+                  createValidationError,
+                ),
+              }),
+        };
+      },
+      normalizeResult: (value, fieldName) =>
+        normalizePostPageResult(value, fieldName, createPayloadError),
+    },
+    {
+      fieldName: "userTimeline",
+      capabilityId: "timeline.user",
+      operationType: "query",
+      allowedArgumentNames: userTimelineAllowedArgumentNames,
+      selectionSchema: userTimelineSelectionSchema,
+      buildCapabilityInput: (args) => {
+        rejectUnexpectedArguments(
+          "userTimeline",
+          args,
+          userTimelineAllowedArgumentNames,
+          createValidationError,
+        );
+        return {
+          userId: readStringLiteral(args, "userId", createValidationError),
+          ...(readOptionalIntegerLiteral(
+            args,
+            "maxResults",
+            createValidationError,
+          ) === undefined
+            ? {}
+            : {
+                maxResults: readOptionalIntegerLiteral(
+                  args,
+                  "maxResults",
+                  createValidationError,
+                ),
+              }),
+          ...(args["paginationToken"] === undefined
+            ? {}
+            : {
+                paginationToken: readStringLiteral(
+                  args,
+                  "paginationToken",
+                  createValidationError,
+                ),
+              }),
+        };
+      },
+      normalizeResult: (value, fieldName) =>
+        normalizePostPageResult(value, fieldName, createPayloadError),
+    },
+    {
+      fieldName: "mentionsTimeline",
+      capabilityId: "timeline.mentions",
+      operationType: "query",
+      allowedArgumentNames: mentionsTimelineAllowedArgumentNames,
+      selectionSchema: mentionsTimelineSelectionSchema,
+      buildCapabilityInput: (args) => {
+        rejectUnexpectedArguments(
+          "mentionsTimeline",
+          args,
+          mentionsTimelineAllowedArgumentNames,
+          createValidationError,
+        );
+        return {
+          userId: readStringLiteral(args, "userId", createValidationError),
+          ...(readOptionalIntegerLiteral(
+            args,
+            "maxResults",
+            createValidationError,
+          ) === undefined
+            ? {}
+            : {
+                maxResults: readOptionalIntegerLiteral(
+                  args,
+                  "maxResults",
+                  createValidationError,
+                ),
+              }),
+          ...(args["paginationToken"] === undefined
+            ? {}
+            : {
+                paginationToken: readStringLiteral(
+                  args,
+                  "paginationToken",
+                  createValidationError,
+                ),
+              }),
+        };
+      },
+      normalizeResult: (value, fieldName) =>
+        normalizePostPageResult(value, fieldName, createPayloadError),
     },
     {
       fieldName: "createPost",

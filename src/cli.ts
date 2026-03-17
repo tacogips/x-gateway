@@ -283,6 +283,29 @@ function allowedCommandFlagNames(
     return allowed;
   }
 
+  if (group === "timeline" && action === "search") {
+    allowed.add("query");
+    allowed.add("max-results");
+    allowed.add("pagination-token");
+    return allowed;
+  }
+
+  if (group === "timeline" && action === "home") {
+    allowed.add("max-results");
+    allowed.add("pagination-token");
+    return allowed;
+  }
+
+  if (
+    group === "timeline" &&
+    (action === "user" || action === "mentions")
+  ) {
+    allowed.add("user-id");
+    allowed.add("max-results");
+    allowed.add("pagination-token");
+    return allowed;
+  }
+
   return allowed;
 }
 
@@ -516,6 +539,10 @@ function usage(commandName: string, surface: CliSurface): string {
     `  ${commandName} api request --query <graphql>`,
     `  ${commandName} account me`,
     `  ${commandName} post get --post-id <postId>`,
+    `  ${commandName} timeline search --query <query> [--max-results <n>] [--pagination-token <token>]`,
+    `  ${commandName} timeline home [--max-results <n>] [--pagination-token <token>]`,
+    `  ${commandName} timeline user --user-id <userId> [--max-results <n>] [--pagination-token <token>]`,
+    `  ${commandName} timeline mentions --user-id <userId> [--max-results <n>] [--pagination-token <token>]`,
     ...(surface === "full"
       ? [
           `  ${commandName} post create --text <text> [--attachments-json <json>]`,
@@ -649,6 +676,7 @@ function assertSupportedCommandSurface(
     "capabilities",
     "account",
     "post",
+    "timeline",
   ]);
   if (supported.has(group)) {
     return;
@@ -656,7 +684,6 @@ function assertSupportedCommandSurface(
   const deferred = new Set([
     "media",
     "tweet",
-    "timeline",
     "users",
     "likes",
     "bookmarks",
@@ -817,6 +844,43 @@ export async function executeCli(
     if (action === "unrepost") {
       return client.postUndoRepost({
         postId: getRequiredFlag(parsed, "post-id"),
+      });
+    }
+    throw createUnknownCommandError(
+      options.commandName,
+      `${group} ${action ?? ""}`.trim(),
+    );
+  }
+
+  if (group === "timeline") {
+    const maxResults = getOptionalNumberFlag(parsed, "max-results");
+    const paginationToken = getOptionalStringFlag(parsed, "pagination-token");
+
+    if (action === "search") {
+      return client.timelineSearch({
+        query: getRequiredFlag(parsed, "query"),
+        ...(maxResults === undefined ? {} : { maxResults }),
+        ...(paginationToken === undefined ? {} : { paginationToken }),
+      });
+    }
+    if (action === "home") {
+      return client.timelineHome({
+        ...(maxResults === undefined ? {} : { maxResults }),
+        ...(paginationToken === undefined ? {} : { paginationToken }),
+      });
+    }
+    if (action === "user") {
+      return client.timelineUser({
+        userId: getRequiredFlag(parsed, "user-id"),
+        ...(maxResults === undefined ? {} : { maxResults }),
+        ...(paginationToken === undefined ? {} : { paginationToken }),
+      });
+    }
+    if (action === "mentions") {
+      return client.timelineMentions({
+        userId: getRequiredFlag(parsed, "user-id"),
+        ...(maxResults === undefined ? {} : { maxResults }),
+        ...(paginationToken === undefined ? {} : { paginationToken }),
       });
     }
     throw createUnknownCommandError(

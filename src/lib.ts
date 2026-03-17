@@ -891,6 +891,36 @@ export type XGatewayPostLookupResult = Readonly<{
   referencedPosts: readonly XGatewayReferencedPost[];
 }>;
 
+export type XGatewayPageInfo = Readonly<{
+  resultCount: number;
+  nextToken?: string;
+  previousToken?: string;
+  newestId?: string;
+  oldestId?: string;
+}>;
+
+export type XGatewayPostPage = Readonly<{
+  posts: readonly XGatewayPostSummary[];
+  pageInfo: XGatewayPageInfo;
+}>;
+
+export type XGatewayTimelinePageOptions = Readonly<{
+  maxResults?: number;
+  paginationToken?: string;
+}>;
+
+export type XGatewayTimelineSearchOptions = Readonly<
+  XGatewayTimelinePageOptions & {
+    query: string;
+  }
+>;
+
+export type XGatewayTimelineUserOptions = Readonly<
+  XGatewayTimelinePageOptions & {
+    userId: string;
+  }
+>;
+
 export type XGatewayPostQuoteOptions = Readonly<{
   text: string;
   quotedPostId: string;
@@ -930,6 +960,18 @@ export type XGatewayClient = Readonly<{
   postGet: (
     options: XGatewayPostGetOptions,
   ) => Promise<XGatewayPostLookupResult>;
+  timelineSearch: (
+    options: XGatewayTimelineSearchOptions,
+  ) => Promise<XGatewayPostPage>;
+  timelineHome: (
+    options?: XGatewayTimelinePageOptions,
+  ) => Promise<XGatewayPostPage>;
+  timelineUser: (
+    options: XGatewayTimelineUserOptions,
+  ) => Promise<XGatewayPostPage>;
+  timelineMentions: (
+    options: XGatewayTimelineUserOptions,
+  ) => Promise<XGatewayPostPage>;
   postCreate: (options: XGatewayPostCreateOptions) => Promise<unknown>;
   postDelete: (options: XGatewayPostDeleteOptions) => Promise<unknown>;
   postReply: (options: XGatewayPostReplyOptions) => Promise<unknown>;
@@ -1446,6 +1488,30 @@ export function createXGatewayClient(
     return executeStableCapability("post.get", options);
   }
 
+  async function timelineSearch(
+    options: XGatewayTimelineSearchOptions,
+  ): Promise<XGatewayPostPage> {
+    return executeStableCapability("timeline.search", options);
+  }
+
+  async function timelineHome(
+    options: XGatewayTimelinePageOptions = {},
+  ): Promise<XGatewayPostPage> {
+    return executeStableCapability("timeline.home", options);
+  }
+
+  async function timelineUser(
+    options: XGatewayTimelineUserOptions,
+  ): Promise<XGatewayPostPage> {
+    return executeStableCapability("timeline.user", options);
+  }
+
+  async function timelineMentions(
+    options: XGatewayTimelineUserOptions,
+  ): Promise<XGatewayPostPage> {
+    return executeStableCapability("timeline.mentions", options);
+  }
+
   async function postCreate(
     options: XGatewayPostCreateOptions,
   ): Promise<unknown> {
@@ -1490,6 +1556,10 @@ export function createXGatewayClient(
     authScopes,
     accountMe,
     postGet,
+    timelineSearch,
+    timelineHome,
+    timelineUser,
+    timelineMentions,
     postCreate,
     postDelete,
     postReply,

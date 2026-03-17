@@ -15,6 +15,7 @@ import {
 import type {
   XGatewayAccountProfile,
   XGatewayError,
+  XGatewayPostPage,
   XGatewayPostCreateOptions,
   XGatewayPostDeleteOptions,
   XGatewayPostGetOptions,
@@ -22,6 +23,9 @@ import type {
   XGatewayPostQuoteOptions,
   XGatewayPostReplyOptions,
   XGatewayPostRepostOptions,
+  XGatewayTimelinePageOptions,
+  XGatewayTimelineSearchOptions,
+  XGatewayTimelineUserOptions,
 } from "./lib";
 
 export type XGatewayReadCapabilityAdapter = Readonly<{
@@ -30,6 +34,18 @@ export type XGatewayReadCapabilityAdapter = Readonly<{
   postGet: (
     options: XGatewayPostGetOptions,
   ) => Promise<XGatewayPostLookupResult>;
+  timelineSearch: (
+    options: XGatewayTimelineSearchOptions,
+  ) => Promise<XGatewayPostPage>;
+  timelineHome: (
+    options: XGatewayTimelinePageOptions,
+  ) => Promise<XGatewayPostPage>;
+  timelineUser: (
+    options: XGatewayTimelineUserOptions,
+  ) => Promise<XGatewayPostPage>;
+  timelineMentions: (
+    options: XGatewayTimelineUserOptions,
+  ) => Promise<XGatewayPostPage>;
 }>;
 
 export type XGatewayStablePostingAdapter = Readonly<{
@@ -45,6 +61,10 @@ export type XGatewayStablePostingAdapter = Readonly<{
 export type StableCapabilityInputById = Readonly<{
   "account.me": undefined;
   "post.get": XGatewayPostGetOptions;
+  "timeline.search": XGatewayTimelineSearchOptions;
+  "timeline.home": XGatewayTimelinePageOptions;
+  "timeline.user": XGatewayTimelineUserOptions;
+  "timeline.mentions": XGatewayTimelineUserOptions;
   "post.create": XGatewayPostCreateOptions;
   "post.delete": XGatewayPostDeleteOptions;
   "post.reply": XGatewayPostReplyOptions;
@@ -56,6 +76,10 @@ export type StableCapabilityInputById = Readonly<{
 export type StableCapabilityResultById = Readonly<{
   "account.me": XGatewayAccountProfile;
   "post.get": XGatewayPostLookupResult;
+  "timeline.search": XGatewayPostPage;
+  "timeline.home": XGatewayPostPage;
+  "timeline.user": XGatewayPostPage;
+  "timeline.mentions": XGatewayPostPage;
   "post.create": unknown;
   "post.delete": unknown;
   "post.reply": unknown;
@@ -230,6 +254,54 @@ export function createStableCapabilityExecutor(
           "Post lookup",
           {
             read: async (adapter) => adapter.postGet(input),
+          },
+          traceId,
+        ),
+    },
+    "timeline.search": {
+      capabilityLabel: "Recent search",
+      plan: (input, traceId) =>
+        buildCapabilityExecutionPlan(
+          "timeline.search",
+          "Recent search",
+          {
+            read: async (adapter) => adapter.timelineSearch(input),
+          },
+          traceId,
+        ),
+    },
+    "timeline.home": {
+      capabilityLabel: "Home timeline",
+      plan: (input, traceId) =>
+        buildCapabilityExecutionPlan(
+          "timeline.home",
+          "Home timeline",
+          {
+            read: async (adapter) => adapter.timelineHome(input),
+          },
+          traceId,
+        ),
+    },
+    "timeline.user": {
+      capabilityLabel: "User timeline",
+      plan: (input, traceId) =>
+        buildCapabilityExecutionPlan(
+          "timeline.user",
+          "User timeline",
+          {
+            read: async (adapter) => adapter.timelineUser(input),
+          },
+          traceId,
+        ),
+    },
+    "timeline.mentions": {
+      capabilityLabel: "Mentions timeline",
+      plan: (input, traceId) =>
+        buildCapabilityExecutionPlan(
+          "timeline.mentions",
+          "Mentions timeline",
+          {
+            read: async (adapter) => adapter.timelineMentions(input),
           },
           traceId,
         ),

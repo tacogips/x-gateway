@@ -47,6 +47,10 @@ export type XGatewayCapabilityRequirement =
 export const STABLE_CAPABILITY_IDS = [
   "account.me",
   "post.get",
+  "timeline.search",
+  "timeline.home",
+  "timeline.user",
+  "timeline.mentions",
   "post.create",
   "post.delete",
   "post.reply",
@@ -88,13 +92,40 @@ export function isStableCapabilityId(
 
 type StablePostingCapabilityId = Exclude<
   StableCapabilityId,
-  "account.me" | "post.get"
+  | "account.me"
+  | "post.get"
+  | "timeline.search"
+  | "timeline.home"
+  | "timeline.user"
+  | "timeline.mentions"
+>;
+
+type StableReadCapabilityId = Extract<
+  StableCapabilityId,
+  | "account.me"
+  | "post.get"
+  | "timeline.search"
+  | "timeline.home"
+  | "timeline.user"
+  | "timeline.mentions"
 >;
 
 type StablePostingCapabilityDescriptorInput = Readonly<{
   id: StablePostingCapabilityId;
   publicOperationName: string;
   operation: string;
+  notes: string;
+}>;
+
+type StableReadCapabilityDescriptorInput = Readonly<{
+  id: StableReadCapabilityId;
+  publicOperationName?: string;
+  endpointFamily: string;
+  operation: string;
+  transportStrategy?: CapabilityTransportStrategy;
+  preferredTransport?: CapabilityTransportStrategy;
+  fallbackTransport?: CapabilityTransportStrategy;
+  authModes?: readonly ("bearer" | "oauth1")[];
   notes: string;
 }>;
 
@@ -116,11 +147,45 @@ function createStablePostingCapabilityDescriptor(
   };
 }
 
+function createStableReadCapabilityDescriptor(
+  input: StableReadCapabilityDescriptorInput,
+): CapabilityDescriptor {
+  return {
+    id: input.id,
+    ...(input.publicOperationName === undefined
+      ? {}
+      : { publicOperationName: input.publicOperationName }),
+    surfaceCategory: "stable-contract",
+    endpointFamily: input.endpointFamily,
+    operation: input.operation,
+    status: "implemented",
+    accessType: "read",
+    transportStrategy: input.transportStrategy ?? "rest-v2",
+    preferredTransport: input.preferredTransport ?? "rest-v2",
+    ...(input.fallbackTransport === undefined
+      ? {}
+      : { fallbackTransport: input.fallbackTransport }),
+    authModes: input.authModes ?? ["oauth1", "bearer"],
+    notes: input.notes,
+  };
+}
+
 const STABLE_POSTING_UNSUPPORTED_REMEDIATIONS = [
   "Configure OAuth1 credentials to use the stable posting capability.",
   "No reviewed bearer-mode stable fallback exists for this capability in the current release.",
   "Use 'graphql request' only if you are intentionally invoking a separate low-level upstream GraphQL workflow.",
 ] as const;
+
+type StableReadPlanningDefinitionInput = Readonly<{
+  capabilityId: Exclude<StableReadCapabilityId, "account.me">;
+  missingAuthReason: string;
+  oauth1ReadinessReason: string;
+  bearerReadinessRequirement?: XGatewayCapabilityRequirement;
+  bearerReadinessStatus?: XGatewayCapabilityReadinessStatus;
+  bearerReadinessReason: string;
+  unsupportedConfiguredAuthReason?: string;
+  unsupportedConfiguredAuthRemediations?: readonly string[];
+}>;
 
 function createStablePostingPlanningDefinition(
   capabilityId: StablePostingCapabilityId,
@@ -141,6 +206,48 @@ function createStablePostingPlanningDefinition(
         readinessRequirement: "oauth1",
         readinessReason:
           "OAuth1 credentials are configured for the reviewed stable posting adapter.",
+      },
+    ],
+  };
+}
+
+function createStableReadPlanningDefinition(
+  input: StableReadPlanningDefinitionInput,
+): CapabilityPlanningDefinition {
+  return {
+    capabilityId: input.capabilityId,
+    missingAuthRequirement: "configured-auth",
+    missingAuthReason: input.missingAuthReason,
+    ...(input.unsupportedConfiguredAuthReason === undefined
+      ? {}
+      : {
+          unsupportedConfiguredAuthReason:
+            input.unsupportedConfiguredAuthReason,
+        }),
+    ...(input.unsupportedConfiguredAuthRemediations === undefined
+      ? {}
+      : {
+          unsupportedConfiguredAuthRemediations:
+            input.unsupportedConfiguredAuthRemediations,
+        }),
+    routes: [
+      {
+        authMode: "oauth1",
+        transport: "rest-v2",
+        adapterKind: "read-capability",
+        readinessRequirement: "configured-auth",
+        readinessReason: input.oauth1ReadinessReason,
+      },
+      {
+        authMode: "bearer",
+        transport: "rest-v2",
+        adapterKind: "read-capability",
+        ...(input.bearerReadinessStatus === undefined
+          ? {}
+          : { readinessStatus: input.bearerReadinessStatus }),
+        readinessRequirement:
+          input.bearerReadinessRequirement ?? "bearer",
+        readinessReason: input.bearerReadinessReason,
       },
     ],
   };
@@ -175,6 +282,46 @@ export const CAPABILITY_REGISTRY: readonly CapabilityDescriptor[] = [
     notes:
       "Uses REST-backed identity adapters. OAuth1 is stable; bearer support depends on a user-context token rather than an app-only bearer.",
   },
+  createStableReadCapabilityDescriptor({
+    id: "post.get",
+    publicOperationName: "post",
+    endpointFamily: "posts",
+    operation: "fetch a post with referenced-post expansion",
+    notes:
+      "Stable lookup baseline uses the public post-lookup API with author and referenced-post expansion. Supports OAuth1 and bearer-token reads when the upstream token can read posts.",
+  }),
+  createStableReadCapabilityDescriptor({
+    id: "timeline.search",
+    publicOperationName: "searchPosts",
+    endpointFamily: "timelines",
+    operation: "recent search with explicit pagination tokens",
+    notes:
+      "Stable recent-search baseline uses the REST v2 recent-search endpoint and returns explicit page metadata. OAuth1 and bearer-token reads are both supported.",
+  }),
+  createStableReadCapabilityDescriptor({
+    id: "timeline.home",
+    publicOperationName: "homeTimeline",
+    endpointFamily: "timelines",
+    operation: "home timeline with explicit pagination tokens",
+    notes:
+      "Stable home-timeline baseline uses the REST v2 reverse-chronological timeline endpoint. OAuth1 is reviewed; bearer auth may require a user-context token rather than an app-only bearer.",
+  }),
+  createStableReadCapabilityDescriptor({
+    id: "timeline.user",
+    publicOperationName: "userTimeline",
+    endpointFamily: "timelines",
+    operation: "user timeline with explicit pagination tokens",
+    notes:
+      "Stable user-timeline baseline uses the REST v2 user-timeline endpoint and returns explicit page metadata for page-by-page traversal.",
+  }),
+  createStableReadCapabilityDescriptor({
+    id: "timeline.mentions",
+    publicOperationName: "mentionsTimeline",
+    endpointFamily: "timelines",
+    operation: "mentions timeline with explicit pagination tokens",
+    notes:
+      "Stable mentions-timeline baseline uses the REST v2 mentions endpoint and returns explicit page metadata. OAuth1 is reviewed; bearer auth may require a user-context token.",
+  }),
   {
     id: "auth.verify",
     surfaceCategory: "stable-contract",
@@ -187,20 +334,6 @@ export const CAPABILITY_REGISTRY: readonly CapabilityDescriptor[] = [
     authModes: ["bearer", "oauth1"],
     notes:
       "Local auth/config diagnostic command. Confirms resolved credential mode and transport readiness, not a full live upstream verification.",
-  },
-  {
-    id: "post.get",
-    publicOperationName: "post",
-    surfaceCategory: "stable-contract",
-    endpointFamily: "posts",
-    operation: "fetch a post with referenced-post expansion",
-    status: "implemented",
-    accessType: "read",
-    transportStrategy: "rest-v2",
-    preferredTransport: "rest-v2",
-    authModes: ["oauth1", "bearer"],
-    notes:
-      "Stable lookup baseline uses the public post-lookup API with author and referenced-post expansion. Supports OAuth1 and bearer-token reads when the upstream token can read posts.",
   },
   createStablePostingCapabilityDescriptor({
     id: "post.create",
@@ -298,20 +431,6 @@ export const CAPABILITY_REGISTRY: readonly CapabilityDescriptor[] = [
       "Foundational referenced-post expansion is available through 'post.get', but broader thread, likes, and retweet-user views remain deferred.",
   },
   {
-    id: "timeline.search",
-    surfaceCategory: "deferred",
-    endpointFamily: "timelines",
-    operation: "home/user/mentions/recent search with pagination",
-    status: "blocked_by_plan",
-    accessType: "read",
-    transportStrategy: "hybrid",
-    preferredTransport: "rest-v2",
-    fallbackTransport: "graphql-web",
-    authModes: ["bearer", "oauth1"],
-    notes:
-      "Deferred until a reviewed timeline/search adapter contract is implemented. Raw GraphQL remains available as a low-level fallback for explicitly mapped operations.",
-  },
-  {
     id: "social.follows",
     surfaceCategory: "deferred",
     endpointFamily: "social-graph",
@@ -381,30 +500,55 @@ export const CAPABILITY_PLANNING_REGISTRY: readonly CapabilityPlanningDefinition
         },
       ],
     },
-    {
+    createStableReadPlanningDefinition({
       capabilityId: "post.get",
-      missingAuthRequirement: "configured-auth",
       missingAuthReason:
         "Stable post lookup requires OAuth1 credentials or a bearer token.",
-      routes: [
-        {
-          authMode: "oauth1",
-          transport: "rest-v2",
-          adapterKind: "read-capability",
-          readinessRequirement: "configured-auth",
-          readinessReason:
-            "OAuth1 credentials are configured for the preferred stable read adapter.",
-        },
-        {
-          authMode: "bearer",
-          transport: "rest-v2",
-          adapterKind: "read-capability",
-          readinessRequirement: "bearer",
-          readinessReason:
-            "Bearer auth is configured for the reviewed REST-backed post lookup adapter.",
-        },
-      ],
-    },
+      oauth1ReadinessReason:
+        "OAuth1 credentials are configured for the preferred stable read adapter.",
+      bearerReadinessReason:
+        "Bearer auth is configured for the reviewed REST-backed post lookup adapter.",
+    }),
+    createStableReadPlanningDefinition({
+      capabilityId: "timeline.search",
+      missingAuthReason:
+        "Recent search requires OAuth1 credentials or a bearer token.",
+      oauth1ReadinessReason:
+        "OAuth1 credentials are configured for the reviewed recent-search adapter.",
+      bearerReadinessReason:
+        "Bearer auth is configured for the reviewed recent-search adapter.",
+    }),
+    createStableReadPlanningDefinition({
+      capabilityId: "timeline.home",
+      missingAuthReason:
+        "Home timeline requires OAuth1 credentials or a user-context bearer token.",
+      oauth1ReadinessReason:
+        "OAuth1 credentials are configured for the reviewed home-timeline adapter.",
+      bearerReadinessRequirement: "user-context-bearer",
+      bearerReadinessStatus: "conditional",
+      bearerReadinessReason:
+        "Bearer auth is configured, but home timeline requires a user-context bearer token to succeed live.",
+    }),
+    createStableReadPlanningDefinition({
+      capabilityId: "timeline.user",
+      missingAuthReason:
+        "User timeline requires OAuth1 credentials or a bearer token.",
+      oauth1ReadinessReason:
+        "OAuth1 credentials are configured for the reviewed user-timeline adapter.",
+      bearerReadinessReason:
+        "Bearer auth is configured for the reviewed user-timeline adapter.",
+    }),
+    createStableReadPlanningDefinition({
+      capabilityId: "timeline.mentions",
+      missingAuthReason:
+        "Mentions timeline requires OAuth1 credentials or a user-context bearer token.",
+      oauth1ReadinessReason:
+        "OAuth1 credentials are configured for the reviewed mentions-timeline adapter.",
+      bearerReadinessRequirement: "user-context-bearer",
+      bearerReadinessStatus: "conditional",
+      bearerReadinessReason:
+        "Bearer auth is configured, but mentions timeline requires a user-context bearer token to succeed live.",
+    }),
     createStablePostingPlanningDefinition(
       "post.create",
       "Stable 'post create' currently supports OAuth1 credentials only. Bearer-token posting is not a reviewed adapter path in this repository state.",
