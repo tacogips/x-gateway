@@ -198,9 +198,10 @@ vi.mock("twitter-api-v2", () => {
         query: string,
         options?: { max_results?: number; next_token?: string },
       ) => Promise<{ data: MockTimelinePayload }>;
-      homeTimeline: (
-        options?: { max_results?: number; pagination_token?: string },
-      ) => Promise<{ data: MockTimelinePayload }>;
+      homeTimeline: (options?: {
+        max_results?: number;
+        pagination_token?: string;
+      }) => Promise<{ data: MockTimelinePayload }>;
       userTimeline: (
         userId: string,
         options?: { max_results?: number; pagination_token?: string },
@@ -340,7 +341,9 @@ vi.mock("twitter-api-v2", () => {
         };
       };
       const authMode =
-        typeof this.auth === "string" ? ("bearer" as const) : ("oauth1" as const);
+        typeof this.auth === "string"
+          ? ("bearer" as const)
+          : ("oauth1" as const);
       return {
         search: async (
           query: string,
@@ -369,9 +372,10 @@ vi.mock("twitter-api-v2", () => {
             data: buildTimelinePayload(`search-${query}`, count, page),
           };
         },
-        homeTimeline: async (
-          options?: { max_results?: number; pagination_token?: string },
-        ) => {
+        homeTimeline: async (options?: {
+          max_results?: number;
+          pagination_token?: string;
+        }) => {
           if (this.auth === "bad-token") {
             throw new ApiResponseError("Unauthorized", {
               code: 401,
@@ -1227,9 +1231,9 @@ describe("createXGatewayClient", () => {
 
     await expect(
       client.timelineSearch({
-        query: "bun",
+        query: "  bun  ",
         maxResults: 10,
-        paginationToken: "page-2",
+        paginationToken: "  page-2  ",
       }),
     ).resolves.toEqual({
       posts: [
@@ -1380,9 +1384,9 @@ describe("createXGatewayClient", () => {
     });
 
     const userTimeline = await client.timelineUser({
-      userId: "user-42",
+      userId: "  user-42  ",
       maxResults: 5,
-      paginationToken: "page-2",
+      paginationToken: "  page-2  ",
     });
     expect(userTimeline.posts[0]).toMatchObject({ id: "user-user-42-6" });
     expect(userTimeline.pageInfo).toMatchObject({
@@ -1703,7 +1707,7 @@ describe("createXGatewayClient", () => {
     await expect(
       client.apiRequest({
         query:
-          'query { searchPosts(query: "bun", maxResults: 10, paginationToken: "page-2") { posts { id author { username } } pageInfo { resultCount previousToken oldestId } } }',
+          'query { searchPosts(query: "  bun  ", maxResults: 10, paginationToken: "  page-2  ") { posts { id author { username } } pageInfo { resultCount previousToken oldestId } } }',
       }),
     ).resolves.toEqual({
       data: {
@@ -2230,7 +2234,8 @@ describe("createXGatewayClient", () => {
   test("allows omitted optional public payload fields during projection", () => {
     const plan = createPublicApiRequestPlan(
       {
-        query: 'query { post(id: "post-1") { id conversationId author { username } } }',
+        query:
+          'query { post(id: "post-1") { id conversationId author { username } } }',
       },
       (message) => new Error(message),
       (fieldName, detail) => new Error(`${fieldName}: ${detail}`),
@@ -2295,9 +2300,7 @@ describe("createXGatewayClient", () => {
         plan.selectionSchema,
         (fieldName, detail) => new Error(`${fieldName}: ${detail}`),
       ),
-    ).toThrowError(
-      /Projected selection 'post\.id' expected a scalar payload/,
-    );
+    ).toThrowError(/Projected selection 'post\.id' expected a scalar payload/);
   });
 
   test("rejects scalar payloads for nested projected public selections", () => {
@@ -2319,7 +2322,9 @@ describe("createXGatewayClient", () => {
         plan.selectionSchema,
         (fieldName, detail) => new Error(`${fieldName}: ${detail}`),
       ),
-    ).toThrowError(/Projected selection 'post\.author' expected an object payload/);
+    ).toThrowError(
+      /Projected selection 'post\.author' expected an object payload/,
+    );
   });
 
   test("rejects invalid nested selection usage on the project-owned GraphQL contract", async () => {
@@ -2380,7 +2385,7 @@ describe("createXGatewayClient", () => {
 
     await expect(
       client.apiRequest({
-        query: 'query { me: accountMe { id username } }',
+        query: "query { me: accountMe { id username } }",
       }),
     ).rejects.toMatchObject({
       payload: expect.objectContaining({
@@ -2457,7 +2462,10 @@ describe("createXGatewayClient", () => {
             },
           ],
         },
-        selections: [{ name: "id", selections: [] }, { name: "text", selections: [] }],
+        selections: [
+          { name: "id", selections: [] },
+          { name: "text", selections: [] },
+        ],
       },
     });
   });
@@ -2508,8 +2516,7 @@ describe("createXGatewayClient", () => {
 
     await expect(
       client.apiRequest({
-        query:
-          'mutation { createPost(text: "hello", attachments: []) { id } }',
+        query: 'mutation { createPost(text: "hello", attachments: []) { id } }',
       }),
     ).rejects.toMatchObject({
       payload: expect.objectContaining({
@@ -2774,11 +2781,11 @@ describe("executeCli", () => {
         "timeline",
         "search",
         "--query",
-        "bun",
+        "  bun  ",
         "--max-results",
         "10",
         "--pagination-token",
-        "page-2",
+        "  page-2  ",
       ],
       {
         commandName: "x-gateway",
@@ -2795,10 +2802,13 @@ describe("executeCli", () => {
       (searchResult as { posts: ReadonlyArray<{ id: string }> }).posts[0],
     ).toMatchObject({ id: "search-bun-11" });
 
-    const homeResult = await executeCli(["timeline", "home", "--max-results", "5"], {
-      commandName: "x-gateway-reader",
-      surface: "reader",
-    });
+    const homeResult = await executeCli(
+      ["timeline", "home", "--max-results", "5"],
+      {
+        commandName: "x-gateway-reader",
+        surface: "reader",
+      },
+    );
     expect(homeResult).toMatchObject({
       pageInfo: expect.objectContaining({
         nextToken: "page-2",
@@ -2842,7 +2852,7 @@ describe("executeCli", () => {
           "api",
           "request",
           "--query",
-          'query { userTimeline(userId: "user-42", maxResults: 5, paginationToken: "page-2") { posts { id } pageInfo { resultCount previousToken } } }',
+          'query { userTimeline(userId: "  user-42  ", maxResults: 5, paginationToken: "  page-2  ") { posts { id } pageInfo { resultCount previousToken } } }',
         ],
         {
           commandName: "x-gateway",

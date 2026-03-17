@@ -189,6 +189,14 @@ function readStringLiteral(
   return value;
 }
 
+function readTrimmedStringLiteral(
+  args: Readonly<Record<string, PublicGraphqlValue>>,
+  name: string,
+  createValidationError: ValidationErrorFactory,
+): string {
+  return readStringLiteral(args, name, createValidationError).trim();
+}
+
 function readOptionalIntegerLiteral(
   args: Readonly<Record<string, PublicGraphqlValue>>,
   name: string,
@@ -575,7 +583,7 @@ function createPublicApiFieldRegistry(
           createValidationError,
         );
         return {
-          query: readStringLiteral(args, "query", createValidationError),
+          query: readTrimmedStringLiteral(args, "query", createValidationError),
           ...(readOptionalIntegerLiteral(
             args,
             "maxResults",
@@ -592,7 +600,7 @@ function createPublicApiFieldRegistry(
           ...(args["paginationToken"] === undefined
             ? {}
             : {
-                paginationToken: readStringLiteral(
+                paginationToken: readTrimmedStringLiteral(
                   args,
                   "paginationToken",
                   createValidationError,
@@ -633,7 +641,7 @@ function createPublicApiFieldRegistry(
           ...(args["paginationToken"] === undefined
             ? {}
             : {
-                paginationToken: readStringLiteral(
+                paginationToken: readTrimmedStringLiteral(
                   args,
                   "paginationToken",
                   createValidationError,
@@ -658,7 +666,11 @@ function createPublicApiFieldRegistry(
           createValidationError,
         );
         return {
-          userId: readStringLiteral(args, "userId", createValidationError),
+          userId: readTrimmedStringLiteral(
+            args,
+            "userId",
+            createValidationError,
+          ),
           ...(readOptionalIntegerLiteral(
             args,
             "maxResults",
@@ -675,7 +687,7 @@ function createPublicApiFieldRegistry(
           ...(args["paginationToken"] === undefined
             ? {}
             : {
-                paginationToken: readStringLiteral(
+                paginationToken: readTrimmedStringLiteral(
                   args,
                   "paginationToken",
                   createValidationError,
@@ -700,7 +712,11 @@ function createPublicApiFieldRegistry(
           createValidationError,
         );
         return {
-          userId: readStringLiteral(args, "userId", createValidationError),
+          userId: readTrimmedStringLiteral(
+            args,
+            "userId",
+            createValidationError,
+          ),
           ...(readOptionalIntegerLiteral(
             args,
             "maxResults",
@@ -717,7 +733,7 @@ function createPublicApiFieldRegistry(
           ...(args["paginationToken"] === undefined
             ? {}
             : {
-                paginationToken: readStringLiteral(
+                paginationToken: readTrimmedStringLiteral(
                   args,
                   "paginationToken",
                   createValidationError,

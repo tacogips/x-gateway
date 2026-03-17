@@ -263,6 +263,14 @@ function validateOptionalPaginationToken(
   return trimmed;
 }
 
+function normalizeRequiredInput(
+  value: string | undefined,
+  fieldName: string,
+  ensureRequired: (value: string | undefined, fieldName: string) => string,
+): string {
+  return ensureRequired(value, fieldName).trim();
+}
+
 function validateOptionalMaxResults(
   value: number | undefined,
   fieldName: string,
@@ -340,23 +348,23 @@ export function createCapabilityAdapterFactories(
     const timelineHome = async (
       options: XGatewayTimelinePageOptions,
     ): Promise<XGatewayPostPage> => {
+      const maxResults = validateOptionalMaxResults(
+        options.maxResults,
+        "maxResults",
+        5,
+        100,
+        dependencies.createValidationError,
+      );
+      const paginationToken = validateOptionalPaginationToken(
+        options.paginationToken,
+        "paginationToken",
+        dependencies.createValidationError,
+      );
       const response = await client.v2.homeTimeline({
-        ...(validateOptionalMaxResults(
-          options.maxResults,
-          "maxResults",
-          5,
-          100,
-          dependencies.createValidationError,
-        ) === undefined
+        ...(maxResults === undefined ? {} : { max_results: maxResults }),
+        ...(paginationToken === undefined
           ? {}
-          : { max_results: options.maxResults }),
-        ...(validateOptionalPaginationToken(
-          options.paginationToken,
-          "paginationToken",
-          dependencies.createValidationError,
-        ) === undefined
-          ? {}
-          : { pagination_token: options.paginationToken }),
+          : { pagination_token: paginationToken }),
         ...POST_LOOKUP_FIELDS,
       });
       return mapPostPage(response.data as V2TimelinePayload);
@@ -364,24 +372,28 @@ export function createCapabilityAdapterFactories(
     const timelineUser = async (
       options: XGatewayTimelineUserOptions,
     ): Promise<XGatewayPostPage> => {
-      const userId = dependencies.ensureRequired(options.userId, "userId");
+      const userId = normalizeRequiredInput(
+        options.userId,
+        "userId",
+        dependencies.ensureRequired,
+      );
+      const maxResults = validateOptionalMaxResults(
+        options.maxResults,
+        "maxResults",
+        5,
+        100,
+        dependencies.createValidationError,
+      );
+      const paginationToken = validateOptionalPaginationToken(
+        options.paginationToken,
+        "paginationToken",
+        dependencies.createValidationError,
+      );
       const response = await client.v2.userTimeline(userId, {
-        ...(validateOptionalMaxResults(
-          options.maxResults,
-          "maxResults",
-          5,
-          100,
-          dependencies.createValidationError,
-        ) === undefined
+        ...(maxResults === undefined ? {} : { max_results: maxResults }),
+        ...(paginationToken === undefined
           ? {}
-          : { max_results: options.maxResults }),
-        ...(validateOptionalPaginationToken(
-          options.paginationToken,
-          "paginationToken",
-          dependencies.createValidationError,
-        ) === undefined
-          ? {}
-          : { pagination_token: options.paginationToken }),
+          : { pagination_token: paginationToken }),
         ...POST_LOOKUP_FIELDS,
       });
       return mapPostPage(response.data as V2TimelinePayload);
@@ -389,24 +401,28 @@ export function createCapabilityAdapterFactories(
     const timelineMentions = async (
       options: XGatewayTimelineUserOptions,
     ): Promise<XGatewayPostPage> => {
-      const userId = dependencies.ensureRequired(options.userId, "userId");
+      const userId = normalizeRequiredInput(
+        options.userId,
+        "userId",
+        dependencies.ensureRequired,
+      );
+      const maxResults = validateOptionalMaxResults(
+        options.maxResults,
+        "maxResults",
+        5,
+        100,
+        dependencies.createValidationError,
+      );
+      const paginationToken = validateOptionalPaginationToken(
+        options.paginationToken,
+        "paginationToken",
+        dependencies.createValidationError,
+      );
       const response = await client.v2.userMentionTimeline(userId, {
-        ...(validateOptionalMaxResults(
-          options.maxResults,
-          "maxResults",
-          5,
-          100,
-          dependencies.createValidationError,
-        ) === undefined
+        ...(maxResults === undefined ? {} : { max_results: maxResults }),
+        ...(paginationToken === undefined
           ? {}
-          : { max_results: options.maxResults }),
-        ...(validateOptionalPaginationToken(
-          options.paginationToken,
-          "paginationToken",
-          dependencies.createValidationError,
-        ) === undefined
-          ? {}
-          : { pagination_token: options.paginationToken }),
+          : { pagination_token: paginationToken }),
         ...POST_LOOKUP_FIELDS,
       });
       return mapPostPage(response.data as V2TimelinePayload);
@@ -414,24 +430,28 @@ export function createCapabilityAdapterFactories(
     const timelineSearch = async (
       options: XGatewayTimelineSearchOptions,
     ): Promise<XGatewayPostPage> => {
-      const query = dependencies.ensureRequired(options.query, "query");
+      const query = normalizeRequiredInput(
+        options.query,
+        "query",
+        dependencies.ensureRequired,
+      );
+      const maxResults = validateOptionalMaxResults(
+        options.maxResults,
+        "maxResults",
+        10,
+        100,
+        dependencies.createValidationError,
+      );
+      const paginationToken = validateOptionalPaginationToken(
+        options.paginationToken,
+        "paginationToken",
+        dependencies.createValidationError,
+      );
       const response = await client.v2.search(query, {
-        ...(validateOptionalMaxResults(
-          options.maxResults,
-          "maxResults",
-          10,
-          100,
-          dependencies.createValidationError,
-        ) === undefined
+        ...(maxResults === undefined ? {} : { max_results: maxResults }),
+        ...(paginationToken === undefined
           ? {}
-          : { max_results: options.maxResults }),
-        ...(validateOptionalPaginationToken(
-          options.paginationToken,
-          "paginationToken",
-          dependencies.createValidationError,
-        ) === undefined
-          ? {}
-          : { next_token: options.paginationToken }),
+          : { next_token: paginationToken }),
         ...POST_LOOKUP_FIELDS,
       });
       return mapPostPage(response.data as V2TimelinePayload);
@@ -470,23 +490,23 @@ export function createCapabilityAdapterFactories(
     const timelineHome = async (
       options: XGatewayTimelinePageOptions,
     ): Promise<XGatewayPostPage> => {
+      const maxResults = validateOptionalMaxResults(
+        options.maxResults,
+        "maxResults",
+        5,
+        100,
+        dependencies.createValidationError,
+      );
+      const paginationToken = validateOptionalPaginationToken(
+        options.paginationToken,
+        "paginationToken",
+        dependencies.createValidationError,
+      );
       const response = await client.v2.homeTimeline({
-        ...(validateOptionalMaxResults(
-          options.maxResults,
-          "maxResults",
-          5,
-          100,
-          dependencies.createValidationError,
-        ) === undefined
+        ...(maxResults === undefined ? {} : { max_results: maxResults }),
+        ...(paginationToken === undefined
           ? {}
-          : { max_results: options.maxResults }),
-        ...(validateOptionalPaginationToken(
-          options.paginationToken,
-          "paginationToken",
-          dependencies.createValidationError,
-        ) === undefined
-          ? {}
-          : { pagination_token: options.paginationToken }),
+          : { pagination_token: paginationToken }),
         ...POST_LOOKUP_FIELDS,
       });
       return mapPostPage(response.data as V2TimelinePayload);
@@ -494,24 +514,28 @@ export function createCapabilityAdapterFactories(
     const timelineUser = async (
       options: XGatewayTimelineUserOptions,
     ): Promise<XGatewayPostPage> => {
-      const userId = dependencies.ensureRequired(options.userId, "userId");
+      const userId = normalizeRequiredInput(
+        options.userId,
+        "userId",
+        dependencies.ensureRequired,
+      );
+      const maxResults = validateOptionalMaxResults(
+        options.maxResults,
+        "maxResults",
+        5,
+        100,
+        dependencies.createValidationError,
+      );
+      const paginationToken = validateOptionalPaginationToken(
+        options.paginationToken,
+        "paginationToken",
+        dependencies.createValidationError,
+      );
       const response = await client.v2.userTimeline(userId, {
-        ...(validateOptionalMaxResults(
-          options.maxResults,
-          "maxResults",
-          5,
-          100,
-          dependencies.createValidationError,
-        ) === undefined
+        ...(maxResults === undefined ? {} : { max_results: maxResults }),
+        ...(paginationToken === undefined
           ? {}
-          : { max_results: options.maxResults }),
-        ...(validateOptionalPaginationToken(
-          options.paginationToken,
-          "paginationToken",
-          dependencies.createValidationError,
-        ) === undefined
-          ? {}
-          : { pagination_token: options.paginationToken }),
+          : { pagination_token: paginationToken }),
         ...POST_LOOKUP_FIELDS,
       });
       return mapPostPage(response.data as V2TimelinePayload);
@@ -519,24 +543,28 @@ export function createCapabilityAdapterFactories(
     const timelineMentions = async (
       options: XGatewayTimelineUserOptions,
     ): Promise<XGatewayPostPage> => {
-      const userId = dependencies.ensureRequired(options.userId, "userId");
+      const userId = normalizeRequiredInput(
+        options.userId,
+        "userId",
+        dependencies.ensureRequired,
+      );
+      const maxResults = validateOptionalMaxResults(
+        options.maxResults,
+        "maxResults",
+        5,
+        100,
+        dependencies.createValidationError,
+      );
+      const paginationToken = validateOptionalPaginationToken(
+        options.paginationToken,
+        "paginationToken",
+        dependencies.createValidationError,
+      );
       const response = await client.v2.userMentionTimeline(userId, {
-        ...(validateOptionalMaxResults(
-          options.maxResults,
-          "maxResults",
-          5,
-          100,
-          dependencies.createValidationError,
-        ) === undefined
+        ...(maxResults === undefined ? {} : { max_results: maxResults }),
+        ...(paginationToken === undefined
           ? {}
-          : { max_results: options.maxResults }),
-        ...(validateOptionalPaginationToken(
-          options.paginationToken,
-          "paginationToken",
-          dependencies.createValidationError,
-        ) === undefined
-          ? {}
-          : { pagination_token: options.paginationToken }),
+          : { pagination_token: paginationToken }),
         ...POST_LOOKUP_FIELDS,
       });
       return mapPostPage(response.data as V2TimelinePayload);
@@ -544,24 +572,28 @@ export function createCapabilityAdapterFactories(
     const timelineSearch = async (
       options: XGatewayTimelineSearchOptions,
     ): Promise<XGatewayPostPage> => {
-      const query = dependencies.ensureRequired(options.query, "query");
+      const query = normalizeRequiredInput(
+        options.query,
+        "query",
+        dependencies.ensureRequired,
+      );
+      const maxResults = validateOptionalMaxResults(
+        options.maxResults,
+        "maxResults",
+        10,
+        100,
+        dependencies.createValidationError,
+      );
+      const paginationToken = validateOptionalPaginationToken(
+        options.paginationToken,
+        "paginationToken",
+        dependencies.createValidationError,
+      );
       const response = await client.v2.search(query, {
-        ...(validateOptionalMaxResults(
-          options.maxResults,
-          "maxResults",
-          10,
-          100,
-          dependencies.createValidationError,
-        ) === undefined
+        ...(maxResults === undefined ? {} : { max_results: maxResults }),
+        ...(paginationToken === undefined
           ? {}
-          : { max_results: options.maxResults }),
-        ...(validateOptionalPaginationToken(
-          options.paginationToken,
-          "paginationToken",
-          dependencies.createValidationError,
-        ) === undefined
-          ? {}
-          : { next_token: options.paginationToken }),
+          : { next_token: paginationToken }),
         ...POST_LOOKUP_FIELDS,
       });
       return mapPostPage(response.data as V2TimelinePayload);
@@ -580,7 +612,7 @@ export function createCapabilityAdapterFactories(
         const response = await client.v2.me({
           "user.fields": ["id", "name", "username"],
         });
-      return mapBearerAccountProfile(response, dependencies.createError);
+        return mapBearerAccountProfile(response, dependencies.createError);
       },
       postGet,
       timelineSearch,

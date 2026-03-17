@@ -199,6 +199,18 @@ function getRequiredFlag(args: ParsedArgs, key: string): string {
   return value;
 }
 
+function getOptionalTrimmedStringFlag(
+  args: ParsedArgs,
+  key: string,
+): string | undefined {
+  const value = getOptionalStringFlag(args, key);
+  return value?.trim();
+}
+
+function getRequiredTrimmedFlag(args: ParsedArgs, key: string): string {
+  return getRequiredFlag(args, key).trim();
+}
+
 function createFlagValidationError(message: string): XGatewayError {
   return new XGatewayError({
     code: "VALIDATION_ERROR",
@@ -296,10 +308,7 @@ function allowedCommandFlagNames(
     return allowed;
   }
 
-  if (
-    group === "timeline" &&
-    (action === "user" || action === "mentions")
-  ) {
+  if (group === "timeline" && (action === "user" || action === "mentions")) {
     allowed.add("user-id");
     allowed.add("max-results");
     allowed.add("pagination-token");
@@ -854,11 +863,14 @@ export async function executeCli(
 
   if (group === "timeline") {
     const maxResults = getOptionalNumberFlag(parsed, "max-results");
-    const paginationToken = getOptionalStringFlag(parsed, "pagination-token");
+    const paginationToken = getOptionalTrimmedStringFlag(
+      parsed,
+      "pagination-token",
+    );
 
     if (action === "search") {
       return client.timelineSearch({
-        query: getRequiredFlag(parsed, "query"),
+        query: getRequiredTrimmedFlag(parsed, "query"),
         ...(maxResults === undefined ? {} : { maxResults }),
         ...(paginationToken === undefined ? {} : { paginationToken }),
       });
@@ -871,14 +883,14 @@ export async function executeCli(
     }
     if (action === "user") {
       return client.timelineUser({
-        userId: getRequiredFlag(parsed, "user-id"),
+        userId: getRequiredTrimmedFlag(parsed, "user-id"),
         ...(maxResults === undefined ? {} : { maxResults }),
         ...(paginationToken === undefined ? {} : { paginationToken }),
       });
     }
     if (action === "mentions") {
       return client.timelineMentions({
-        userId: getRequiredFlag(parsed, "user-id"),
+        userId: getRequiredTrimmedFlag(parsed, "user-id"),
         ...(maxResults === undefined ? {} : { maxResults }),
         ...(paginationToken === undefined ? {} : { paginationToken }),
       });
