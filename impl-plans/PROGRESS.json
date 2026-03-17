@@ -1,5 +1,5 @@
 {
-  "lastUpdated": "2026-03-08T16:35:00Z",
+  "lastUpdated": "2026-03-08T14:40:00Z",
   "phases": {
     "1": { "status": "READY" },
     "2": { "status": "BLOCKED" },
@@ -7,6 +7,27 @@
     "4": { "status": "BLOCKED" }
   },
   "plans": {
+    "x-gateway-canonical-public-graphql-interface": {
+      "phase": 1,
+      "status": "In Progress",
+      "tasks": {
+        "TASK-001": {
+          "status": "Completed",
+          "parallelizable": false,
+          "deps": []
+        },
+        "TASK-002": {
+          "status": "Completed",
+          "parallelizable": false,
+          "deps": ["TASK-001"]
+        },
+        "TASK-003": {
+          "status": "Completed",
+          "parallelizable": false,
+          "deps": ["TASK-001", "TASK-002"]
+        }
+      }
+    },
     "x-gateway-public-contract-coverage-hardening": {
       "phase": 1,
       "status": "Completed",
@@ -353,25 +374,25 @@
     },
     "x-gateway-media-upload-baseline": {
       "phase": 1,
-      "status": "Ready",
+      "status": "Completed",
       "tasks": {
         "TASK-001": {
-          "status": "Not Started",
+          "status": "Completed",
           "parallelizable": false,
           "deps": []
         },
         "TASK-002": {
-          "status": "Not Started",
+          "status": "Completed",
           "parallelizable": false,
           "deps": ["TASK-001"]
         },
         "TASK-003": {
-          "status": "Not Started",
+          "status": "Completed",
           "parallelizable": false,
           "deps": ["TASK-002"]
         },
         "TASK-004": {
-          "status": "Not Started",
+          "status": "Completed",
           "parallelizable": true,
           "deps": ["TASK-001", "TASK-002", "TASK-003"]
         }
@@ -515,7 +536,7 @@
     },
     "x-gateway-likes-list-baseline": {
       "phase": 1,
-      "status": "Completed",
+      "status": "Blocked",
       "tasks": {
         "TASK-001": {
           "status": "Completed",

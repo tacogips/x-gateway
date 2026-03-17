@@ -2,12 +2,31 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { executeCli } from "./cli";
 import { STABLE_CAPABILITY_IDS } from "./capability-metadata";
 import {
+  createPublicApiRequestPlan,
+  projectPublicSelection,
+} from "./public-api-contract";
+import { parsePublicGraphqlDocument } from "./public-graphql-parser";
+import {
   computeBackoffDelayMs,
   createXGatewayClient,
   normalizeError,
   resolveConfig,
   XGatewayError,
 } from "./lib";
+
+const twitterMockState = {
+  uploadedMedia: [] as Array<Readonly<{ filePath: string; target?: string }>>,
+  mediaMetadata: [] as Array<
+    Readonly<{ mediaId: string; altText?: string | undefined }>
+  >,
+  tweetCalls: [] as Array<
+    Readonly<{
+      text: string;
+      mediaIds: readonly string[];
+      kind: "tweet" | "reply" | "quote";
+    }>
+  >,
+};
 
 vi.mock("twitter-api-v2", () => {
   type MockTweet = Readonly<{
@@ -87,6 +106,14 @@ vi.mock("twitter-api-v2", () => {
         screen_name: string;
         name: string;
       }>;
+      uploadMedia: (
+        filePath: string,
+        options?: { target?: string },
+      ) => Promise<string>;
+      createMediaMetadata: (
+        mediaId: string,
+        metadata: { alt_text?: { text: string } },
+      ) => Promise<void>;
     } {
       return {
         verifyCredentials: async () => {
@@ -106,6 +133,30 @@ vi.mock("twitter-api-v2", () => {
             screen_name: "oauth1_user",
             name: "OAuth One",
           };
+        },
+        uploadMedia: async (
+          filePath: string,
+          options?: { target?: string },
+        ) => {
+          const mediaId = `media-${twitterMockState.uploadedMedia.length + 1}`;
+          twitterMockState.uploadedMedia.push({
+            filePath,
+            ...(options?.target === undefined
+              ? {}
+              : { target: options.target }),
+          });
+          return mediaId;
+        },
+        createMediaMetadata: async (
+          mediaId: string,
+          metadata: { alt_text?: { text: string } },
+        ) => {
+          twitterMockState.mediaMetadata.push({
+            mediaId,
+            ...(metadata.alt_text?.text === undefined
+              ? {}
+              : { altText: metadata.alt_text.text }),
+          });
         },
       };
     }
@@ -165,21 +216,42 @@ vi.mock("twitter-api-v2", () => {
         includes: TwitterV2IncludesHelper;
         meta: { result_count: number };
       }>;
-      tweet: (text: string) => Promise<{ data: { id: string; text: string } }>;
+      tweet: (
+        text: string,
+        payload?: { media?: { media_ids?: readonly string[] } },
+      ) => Promise<{
+        data: {
+          id: string;
+          text: string;
+          mediaIds?: readonly string[];
+        };
+      }>;
       deleteTweet: (
         postId: string,
       ) => Promise<{ data: { deleted: boolean; postId: string } }>;
       reply: (
         text: string,
         replyToPostId: string,
+        payload?: { media?: { media_ids?: readonly string[] } },
       ) => Promise<{
-        data: { id: string; text: string; replyToPostId: string };
+        data: {
+          id: string;
+          text: string;
+          replyToPostId: string;
+          mediaIds?: readonly string[];
+        };
       }>;
       quote: (
         text: string,
         quotedPostId: string,
+        payload?: { media?: { media_ids?: readonly string[] } },
       ) => Promise<{
-        data: { id: string; text: string; quotedPostId: string };
+        data: {
+          id: string;
+          text: string;
+          quotedPostId: string;
+          mediaIds?: readonly string[];
+        };
       }>;
       retweet: (
         userId: string,
@@ -297,18 +369,67 @@ vi.mock("twitter-api-v2", () => {
             meta: { result_count: tweets.length },
           };
         },
-        tweet: async (text: string) => ({
-          data: { id: "tweet-1", text },
-        }),
+        tweet: async (
+          text: string,
+          payload?: { media?: { media_ids?: readonly string[] } },
+        ) => {
+          const mediaIds = payload?.media?.media_ids ?? [];
+          twitterMockState.tweetCalls.push({
+            text,
+            mediaIds,
+            kind: "tweet",
+          });
+          return {
+            data: {
+              id: "tweet-1",
+              text,
+              ...(mediaIds.length === 0 ? {} : { mediaIds }),
+            },
+          };
+        },
         deleteTweet: async (postId: string) => ({
           data: { deleted: true, postId },
         }),
-        reply: async (text: string, replyToPostId: string) => ({
-          data: { id: "tweet-2", text, replyToPostId },
-        }),
-        quote: async (text: string, quotedPostId: string) => ({
-          data: { id: "tweet-3", text, quotedPostId },
-        }),
+        reply: async (
+          text: string,
+          replyToPostId: string,
+          payload?: { media?: { media_ids?: readonly string[] } },
+        ) => {
+          const mediaIds = payload?.media?.media_ids ?? [];
+          twitterMockState.tweetCalls.push({
+            text,
+            mediaIds,
+            kind: "reply",
+          });
+          return {
+            data: {
+              id: "tweet-2",
+              text,
+              replyToPostId,
+              ...(mediaIds.length === 0 ? {} : { mediaIds }),
+            },
+          };
+        },
+        quote: async (
+          text: string,
+          quotedPostId: string,
+          payload?: { media?: { media_ids?: readonly string[] } },
+        ) => {
+          const mediaIds = payload?.media?.media_ids ?? [];
+          twitterMockState.tweetCalls.push({
+            text,
+            mediaIds,
+            kind: "quote",
+          });
+          return {
+            data: {
+              id: "tweet-3",
+              text,
+              quotedPostId,
+              ...(mediaIds.length === 0 ? {} : { mediaIds }),
+            },
+          };
+        },
         retweet: async (userId: string, postId: string) => ({
           data: { retweeted: true, userId, postId },
         }),
@@ -348,6 +469,9 @@ afterEach(() => {
   }
   vi.restoreAllMocks();
   globalThis.fetch = ORIGINAL_FETCH;
+  twitterMockState.uploadedMedia.length = 0;
+  twitterMockState.mediaMetadata.length = 0;
+  twitterMockState.tweetCalls.length = 0;
 });
 
 describe("resolveConfig", () => {
@@ -603,11 +727,6 @@ describe("createXGatewayClient", () => {
           selectedAuthMode: "bearer",
         }),
         expect.objectContaining({
-          capabilityId: "likes.list",
-          status: "ready",
-          selectedAuthMode: "bearer",
-        }),
-        expect.objectContaining({
           capabilityId: "post.create",
           status: "blocked",
           requirement: "oauth1",
@@ -624,7 +743,6 @@ describe("createXGatewayClient", () => {
     process.env["X_GW_ACCESS_TOKEN_SECRET"] = "ats";
 
     const client = createXGatewayClient();
-
     await expect(client.authVerify()).resolves.toMatchObject({
       ready: true,
       authMode: "bearer",
@@ -653,6 +771,10 @@ describe("createXGatewayClient", () => {
         }),
       ]),
     });
+    const scopes = await client.authScopes();
+    expect(scopes.notes).toContain(
+      "Liked-post lookup is currently deferred from the stable CLI, SDK, and project-owned GraphQL contract because the previously attempted live adapter route is not yet verified.",
+    );
   });
 
   test("sends raw GraphQL requests through fetch", async () => {
@@ -808,7 +930,7 @@ describe("createXGatewayClient", () => {
     expect("capabilitiesList" in client).toBe(true);
     expect("accountMe" in client).toBe(true);
     expect("postGet" in client).toBe(true);
-    expect("likesList" in client).toBe(true);
+    expect("likesList" in client).toBe(false);
     expect("postCreate" in client).toBe(true);
     expect("postDelete" in client).toBe(true);
     expect("postReply" in client).toBe(true);
@@ -894,58 +1016,6 @@ describe("createXGatewayClient", () => {
     });
   });
 
-  test("supports likesList through the REST compatibility adapter", async () => {
-    process.env["X_GW_AUTH_MODE"] = "oauth1";
-    process.env["X_GW_CONSUMER_KEY"] = "ck";
-    process.env["X_GW_CONSUMER_SECRET"] = "cs";
-    process.env["X_GW_ACCESS_TOKEN"] = "at";
-    process.env["X_GW_ACCESS_TOKEN_SECRET"] = "ats";
-
-    const client = createXGatewayClient();
-
-    await expect(
-      client.likesList({ userId: "user-1", limit: 1 }),
-    ).resolves.toEqual({
-      userId: "user-1",
-      posts: [
-        {
-          id: "user-1-like-1",
-          text: "liked post 1 for user-1",
-          createdAt: "2026-03-08T01:00:00.000Z",
-          conversationId: "likes-conversation-1",
-          author: {
-            id: "author-1",
-            username: "author_one",
-            name: "Author One",
-          },
-        },
-      ],
-    });
-  });
-
-  test("supports likesList with bearer auth through the REST compatibility adapter", async () => {
-    process.env["X_GW_TOKEN"] = "bearer-token";
-
-    const client = createXGatewayClient();
-
-    await expect(client.likesList({ userId: "user-2" })).resolves.toMatchObject(
-      {
-        userId: "user-2",
-        posts: [
-          expect.objectContaining({
-            id: "user-2-like-1",
-            author: expect.objectContaining({
-              username: "author_one",
-            }),
-          }),
-          expect.objectContaining({
-            id: "user-2-like-2",
-          }),
-        ],
-      },
-    );
-  });
-
   test("prefers reviewed OAuth1 read routes over a broken bearer token in mixed-auth mode", async () => {
     process.env["X_GW_TOKEN"] = "bad-token";
     process.env["X_GW_CONSUMER_KEY"] = "ck";
@@ -961,17 +1031,6 @@ describe("createXGatewayClient", () => {
       post: {
         id: "post-mixed",
       },
-    });
-
-    await expect(
-      client.likesList({ userId: "user-mixed" }),
-    ).resolves.toMatchObject({
-      userId: "user-mixed",
-      posts: expect.arrayContaining([
-        expect.objectContaining({
-          id: "user-mixed-like-1",
-        }),
-      ]),
     });
   });
 
@@ -1115,6 +1174,9 @@ describe("createXGatewayClient", () => {
       payload: expect.objectContaining({
         code: "UNSUPPORTED",
         details: expect.stringContaining("OAuth1 credentials only"),
+        remediations: expect.arrayContaining([
+          "No reviewed bearer-mode stable fallback exists for this capability in the current release.",
+        ]),
       }),
     });
   });
@@ -1289,19 +1351,343 @@ describe("createXGatewayClient", () => {
     });
   });
 
-  test("supports the project-owned GraphQL likedPosts contract through the SDK", async () => {
+  test("rejects liked-post lookup on the public GraphQL SDK surface until a live route is verified", async () => {
+    process.env["X_GW_CONSUMER_KEY"] = "ck";
+    process.env["X_GW_CONSUMER_SECRET"] = "cs";
+    process.env["X_GW_ACCESS_TOKEN"] = "at";
+    process.env["X_GW_ACCESS_TOKEN_SECRET"] = "ats";
+
+    const client = createXGatewayClient();
+
+    await expect(
+      client.apiRequest({
+        query:
+          'query { likes(userId: "user-1", limit: 20) { posts { id author { username } } } }',
+      }),
+    ).rejects.toMatchObject({
+      payload: expect.objectContaining({
+        code: "VALIDATION_ERROR",
+        details: expect.stringContaining(
+          "Public GraphQL field 'likes' is not part of the current stable x-gateway contract.",
+        ),
+      }),
+    });
+  });
+
+  test("accepts canonical postId arguments for project-owned GraphQL post mutations", async () => {
+    process.env["X_GW_CONSUMER_KEY"] = "ck";
+    process.env["X_GW_CONSUMER_SECRET"] = "cs";
+    process.env["X_GW_ACCESS_TOKEN"] = "at";
+    process.env["X_GW_ACCESS_TOKEN_SECRET"] = "ats";
+
+    const client = createXGatewayClient();
+
+    await expect(
+      client.apiRequest({
+        query: 'mutation { deletePost(postId: "tweet-1") { id deleted } }',
+      }),
+    ).resolves.toEqual({
+      data: {
+        deletePost: {
+          id: "tweet-1",
+          deleted: true,
+        },
+      },
+    });
+  });
+
+  test("supports canonical public GraphQL post fetch through the SDK", async () => {
     process.env["X_GW_TOKEN"] = "bearer-token";
 
     const client = createXGatewayClient();
 
     await expect(
       client.apiRequest({
-        query: 'query { likedPosts(userId: "user-1", limit: 20) { id } }',
+        query:
+          'query { post(id: "post-7") { id text author { username } conversationId } }',
       }),
     ).resolves.toEqual({
       data: {
-        likedPosts: [{ id: "user-1-like-1" }, { id: "user-1-like-2" }],
+        post: {
+          id: "post-7",
+          text: "post post-7",
+          author: {
+            username: "author_one",
+          },
+          conversationId: "conversation-1",
+        },
       },
+    });
+  });
+
+  test("supports the remaining project-owned GraphQL post mutation contract through the SDK", async () => {
+    process.env["X_GW_CONSUMER_KEY"] = "ck";
+    process.env["X_GW_CONSUMER_SECRET"] = "cs";
+    process.env["X_GW_ACCESS_TOKEN"] = "at";
+    process.env["X_GW_ACCESS_TOKEN_SECRET"] = "ats";
+
+    const client = createXGatewayClient();
+
+    await expect(
+      client.apiRequest({
+        query:
+          'mutation { replyToPost(text: "hello", replyToPostId: "post-1") { id text } }',
+      }),
+    ).resolves.toEqual({
+      data: {
+        replyToPost: {
+          id: "tweet-2",
+          text: "hello",
+        },
+      },
+    });
+
+    await expect(
+      client.apiRequest({
+        query:
+          'mutation { quotePost(text: "hello", quotedPostId: "post-2") { id text } }',
+      }),
+    ).resolves.toEqual({
+      data: {
+        quotePost: {
+          id: "tweet-3",
+          text: "hello",
+        },
+      },
+    });
+
+    await expect(
+      client.apiRequest({
+        query: 'mutation { repostPost(postId: "post-3") { id reposted } }',
+      }),
+    ).resolves.toEqual({
+      data: {
+        repostPost: {
+          id: "post-3",
+          reposted: true,
+        },
+      },
+    });
+
+    await expect(
+      client.apiRequest({
+        query: 'mutation { unrepostPost(postId: "post-3") { id reposted } }',
+      }),
+    ).resolves.toEqual({
+      data: {
+        unrepostPost: {
+          id: "post-3",
+          reposted: false,
+        },
+      },
+    });
+  });
+
+  test("supports attachment-backed post mutations through the SDK and uploads alt text internally", async () => {
+    process.env["X_GW_CONSUMER_KEY"] = "ck";
+    process.env["X_GW_CONSUMER_SECRET"] = "cs";
+    process.env["X_GW_ACCESS_TOKEN"] = "at";
+    process.env["X_GW_ACCESS_TOKEN_SECRET"] = "ats";
+
+    const client = createXGatewayClient();
+
+    await expect(
+      client.postCreate({
+        text: "hello",
+        attachments: [
+          {
+            kind: "image",
+            filePath: "/tmp/create-a.png",
+            altText: "create alt",
+          },
+        ],
+      }),
+    ).resolves.toMatchObject({
+      data: {
+        id: "tweet-1",
+        text: "hello",
+      },
+    });
+
+    await expect(
+      client.postReply({
+        text: "reply",
+        replyToPostId: "post-1",
+        attachments: [{ kind: "image", filePath: "/tmp/reply-a.png" }],
+      }),
+    ).resolves.toMatchObject({
+      data: {
+        id: "tweet-2",
+        text: "reply",
+      },
+    });
+
+    await expect(
+      client.postQuote({
+        text: "quote",
+        quotedPostId: "post-2",
+        attachments: [{ kind: "image", filePath: "/tmp/quote-a.png" }],
+      }),
+    ).resolves.toMatchObject({
+      data: {
+        id: "tweet-3",
+        text: "quote",
+      },
+    });
+
+    expect(twitterMockState.uploadedMedia).toEqual([
+      { filePath: "/tmp/create-a.png", target: "tweet" },
+      { filePath: "/tmp/reply-a.png", target: "tweet" },
+      { filePath: "/tmp/quote-a.png", target: "tweet" },
+    ]);
+    expect(twitterMockState.mediaMetadata).toEqual([
+      { mediaId: "media-1", altText: "create alt" },
+    ]);
+    expect(twitterMockState.tweetCalls).toEqual([
+      { text: "hello", mediaIds: ["media-1"], kind: "tweet" },
+      { text: "reply", mediaIds: ["media-2"], kind: "reply" },
+      { text: "quote", mediaIds: ["media-3"], kind: "quote" },
+    ]);
+  });
+
+  test("supports attachment-backed public GraphQL post mutations through the SDK", async () => {
+    process.env["X_GW_CONSUMER_KEY"] = "ck";
+    process.env["X_GW_CONSUMER_SECRET"] = "cs";
+    process.env["X_GW_ACCESS_TOKEN"] = "at";
+    process.env["X_GW_ACCESS_TOKEN_SECRET"] = "ats";
+
+    const client = createXGatewayClient();
+
+    await expect(
+      client.apiRequest({
+        query:
+          'mutation { createPost(text: "hello", attachments: [{ kind: "image", filePath: "/tmp/a.png", altText: "example" }]) { id text } }',
+      }),
+    ).resolves.toEqual({
+      data: {
+        createPost: {
+          id: "tweet-1",
+          text: "hello",
+        },
+      },
+    });
+
+    await expect(
+      client.apiRequest({
+        query:
+          'mutation { replyToPost(text: "hello", replyToPostId: "123", attachments: [{ kind: "image", filePath: "/tmp/b.png" }]) { id text } }',
+      }),
+    ).resolves.toEqual({
+      data: {
+        replyToPost: {
+          id: "tweet-2",
+          text: "hello",
+        },
+      },
+    });
+
+    await expect(
+      client.apiRequest({
+        query:
+          'mutation { quotePost(text: "hello", quotedPostId: "456", attachments: [{ kind: "image", filePath: "/tmp/c.png" }]) { id text } }',
+      }),
+    ).resolves.toEqual({
+      data: {
+        quotePost: {
+          id: "tweet-3",
+          text: "hello",
+        },
+      },
+    });
+
+    expect(twitterMockState.uploadedMedia).toEqual([
+      { filePath: "/tmp/a.png", target: "tweet" },
+      { filePath: "/tmp/b.png", target: "tweet" },
+      { filePath: "/tmp/c.png", target: "tweet" },
+    ]);
+    expect(twitterMockState.mediaMetadata).toEqual([
+      { mediaId: "media-1", altText: "example" },
+    ]);
+    expect(twitterMockState.tweetCalls).toEqual([
+      { text: "hello", mediaIds: ["media-1"], kind: "tweet" },
+      { text: "hello", mediaIds: ["media-2"], kind: "reply" },
+      { text: "hello", mediaIds: ["media-3"], kind: "quote" },
+    ]);
+  });
+
+  test("rejects deprecated public GraphQL field names with migration guidance", async () => {
+    process.env["X_GW_TOKEN"] = "bearer-token";
+
+    const client = createXGatewayClient();
+
+    await expect(
+      client.apiRequest({
+        query: 'query { likedPosts(userId: "user-1", limit: 5) { id } }',
+      }),
+    ).rejects.toMatchObject({
+      payload: expect.objectContaining({
+        code: "VALIDATION_ERROR",
+        details: expect.stringContaining(
+          "Public GraphQL field 'likedPosts' is not part of the current stable x-gateway contract.",
+        ),
+      }),
+    });
+  });
+
+  test("rejects deprecated mutation id arguments with migration guidance", async () => {
+    process.env["X_GW_CONSUMER_KEY"] = "ck";
+    process.env["X_GW_CONSUMER_SECRET"] = "cs";
+    process.env["X_GW_ACCESS_TOKEN"] = "at";
+    process.env["X_GW_ACCESS_TOKEN_SECRET"] = "ats";
+
+    const client = createXGatewayClient();
+
+    await expect(
+      client.apiRequest({
+        query: 'mutation { deletePost(id: "tweet-1") { id deleted } }',
+      }),
+    ).rejects.toMatchObject({
+      payload: expect.objectContaining({
+        code: "VALIDATION_ERROR",
+        details: expect.stringContaining(
+          "Public GraphQL field 'deletePost' uses 'postId' instead of 'id'.",
+        ),
+      }),
+    });
+  });
+
+  test("rejects deprecated repost mutation id arguments with migration guidance", async () => {
+    process.env["X_GW_CONSUMER_KEY"] = "ck";
+    process.env["X_GW_CONSUMER_SECRET"] = "cs";
+    process.env["X_GW_ACCESS_TOKEN"] = "at";
+    process.env["X_GW_ACCESS_TOKEN_SECRET"] = "ats";
+
+    const client = createXGatewayClient();
+
+    await expect(
+      client.apiRequest({
+        query: 'mutation { repostPost(id: "tweet-1") { id reposted } }',
+      }),
+    ).rejects.toMatchObject({
+      payload: expect.objectContaining({
+        code: "VALIDATION_ERROR",
+        details: expect.stringContaining(
+          "Public GraphQL field 'repostPost' uses 'postId' instead of 'id'.",
+        ),
+      }),
+    });
+
+    await expect(
+      client.apiRequest({
+        query: 'mutation { unrepostPost(id: "tweet-1") { id reposted } }',
+      }),
+    ).rejects.toMatchObject({
+      payload: expect.objectContaining({
+        code: "VALIDATION_ERROR",
+        details: expect.stringContaining(
+          "Public GraphQL field 'unrepostPost' uses 'postId' instead of 'id'.",
+        ),
+      }),
     });
   });
 
@@ -1320,6 +1706,401 @@ describe("createXGatewayClient", () => {
         details: expect.stringContaining(
           "Public GraphQL field 'UserByScreenName' is not part of the stable x-gateway contract.",
         ),
+      }),
+    });
+  });
+
+  test("rejects unexpected public GraphQL arguments that leak transport-shaped input", async () => {
+    process.env["X_GW_TOKEN"] = "bearer-token";
+
+    const client = createXGatewayClient();
+
+    await expect(
+      client.apiRequest({
+        query:
+          'query { post(id: "post-1", operationName: "Viewer") { id text } }',
+      }),
+    ).rejects.toMatchObject({
+      payload: expect.objectContaining({
+        code: "VALIDATION_ERROR",
+        details: expect.stringContaining(
+          "Public GraphQL field 'post' does not accept argument 'operationName'.",
+        ),
+      }),
+    });
+  });
+
+  test("rejects unexpected accountMe arguments on the project-owned GraphQL contract", async () => {
+    process.env["X_GW_TOKEN"] = "bearer-token";
+
+    const client = createXGatewayClient();
+
+    await expect(
+      client.apiRequest({
+        query: 'query { accountMe(id: "user-1") { id username } }',
+      }),
+    ).rejects.toMatchObject({
+      payload: expect.objectContaining({
+        code: "VALIDATION_ERROR",
+        details: expect.stringContaining(
+          "Public GraphQL field 'accountMe' does not accept argument 'id'.",
+        ),
+      }),
+    });
+  });
+
+  test("rejects unsupported public GraphQL selection fields instead of ignoring them", async () => {
+    process.env["X_GW_TOKEN"] = "bearer-token";
+
+    const client = createXGatewayClient();
+
+    await expect(
+      client.apiRequest({
+        query: 'query { post(id: "post-1") { id documentId } }',
+      }),
+    ).rejects.toMatchObject({
+      payload: expect.objectContaining({
+        code: "VALIDATION_ERROR",
+        details: expect.stringContaining(
+          "Public GraphQL selection 'post.documentId' is not part of the stable x-gateway contract.",
+        ),
+      }),
+    });
+  });
+
+  test("rejects missing projected stable payload fields instead of silently dropping them", () => {
+    const plan = createPublicApiRequestPlan(
+      {
+        query: 'query { post(id: "post-1") { id text } }',
+      },
+      (message) => new Error(message),
+      (fieldName, detail) => new Error(`${fieldName}: ${detail}`),
+    );
+
+    expect(() =>
+      projectPublicSelection(
+        {
+          id: "post-1",
+        },
+        plan.selections,
+        "post",
+        plan.selectionSchema,
+        (fieldName, detail) => new Error(`${fieldName}: ${detail}`),
+      ),
+    ).toThrowError(/Projected selection 'post\.text' is missing/);
+  });
+
+  test("allows omitted optional public payload fields during projection", () => {
+    const plan = createPublicApiRequestPlan(
+      {
+        query: 'query { post(id: "post-1") { id conversationId author { username } } }',
+      },
+      (message) => new Error(message),
+      (fieldName, detail) => new Error(`${fieldName}: ${detail}`),
+    );
+
+    expect(
+      projectPublicSelection(
+        {
+          id: "post-1",
+        },
+        plan.selections,
+        "post",
+        plan.selectionSchema,
+        (fieldName, detail) => new Error(`${fieldName}: ${detail}`),
+      ),
+    ).toEqual({
+      id: "post-1",
+    });
+  });
+
+  test("rejects null projected values for required public payload fields", () => {
+    const plan = createPublicApiRequestPlan(
+      {
+        query: 'query { post(id: "post-1") { id text } }',
+      },
+      (message) => new Error(message),
+      (fieldName, detail) => new Error(`${fieldName}: ${detail}`),
+    );
+
+    expect(() =>
+      projectPublicSelection(
+        {
+          id: "post-1",
+          text: null,
+        },
+        plan.selections,
+        "post",
+        plan.selectionSchema,
+        (fieldName, detail) => new Error(`${fieldName}: ${detail}`),
+      ),
+    ).toThrowError(
+      /Projected selection 'post\.text' is required by the stable payload schema, but received null/,
+    );
+  });
+
+  test("rejects object payloads for scalar projected public selections", () => {
+    const plan = createPublicApiRequestPlan(
+      {
+        query: 'query { post(id: "post-1") { id } }',
+      },
+      (message) => new Error(message),
+      (fieldName, detail) => new Error(`${fieldName}: ${detail}`),
+    );
+
+    expect(() =>
+      projectPublicSelection(
+        {
+          id: { raw: "post-1" },
+        },
+        plan.selections,
+        "post",
+        plan.selectionSchema,
+        (fieldName, detail) => new Error(`${fieldName}: ${detail}`),
+      ),
+    ).toThrowError(
+      /Projected selection 'post\.id' expected a scalar payload/,
+    );
+  });
+
+  test("rejects scalar payloads for nested projected public selections", () => {
+    const plan = createPublicApiRequestPlan(
+      {
+        query: 'query { post(id: "post-1") { author { username } } }',
+      },
+      (message) => new Error(message),
+      (fieldName, detail) => new Error(`${fieldName}: ${detail}`),
+    );
+
+    expect(() =>
+      projectPublicSelection(
+        {
+          author: "not-an-object",
+        },
+        plan.selections,
+        "post",
+        plan.selectionSchema,
+        (fieldName, detail) => new Error(`${fieldName}: ${detail}`),
+      ),
+    ).toThrowError(/Projected selection 'post\.author' expected an object payload/);
+  });
+
+  test("rejects invalid nested selection usage on the project-owned GraphQL contract", async () => {
+    process.env["X_GW_TOKEN"] = "bearer-token";
+
+    const client = createXGatewayClient();
+
+    await expect(
+      client.apiRequest({
+        query: 'query { post(id: "post-1") { author } }',
+      }),
+    ).rejects.toMatchObject({
+      payload: expect.objectContaining({
+        code: "VALIDATION_ERROR",
+        details: expect.stringContaining(
+          "Public GraphQL selection 'post.author' must include a nested selection set.",
+        ),
+      }),
+    });
+
+    await expect(
+      client.apiRequest({
+        query: 'mutation { createPost(text: "hello") { id { raw } } }',
+      }),
+    ).rejects.toMatchObject({
+      payload: expect.objectContaining({
+        code: "VALIDATION_ERROR",
+        details: expect.stringContaining(
+          "Public GraphQL selection 'createPost.id' is scalar and cannot include nested fields.",
+        ),
+      }),
+    });
+  });
+
+  test("rejects public GraphQL operation names with explicit migration guidance", async () => {
+    process.env["X_GW_TOKEN"] = "bearer-token";
+
+    const client = createXGatewayClient();
+
+    await expect(
+      client.apiRequest({
+        query: 'query GetPost { post(id: "post-1") { id } }',
+      }),
+    ).rejects.toMatchObject({
+      payload: expect.objectContaining({
+        code: "VALIDATION_ERROR",
+        details: expect.stringContaining(
+          "Public GraphQL operation names are not supported in this implementation slice.",
+        ),
+      }),
+    });
+  });
+
+  test("rejects public GraphQL aliases with explicit migration guidance", async () => {
+    process.env["X_GW_TOKEN"] = "bearer-token";
+
+    const client = createXGatewayClient();
+
+    await expect(
+      client.apiRequest({
+        query: 'query { me: accountMe { id username } }',
+      }),
+    ).rejects.toMatchObject({
+      payload: expect.objectContaining({
+        code: "VALIDATION_ERROR",
+        details: expect.stringContaining(
+          "Public GraphQL aliases are not supported in this implementation slice.",
+        ),
+      }),
+    });
+  });
+
+  test("rejects public GraphQL variables, directives, and fragments explicitly", async () => {
+    process.env["X_GW_TOKEN"] = "bearer-token";
+
+    const client = createXGatewayClient();
+
+    await expect(
+      client.apiRequest({
+        query: "query { post(id: $postId) { id } }",
+      }),
+    ).rejects.toMatchObject({
+      payload: expect.objectContaining({
+        code: "VALIDATION_ERROR",
+        details: expect.stringContaining(
+          "Public GraphQL variables are not supported in this implementation slice.",
+        ),
+      }),
+    });
+
+    await expect(
+      client.apiRequest({
+        query: 'query { post(id: "post-1") @skip(if: true) { id } }',
+      }),
+    ).rejects.toMatchObject({
+      payload: expect.objectContaining({
+        code: "VALIDATION_ERROR",
+        details: expect.stringContaining(
+          "Public GraphQL directives are not supported in this implementation slice.",
+        ),
+      }),
+    });
+
+    await expect(
+      client.apiRequest({
+        query: 'query { post(id: "post-1") { ...PostFields } }',
+      }),
+    ).rejects.toMatchObject({
+      payload: expect.objectContaining({
+        code: "VALIDATION_ERROR",
+        details: expect.stringContaining(
+          "Public GraphQL fragments are not supported in this implementation slice.",
+        ),
+      }),
+    });
+  });
+
+  test("parses public GraphQL attachment list and object literals", () => {
+    expect(
+      parsePublicGraphqlDocument(
+        'mutation { createPost(text: "hello", attachments: [{ kind: "image", filePath: "/tmp/a.png", altText: "example" }]) { id text } }',
+        (message) => new Error(message),
+      ),
+    ).toEqual({
+      operationType: "mutation",
+      field: {
+        name: "createPost",
+        arguments: {
+          text: "hello",
+          attachments: [
+            {
+              kind: "image",
+              filePath: "/tmp/a.png",
+              altText: "example",
+            },
+          ],
+        },
+        selections: [{ name: "id", selections: [] }, { name: "text", selections: [] }],
+      },
+    });
+  });
+
+  test("validates attachment object shape in the public GraphQL contract", async () => {
+    process.env["X_GW_CONSUMER_KEY"] = "ck";
+    process.env["X_GW_CONSUMER_SECRET"] = "cs";
+    process.env["X_GW_ACCESS_TOKEN"] = "at";
+    process.env["X_GW_ACCESS_TOKEN_SECRET"] = "ats";
+
+    const client = createXGatewayClient();
+
+    await expect(
+      client.apiRequest({
+        query:
+          'mutation { createPost(text: "hello", attachments: [{ kind: "video", filePath: "/tmp/a.mp4" }]) { id } }',
+      }),
+    ).rejects.toMatchObject({
+      payload: expect.objectContaining({
+        code: "VALIDATION_ERROR",
+        details: expect.stringContaining("must be 'image'"),
+      }),
+    });
+
+    await expect(
+      client.apiRequest({
+        query:
+          'mutation { createPost(text: "hello", attachments: [{ kind: "image", filePath: "" }]) { id } }',
+      }),
+    ).rejects.toMatchObject({
+      payload: expect.objectContaining({
+        code: "VALIDATION_ERROR",
+        details: expect.stringContaining("filePath"),
+      }),
+    });
+
+    await expect(
+      client.apiRequest({
+        query:
+          'mutation { createPost(text: "hello", attachments: [{ kind: "image", filePath: "/tmp/a.png", upstreamId: "1" }]) { id } }',
+      }),
+    ).rejects.toMatchObject({
+      payload: expect.objectContaining({
+        code: "VALIDATION_ERROR",
+        details: expect.stringContaining("does not accept field 'upstreamId'"),
+      }),
+    });
+
+    await expect(
+      client.apiRequest({
+        query:
+          'mutation { createPost(text: "hello", attachments: []) { id } }',
+      }),
+    ).rejects.toMatchObject({
+      payload: expect.objectContaining({
+        code: "VALIDATION_ERROR",
+        details: expect.stringContaining("between 1 and 4 attachment objects"),
+      }),
+    });
+
+    await expect(
+      client.apiRequest({
+        query:
+          'mutation { createPost(text: "hello", attachments: [{ kind: "image", filePath: "/tmp/a.png", altText: null }]) { id } }',
+      }),
+    ).rejects.toMatchObject({
+      payload: expect.objectContaining({
+        code: "VALIDATION_ERROR",
+        details: expect.stringContaining("altText"),
+      }),
+    });
+
+    await expect(
+      client.apiRequest({
+        query: `mutation { createPost(text: "hello", attachments: [{ kind: "image", filePath: "/tmp/a.png", altText: "${"x".repeat(1001)}" }]) { id } }`,
+      }),
+    ).rejects.toMatchObject({
+      payload: expect.objectContaining({
+        code: "VALIDATION_ERROR",
+        details: expect.stringContaining("between 1 and 1000 characters"),
       }),
     });
   });
@@ -1572,6 +2353,317 @@ describe("executeCli", () => {
     });
   });
 
+  test("rejects liked-post lookup on the public GraphQL CLI surface until a live route is verified", async () => {
+    process.env["X_GW_CONSUMER_KEY"] = "ck";
+    process.env["X_GW_CONSUMER_SECRET"] = "cs";
+    process.env["X_GW_ACCESS_TOKEN"] = "at";
+    process.env["X_GW_ACCESS_TOKEN_SECRET"] = "ats";
+
+    await expect(
+      executeCli(
+        [
+          "api",
+          "request",
+          "--query",
+          'query { likes(userId: "user-1", limit: 2) { posts { id text } } }',
+        ],
+        {
+          commandName: "x-gateway",
+          surface: "full",
+        },
+      ),
+    ).rejects.toMatchObject({
+      payload: expect.objectContaining({
+        code: "VALIDATION_ERROR",
+        details: expect.stringContaining(
+          "Public GraphQL field 'likes' is not part of the current stable x-gateway contract.",
+        ),
+      }),
+    });
+  });
+
+  test("rejects deprecated public GraphQL field names through the CLI with migration guidance", async () => {
+    process.env["X_GW_TOKEN"] = "bearer-token";
+
+    await expect(
+      executeCli(
+        [
+          "api",
+          "request",
+          "--query",
+          'query { likedPosts(userId: "user-1", limit: 2) { id } }',
+        ],
+        {
+          commandName: "x-gateway",
+          surface: "full",
+        },
+      ),
+    ).rejects.toMatchObject({
+      payload: expect.objectContaining({
+        code: "VALIDATION_ERROR",
+        details: expect.stringContaining(
+          "Public GraphQL field 'likedPosts' is not part of the current stable x-gateway contract.",
+        ),
+      }),
+    });
+  });
+
+  test("supports canonical public GraphQL post fetch through the CLI", async () => {
+    process.env["X_GW_TOKEN"] = "bearer-token";
+
+    await expect(
+      executeCli(
+        [
+          "api",
+          "request",
+          "--query",
+          'query { post(id: "post-7") { id text author { username } } }',
+        ],
+        {
+          commandName: "x-gateway",
+          surface: "full",
+        },
+      ),
+    ).resolves.toEqual({
+      data: {
+        post: {
+          id: "post-7",
+          text: "post post-7",
+          author: {
+            username: "author_one",
+          },
+        },
+      },
+    });
+  });
+
+  test("supports the remaining project-owned GraphQL post mutation contract through the CLI", async () => {
+    process.env["X_GW_CONSUMER_KEY"] = "ck";
+    process.env["X_GW_CONSUMER_SECRET"] = "cs";
+    process.env["X_GW_ACCESS_TOKEN"] = "at";
+    process.env["X_GW_ACCESS_TOKEN_SECRET"] = "ats";
+
+    await expect(
+      executeCli(
+        [
+          "api",
+          "request",
+          "--query",
+          'mutation { repostPost(postId: "post-3") { id reposted } }',
+        ],
+        {
+          commandName: "x-gateway",
+          surface: "full",
+        },
+      ),
+    ).resolves.toEqual({
+      data: {
+        repostPost: {
+          id: "post-3",
+          reposted: true,
+        },
+      },
+    });
+
+    await expect(
+      executeCli(
+        [
+          "api",
+          "request",
+          "--query",
+          'mutation { unrepostPost(postId: "post-3") { id reposted } }',
+        ],
+        {
+          commandName: "x-gateway",
+          surface: "full",
+        },
+      ),
+    ).resolves.toEqual({
+      data: {
+        unrepostPost: {
+          id: "post-3",
+          reposted: false,
+        },
+      },
+    });
+  });
+
+  test("supports attachment-backed public GraphQL post mutations through the CLI", async () => {
+    process.env["X_GW_CONSUMER_KEY"] = "ck";
+    process.env["X_GW_CONSUMER_SECRET"] = "cs";
+    process.env["X_GW_ACCESS_TOKEN"] = "at";
+    process.env["X_GW_ACCESS_TOKEN_SECRET"] = "ats";
+
+    await expect(
+      executeCli(
+        [
+          "api",
+          "request",
+          "--query",
+          'mutation { createPost(text: "hello", attachments: [{ kind: "image", filePath: "/tmp/a.png", altText: "example" }]) { id text } }',
+        ],
+        {
+          commandName: "x-gateway",
+          surface: "full",
+        },
+      ),
+    ).resolves.toEqual({
+      data: {
+        createPost: {
+          id: "tweet-1",
+          text: "hello",
+        },
+      },
+    });
+
+    await expect(
+      executeCli(
+        [
+          "api",
+          "request",
+          "--query",
+          'mutation { replyToPost(text: "hello", replyToPostId: "123", attachments: [{ kind: "image", filePath: "/tmp/b.png" }]) { id text } }',
+        ],
+        {
+          commandName: "x-gateway",
+          surface: "full",
+        },
+      ),
+    ).resolves.toEqual({
+      data: {
+        replyToPost: {
+          id: "tweet-2",
+          text: "hello",
+        },
+      },
+    });
+
+    await expect(
+      executeCli(
+        [
+          "api",
+          "request",
+          "--query",
+          'mutation { quotePost(text: "hello", quotedPostId: "456", attachments: [{ kind: "image", filePath: "/tmp/c.png" }]) { id text } }',
+        ],
+        {
+          commandName: "x-gateway",
+          surface: "full",
+        },
+      ),
+    ).resolves.toEqual({
+      data: {
+        quotePost: {
+          id: "tweet-3",
+          text: "hello",
+        },
+      },
+    });
+  });
+
+  test("rejects deprecated mutation id arguments through the CLI with migration guidance", async () => {
+    process.env["X_GW_CONSUMER_KEY"] = "ck";
+    process.env["X_GW_CONSUMER_SECRET"] = "cs";
+    process.env["X_GW_ACCESS_TOKEN"] = "at";
+    process.env["X_GW_ACCESS_TOKEN_SECRET"] = "ats";
+
+    await expect(
+      executeCli(
+        [
+          "api",
+          "request",
+          "--query",
+          'mutation { repostPost(id: "post-3") { id reposted } }',
+        ],
+        {
+          commandName: "x-gateway",
+          surface: "full",
+        },
+      ),
+    ).rejects.toMatchObject({
+      payload: expect.objectContaining({
+        code: "VALIDATION_ERROR",
+        details: expect.stringContaining(
+          "Public GraphQL field 'repostPost' uses 'postId' instead of 'id'.",
+        ),
+      }),
+    });
+  });
+
+  test("rejects unexpected accountMe arguments through the CLI", async () => {
+    process.env["X_GW_TOKEN"] = "bearer-token";
+
+    await expect(
+      executeCli(
+        [
+          "api",
+          "request",
+          "--query",
+          'query { accountMe(id: "user-1") { id username } }',
+        ],
+        {
+          commandName: "x-gateway",
+          surface: "full",
+        },
+      ),
+    ).rejects.toMatchObject({
+      payload: expect.objectContaining({
+        code: "VALIDATION_ERROR",
+        details: expect.stringContaining(
+          "Public GraphQL field 'accountMe' does not accept argument 'id'.",
+        ),
+      }),
+    });
+  });
+
+  test("rejects unsupported public GraphQL args and selections through the CLI", async () => {
+    process.env["X_GW_TOKEN"] = "bearer-token";
+
+    await expect(
+      executeCli(
+        [
+          "api",
+          "request",
+          "--query",
+          'query { post(id: "post-1", operationName: "Viewer") { id } }',
+        ],
+        {
+          commandName: "x-gateway",
+          surface: "full",
+        },
+      ),
+    ).rejects.toMatchObject({
+      payload: expect.objectContaining({
+        code: "VALIDATION_ERROR",
+        details: expect.stringContaining(
+          "Public GraphQL field 'post' does not accept argument 'operationName'.",
+        ),
+      }),
+    });
+
+    await expect(
+      executeCli(
+        [
+          "api",
+          "request",
+          "--query",
+          'query { likes(userId: "user-1") { posts { id features } } }',
+        ],
+        {
+          commandName: "x-gateway",
+          surface: "full",
+        },
+      ),
+    ).rejects.toMatchObject({
+      payload: expect.objectContaining({
+        code: "VALIDATION_ERROR",
+        details: expect.stringContaining(
+          "Public GraphQL field 'likes' is not part of the current stable x-gateway contract.",
+        ),
+      }),
+    });
+  });
+
   test("keeps api request mutations blocked in reader mode", async () => {
     await expect(
       executeCli(
@@ -1619,29 +2711,24 @@ describe("executeCli", () => {
     });
   });
 
-  test("supports likes list through the CLI on both surfaces", async () => {
-    process.env["X_GW_TOKEN"] = "bearer-token";
+  test("rejects deferred likes list through the CLI on both surfaces", async () => {
+    process.env["X_GW_CONSUMER_KEY"] = "ck";
+    process.env["X_GW_CONSUMER_SECRET"] = "cs";
+    process.env["X_GW_ACCESS_TOKEN"] = "at";
+    process.env["X_GW_ACCESS_TOKEN_SECRET"] = "ats";
 
     await expect(
       executeCli(["likes", "list", "--user-id", "user-7", "--limit", "1"], {
         commandName: "x-gateway",
         surface: "full",
       }),
-    ).resolves.toEqual({
-      userId: "user-7",
-      posts: [
-        {
-          id: "user-7-like-1",
-          text: "liked post 1 for user-7",
-          createdAt: "2026-03-08T01:00:00.000Z",
-          conversationId: "likes-conversation-1",
-          author: {
-            id: "author-1",
-            username: "author_one",
-            name: "Author One",
-          },
-        },
-      ],
+    ).rejects.toMatchObject({
+      payload: expect.objectContaining({
+        code: "UNSUPPORTED",
+        details: expect.stringContaining(
+          "does not have a reviewed capability adapter",
+        ),
+      }),
     });
 
     await expect(
@@ -1649,13 +2736,13 @@ describe("executeCli", () => {
         commandName: "x-gateway-reader",
         surface: "reader",
       }),
-    ).resolves.toMatchObject({
-      userId: "user-8",
-      posts: expect.arrayContaining([
-        expect.objectContaining({
-          id: "user-8-like-1",
-        }),
-      ]),
+    ).rejects.toMatchObject({
+      payload: expect.objectContaining({
+        code: "UNSUPPORTED",
+        details: expect.stringContaining(
+          "does not have a reviewed capability adapter",
+        ),
+      }),
     });
   });
 
@@ -1682,16 +2769,36 @@ describe("executeCli", () => {
     process.env["X_GW_ACCESS_TOKEN_SECRET"] = "ats";
 
     await expect(
-      executeCli(["post", "create", "--text", "hello"], {
-        commandName: "x-gateway",
-        surface: "full",
-      }),
+      executeCli(
+        [
+          "post",
+          "create",
+          "--text",
+          "hello",
+          "--attachments-json",
+          '[{"kind":"image","filePath":"/tmp/create-cli.png","altText":"create cli alt"}]',
+        ],
+        {
+          commandName: "x-gateway",
+          surface: "full",
+        },
+      ),
     ).resolves.toMatchObject({
       data: {
         id: "tweet-1",
         text: "hello",
       },
     });
+
+    expect(twitterMockState.uploadedMedia).toEqual([
+      { filePath: "/tmp/create-cli.png", target: "tweet" },
+    ]);
+    expect(twitterMockState.mediaMetadata).toEqual([
+      { mediaId: "media-1", altText: "create cli alt" },
+    ]);
+    expect(twitterMockState.tweetCalls).toEqual([
+      { text: "hello", mediaIds: ["media-1"], kind: "tweet" },
+    ]);
   });
 
   test("supports post delete through the full CLI", async () => {
@@ -1723,7 +2830,16 @@ describe("executeCli", () => {
 
     await expect(
       executeCli(
-        ["post", "reply", "--text", "hello", "--reply-to-post-id", "post-1"],
+        [
+          "post",
+          "reply",
+          "--text",
+          "hello",
+          "--reply-to-post-id",
+          "post-1",
+          "--attachments-json",
+          '[{"kind":"image","filePath":"/tmp/reply-cli.png"}]',
+        ],
         {
           commandName: "x-gateway",
           surface: "full",
@@ -1737,7 +2853,16 @@ describe("executeCli", () => {
     });
     await expect(
       executeCli(
-        ["post", "quote", "--text", "hello", "--quoted-post-id", "post-2"],
+        [
+          "post",
+          "quote",
+          "--text",
+          "hello",
+          "--quoted-post-id",
+          "post-2",
+          "--attachments-json",
+          '[{"kind":"image","filePath":"/tmp/quote-cli.png"}]',
+        ],
         {
           commandName: "x-gateway",
           surface: "full",
@@ -1770,6 +2895,48 @@ describe("executeCli", () => {
         retweeted: false,
         postId: "post-3",
       },
+    });
+
+    expect(twitterMockState.uploadedMedia).toEqual([
+      { filePath: "/tmp/reply-cli.png", target: "tweet" },
+      { filePath: "/tmp/quote-cli.png", target: "tweet" },
+    ]);
+    expect(twitterMockState.mediaMetadata).toEqual([]);
+    expect(twitterMockState.tweetCalls).toEqual([
+      { text: "hello", mediaIds: ["media-1"], kind: "reply" },
+      { text: "hello", mediaIds: ["media-2"], kind: "quote" },
+    ]);
+  });
+
+  test("rejects malformed attachments-json on stable CLI post commands", async () => {
+    process.env["X_GW_AUTH_MODE"] = "oauth1";
+    process.env["X_GW_CONSUMER_KEY"] = "ck";
+    process.env["X_GW_CONSUMER_SECRET"] = "cs";
+    process.env["X_GW_ACCESS_TOKEN"] = "at";
+    process.env["X_GW_ACCESS_TOKEN_SECRET"] = "ats";
+
+    await expect(
+      executeCli(
+        [
+          "post",
+          "create",
+          "--text",
+          "hello",
+          "--attachments-json",
+          '{"kind":"image","filePath":"/tmp/not-an-array.png"}',
+        ],
+        {
+          commandName: "x-gateway",
+          surface: "full",
+        },
+      ),
+    ).rejects.toMatchObject({
+      payload: expect.objectContaining({
+        code: "VALIDATION_ERROR",
+        details: expect.stringContaining(
+          "must be a JSON array containing between 1 and 4 attachment objects",
+        ),
+      }),
     });
   });
 
@@ -1877,11 +3044,11 @@ describe("executeCli", () => {
     expect(capability.accessType).toBe("write");
     expect(capability.preferredTransport).toBe("rest-v2");
     expect(capability.authModes).toEqual(["oauth1"]);
-    expect(stableLikes.status).toBe("implemented");
-    expect(stableLikes.publicOperationName).toBe("likedPosts");
-    expect(stableLikes.surfaceCategory).toBe("stable-contract");
+    expect(stableLikes.status).toBe("blocked_by_plan");
+    expect(stableLikes.publicOperationName).toBeUndefined();
+    expect(stableLikes.surfaceCategory).toBe("deferred");
     expect(stableLikes.transportStrategy).toBe("rest-v2");
-    expect(stableLikes.authModes).toEqual(["oauth1", "bearer"]);
+    expect(stableLikes.authModes).toEqual(["oauth1"]);
     expect(rawGraphql.surfaceCategory).toBe("escape-hatch");
     expect(deferredRead.notes).not.toContain(
       "GraphQL-only transport is enforced",
@@ -1909,7 +3076,6 @@ describe("executeCli", () => {
       "accountMe",
       "createPost",
       "deletePost",
-      "likedPosts",
       "post",
       "quotePost",
       "replyToPost",

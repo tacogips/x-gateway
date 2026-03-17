@@ -1,6 +1,7 @@
 import {
   TwitterApi,
   TwitterV2IncludesHelper,
+  type SendTweetV2Params,
   type TweetV2,
   type TweetV2SingleResult,
   type Tweetv2FieldsParams,
@@ -11,8 +12,7 @@ import type {
   XGatewayAuthConfig,
   XGatewayError,
   XGatewayErrorPayload,
-  XGatewayLikesListOptions,
-  XGatewayLikesListResult,
+  XGatewayPostAttachmentInput,
   XGatewayPostCreateOptions,
   XGatewayPostDeleteOptions,
   XGatewayPostGetOptions,
@@ -28,6 +28,7 @@ import type {
   XGatewayReadCapabilityAdapter,
   XGatewayStablePostingAdapter,
 } from "./stable-capability-executor";
+import { validatePostAttachments } from "./post-attachments";
 
 const POST_LOOKUP_FIELDS: Partial<Tweetv2FieldsParams> = {
   expansions: [
@@ -67,19 +68,6 @@ function hasOauth1(auth: XGatewayAuthConfig): boolean {
 
 function hasBearerToken(auth: XGatewayAuthConfig): boolean {
   return isNonEmpty(auth.token);
-}
-
-function validateLikesListLimit(
-  limit: number | undefined,
-  createValidationError: (message: string) => XGatewayError,
-): number | undefined {
-  if (limit === undefined) {
-    return undefined;
-  }
-  if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
-    throw createValidationError("limit must be an integer between 1 and 100.");
-  }
-  return limit;
 }
 
 function isSupportedPostReferenceRelation(
@@ -149,17 +137,6 @@ function mapPostLookupResult(
   };
 }
 
-function mapLikesListResult(
-  userId: string,
-  tweets: readonly TweetV2[],
-  includesHelper: TwitterV2IncludesHelper,
-): XGatewayLikesListResult {
-  return {
-    userId,
-    posts: tweets.map((tweet) => mapPostSummary(tweet, includesHelper)),
-  };
-}
-
 function mapBearerAccountProfile(
   response: Readonly<{ data?: unknown }>,
   createError: (payload: XGatewayErrorPayload) => XGatewayError,
@@ -201,6 +178,21 @@ function mapBearerAccountProfile(
     username,
     name: typeof user.name === "string" ? user.name : "",
   };
+}
+
+type SupportedMediaIds =
+  | [string]
+  | [string, string]
+  | [string, string, string]
+  | [string, string, string, string];
+
+function toSendTweetMediaIds(
+  mediaIds: readonly string[],
+): SupportedMediaIds | undefined {
+  if (mediaIds.length === 0) {
+    return undefined;
+  }
+  return mediaIds as SupportedMediaIds;
 }
 
 export function createCapabilityAdapterFactories(
@@ -266,20 +258,6 @@ export function createCapabilityAdapterFactories(
       const response = await client.v2.singleTweet(postId, POST_LOOKUP_FIELDS);
       return mapPostLookupResult(response);
     };
-    const likesList = async (
-      options: XGatewayLikesListOptions,
-    ): Promise<XGatewayLikesListResult> => {
-      const userId = dependencies.ensureRequired(options.userId, "userId");
-      const limit = validateLikesListLimit(
-        options.limit,
-        dependencies.createValidationError,
-      );
-      const response = await client.v2.userLikedTweets(userId, {
-        ...POST_LOOKUP_FIELDS,
-        ...(limit === undefined ? {} : { max_results: limit }),
-      });
-      return mapLikesListResult(userId, response.tweets, response.includes);
-    };
 
     return {
       adapterKind: "rest-oauth1",
@@ -295,7 +273,6 @@ export function createCapabilityAdapterFactories(
         };
       },
       postGet,
-      likesList,
     };
   }
 
@@ -308,20 +285,6 @@ export function createCapabilityAdapterFactories(
       const response = await client.v2.singleTweet(postId, POST_LOOKUP_FIELDS);
       return mapPostLookupResult(response);
     };
-    const likesList = async (
-      options: XGatewayLikesListOptions,
-    ): Promise<XGatewayLikesListResult> => {
-      const userId = dependencies.ensureRequired(options.userId, "userId");
-      const limit = validateLikesListLimit(
-        options.limit,
-        dependencies.createValidationError,
-      );
-      const response = await client.v2.userLikedTweets(userId, {
-        ...POST_LOOKUP_FIELDS,
-        ...(limit === undefined ? {} : { max_results: limit }),
-      });
-      return mapLikesListResult(userId, response.tweets, response.includes);
-    };
 
     return {
       adapterKind: "rest-bearer",
@@ -332,7 +295,6 @@ export function createCapabilityAdapterFactories(
         return mapBearerAccountProfile(response, dependencies.createError);
       },
       postGet,
-      likesList,
     };
   }
 
@@ -347,11 +309,70 @@ export function createCapabilityAdapterFactories(
       return user.id_str;
     };
 
+    const uploadAttachments = async (
+      attachments: readonly XGatewayPostAttachmentInput[] | undefined,
+    ): Promise<SupportedMediaIds | undefined> => {
+      const normalizedAttachments =
+        validatePostAttachments(attachments, {
+          createValidationError: dependencies.createValidationError,
+          messages: {
+            invalidCollection:
+              "attachments must contain between 1 and 4 items when provided.",
+            invalidItem: (index) =>
+              `attachments[${index}] must be an object with kind, filePath, and optional altText.`,
+            unexpectedField: (index, key) =>
+              `attachments[${index}] does not accept field '${key}'. Supported fields: kind, filePath, altText.`,
+            invalidKind: (index) =>
+              `attachments[${index}].kind must be 'image' in the current reviewed posting slice.`,
+            invalidFilePath: (index) =>
+              `attachments[${index}].filePath must be a non-empty string.`,
+            invalidAltText: {
+              empty: (index) =>
+                `attachments[${index}].altText must be between 1 and 1000 characters when provided.`,
+              tooLong: (index) =>
+                `attachments[${index}].altText must be between 1 and 1000 characters when provided.`,
+            },
+          },
+        }) ?? [];
+      const mediaIds: string[] = [];
+      for (const attachment of normalizedAttachments) {
+        const mediaId = await client.v1.uploadMedia(attachment.filePath, {
+          target: "tweet",
+        });
+        if (attachment.altText !== undefined) {
+          await client.v1.createMediaMetadata(mediaId, {
+            alt_text: {
+              text: attachment.altText,
+            },
+          });
+        }
+        mediaIds.push(mediaId);
+      }
+      return toSendTweetMediaIds(mediaIds);
+    };
+
+    const buildMediaPayload = async (
+      attachments: readonly XGatewayPostAttachmentInput[] | undefined,
+    ): Promise<Partial<SendTweetV2Params> | undefined> => {
+      const mediaIds = await uploadAttachments(attachments);
+      if (mediaIds === undefined) {
+        return undefined;
+      }
+      return {
+        media: {
+          media_ids: mediaIds,
+        },
+      };
+    };
+
     return {
       adapterKind: "rest-oauth1",
       postCreate: async (options: XGatewayPostCreateOptions) => {
         const text = dependencies.ensureRequired(options.text, "text");
-        return client.v2.tweet(text);
+        return client.v2.tweet(
+          text,
+          await buildMediaPayload(options.attachments),
+        );
       },
       postDelete: async (options: XGatewayPostDeleteOptions) => {
         const postId = dependencies.ensureRequired(options.postId, "postId");
@@ -363,7 +384,11 @@ export function createCapabilityAdapterFactories(
           options.replyToPostId,
           "replyToPostId",
         );
-        return client.v2.reply(text, replyToPostId);
+        return client.v2.reply(
+          text,
+          replyToPostId,
+          await buildMediaPayload(options.attachments),
+        );
       },
       postQuote: async (options: XGatewayPostQuoteOptions) => {
         const text = dependencies.ensureRequired(options.text, "text");
@@ -371,7 +396,11 @@ export function createCapabilityAdapterFactories(
           options.quotedPostId,
           "quotedPostId",
         );
-        return client.v2.quote(text, quotedPostId);
+        return client.v2.quote(
+          text,
+          quotedPostId,
+          await buildMediaPayload(options.attachments),
+        );
       },
       postRepost: async (options: XGatewayPostRepostOptions) => {
         const postId = dependencies.ensureRequired(options.postId, "postId");

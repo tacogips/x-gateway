@@ -8,6 +8,7 @@ import {
   type XGatewayConfig,
   type XGatewayOperationType,
 } from "./lib";
+import { validatePostAttachments } from "./post-attachments";
 
 export type CliSurface = "full" | "reader";
 
@@ -249,6 +250,7 @@ function allowedCommandFlagNames(
 
   if (group === "post" && action === "create") {
     allowed.add("text");
+    allowed.add("attachments-json");
     return allowed;
   }
 
@@ -262,21 +264,17 @@ function allowedCommandFlagNames(
     return allowed;
   }
 
-  if (group === "likes" && action === "list") {
-    allowed.add("user-id");
-    allowed.add("limit");
-    return allowed;
-  }
-
   if (group === "post" && action === "reply") {
     allowed.add("text");
     allowed.add("reply-to-post-id");
+    allowed.add("attachments-json");
     return allowed;
   }
 
   if (group === "post" && action === "quote") {
     allowed.add("text");
     allowed.add("quoted-post-id");
+    allowed.add("attachments-json");
     return allowed;
   }
 
@@ -313,6 +311,20 @@ function parseJsonRecordFlag(
   args: ParsedArgs,
   key: string,
 ): Readonly<Record<string, unknown>> | undefined {
+  const parsed = parseJsonFlag(args, key);
+  if (parsed === undefined) {
+    return undefined;
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw createFlagValidationError(
+      `Flag --${key} must be a JSON object, not an array or primitive value.`,
+    );
+  }
+
+  return parsed as Readonly<Record<string, unknown>>;
+}
+
+function parseJsonFlag(args: ParsedArgs, key: string): unknown {
   const value = getOptionalStringFlag(args, key);
   if (value === undefined) {
     return undefined;
@@ -329,13 +341,32 @@ function parseJsonRecordFlag(
     );
   }
 
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-    throw createFlagValidationError(
-      `Flag --${key} must be a JSON object, not an array or primitive value.`,
-    );
-  }
+  return parsed;
+}
 
-  return parsed as Readonly<Record<string, unknown>>;
+function parseAttachmentsJsonFlag(args: ParsedArgs) {
+  const parsed = parseJsonFlag(args, "attachments-json");
+  return validatePostAttachments(parsed, {
+    createValidationError: createFlagValidationError,
+    messages: {
+      invalidCollection:
+        "Flag --attachments-json must be a JSON array containing between 1 and 4 attachment objects.",
+      invalidItem: (index) =>
+        `Flag --attachments-json item ${index} must be an object.`,
+      unexpectedField: (index, key) =>
+        `Flag --attachments-json item ${index} does not accept field '${key}'. Supported fields: kind, filePath, altText.`,
+      invalidKind: (index) =>
+        `Flag --attachments-json item ${index}.kind must be 'image' in the current reviewed posting slice.`,
+      invalidFilePath: (index) =>
+        `Flag --attachments-json item ${index}.filePath must be a non-empty string.`,
+      invalidAltText: {
+        empty: (index) =>
+          `Flag --attachments-json item ${index}.altText must be a non-empty string when provided.`,
+        tooLong: (index) =>
+          `Flag --attachments-json item ${index}.altText must be between 1 and 1000 characters when provided.`,
+      },
+    },
+  });
 }
 
 function getOperationType(args: ParsedArgs): XGatewayOperationType {
@@ -485,13 +516,12 @@ function usage(commandName: string, surface: CliSurface): string {
     `  ${commandName} api request --query <graphql>`,
     `  ${commandName} account me`,
     `  ${commandName} post get --post-id <postId>`,
-    `  ${commandName} likes list --user-id <userId> [--limit <count>]`,
     ...(surface === "full"
       ? [
-          `  ${commandName} post create --text <text>`,
+          `  ${commandName} post create --text <text> [--attachments-json <json>]`,
           `  ${commandName} post delete --post-id <postId>`,
-          `  ${commandName} post reply --text <text> --reply-to-post-id <postId>`,
-          `  ${commandName} post quote --text <text> --quoted-post-id <postId>`,
+          `  ${commandName} post reply --text <text> --reply-to-post-id <postId> [--attachments-json <json>]`,
+          `  ${commandName} post quote --text <text> --quoted-post-id <postId> [--attachments-json <json>]`,
           `  ${commandName} post repost --post-id <postId>`,
           `  ${commandName} post unrepost --post-id <postId>`,
         ]
@@ -503,9 +533,9 @@ function usage(commandName: string, surface: CliSurface): string {
     `  ${commandName} version`,
     "",
     "Notes:",
-    "  - Stable capability commands are the primary interface for reviewed adapters.",
-    "  - 'api request' uses the project-owned GraphQL-shaped contract and routes internally.",
-    "  - 'graphql request' remains available as a low-level escape hatch.",
+    "  - 'api request' is the primary public interface for reviewed capabilities.",
+    "  - Stable capability commands remain available as transitional convenience wrappers.",
+    "  - 'graphql request' remains available only as a low-level escape hatch.",
     "  - Unimplemented high-level commands are rejected until a reviewed adapter exists.",
   ].join("\n");
 }
@@ -574,6 +604,7 @@ function createUnsupportedCommandSurfaceError(
       "A previous placeholder command surface remained in documentation or memory",
     ],
     remediations: [
+      `Use '${commandName} api request --query <graphql>' for reviewed project-owned GraphQL operations.`,
       `Use '${commandName} graphql request ...' only if you need the low-level GraphQL escape hatch.`,
       "Add a reviewed capability adapter before reintroducing this command group.",
     ],
@@ -596,7 +627,8 @@ function createUnknownCommandError(
     ],
     remediations: [
       `Run '${commandName}' with no arguments to view supported commands.`,
-      `Use '${commandName} graphql request ...' for live X API access.`,
+      `Use '${commandName} api request --query <graphql>' for the canonical public interface.`,
+      `Use '${commandName} graphql request ...' only for low-level upstream GraphQL escape-hatch usage.`,
     ],
     classification: "validation",
     retryable: false,
@@ -617,7 +649,6 @@ function assertSupportedCommandSurface(
     "capabilities",
     "account",
     "post",
-    "likes",
   ]);
   if (supported.has(group)) {
     return;
@@ -751,8 +782,10 @@ export async function executeCli(
       });
     }
     if (action === "create") {
+      const attachments = parseAttachmentsJsonFlag(parsed);
       return client.postCreate({
         text: getRequiredFlag(parsed, "text"),
+        ...(attachments === undefined ? {} : { attachments }),
       });
     }
     if (action === "delete") {
@@ -761,15 +794,19 @@ export async function executeCli(
       });
     }
     if (action === "reply") {
+      const attachments = parseAttachmentsJsonFlag(parsed);
       return client.postReply({
         text: getRequiredFlag(parsed, "text"),
         replyToPostId: getRequiredFlag(parsed, "reply-to-post-id"),
+        ...(attachments === undefined ? {} : { attachments }),
       });
     }
     if (action === "quote") {
+      const attachments = parseAttachmentsJsonFlag(parsed);
       return client.postQuote({
         text: getRequiredFlag(parsed, "text"),
         quotedPostId: getRequiredFlag(parsed, "quoted-post-id"),
+        ...(attachments === undefined ? {} : { attachments }),
       });
     }
     if (action === "repost") {
@@ -780,25 +817,6 @@ export async function executeCli(
     if (action === "unrepost") {
       return client.postUndoRepost({
         postId: getRequiredFlag(parsed, "post-id"),
-      });
-    }
-    throw createUnknownCommandError(
-      options.commandName,
-      `${group} ${action ?? ""}`.trim(),
-    );
-  }
-
-  if (group === "likes") {
-    if (action === "list") {
-      const limit = getOptionalNumberFlag(parsed, "limit");
-      if (limit !== undefined && (limit < 1 || limit > 100)) {
-        throw createFlagValidationError(
-          "Flag --limit must be between 1 and 100.",
-        );
-      }
-      return client.likesList({
-        userId: getRequiredFlag(parsed, "user-id"),
-        ...(limit === undefined ? {} : { limit }),
       });
     }
     throw createUnknownCommandError(

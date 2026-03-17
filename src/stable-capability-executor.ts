@@ -15,8 +15,6 @@ import {
 import type {
   XGatewayAccountProfile,
   XGatewayError,
-  XGatewayLikesListOptions,
-  XGatewayLikesListResult,
   XGatewayPostCreateOptions,
   XGatewayPostDeleteOptions,
   XGatewayPostGetOptions,
@@ -32,9 +30,6 @@ export type XGatewayReadCapabilityAdapter = Readonly<{
   postGet: (
     options: XGatewayPostGetOptions,
   ) => Promise<XGatewayPostLookupResult>;
-  likesList: (
-    options: XGatewayLikesListOptions,
-  ) => Promise<XGatewayLikesListResult>;
 }>;
 
 export type XGatewayStablePostingAdapter = Readonly<{
@@ -50,7 +45,6 @@ export type XGatewayStablePostingAdapter = Readonly<{
 export type StableCapabilityInputById = Readonly<{
   "account.me": undefined;
   "post.get": XGatewayPostGetOptions;
-  "likes.list": XGatewayLikesListOptions;
   "post.create": XGatewayPostCreateOptions;
   "post.delete": XGatewayPostDeleteOptions;
   "post.reply": XGatewayPostReplyOptions;
@@ -62,7 +56,6 @@ export type StableCapabilityInputById = Readonly<{
 export type StableCapabilityResultById = Readonly<{
   "account.me": XGatewayAccountProfile;
   "post.get": XGatewayPostLookupResult;
-  "likes.list": XGatewayLikesListResult;
   "post.create": unknown;
   "post.delete": unknown;
   "post.reply": unknown;
@@ -237,18 +230,6 @@ export function createStableCapabilityExecutor(
           "Post lookup",
           {
             read: async (adapter) => adapter.postGet(input),
-          },
-          traceId,
-        ),
-    },
-    "likes.list": {
-      capabilityLabel: "Liked-post lookup",
-      plan: (input, traceId) =>
-        buildCapabilityExecutionPlan(
-          "likes.list",
-          "Liked-post lookup",
-          {
-            read: async (adapter) => adapter.likesList(input),
           },
           traceId,
         ),

@@ -19,6 +19,7 @@ import {
 } from "./public-graphql-parser";
 import { PUBLIC_GRAPHQL_SCHEMA } from "./public-graphql-schema";
 import type { XGatewayPostAttachmentInput } from "./lib";
+import { validatePostAttachments } from "./post-attachments";
 
 type ValidationErrorFactory = (message: string) => Error;
 type PayloadErrorFactory = (fieldName: string, detail: string) => Error;
@@ -218,76 +219,32 @@ function rejectDeprecatedMutationArgumentName(
   }
 }
 
-function readAttachmentObject(
-  value: PublicGraphqlValue,
-  argumentName: string,
-  index: number,
-  createValidationError: ValidationErrorFactory,
-): XGatewayPostAttachmentInput {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw createValidationError(
-      `Public GraphQL argument '${argumentName}[${index}]' must be an object literal with kind, filePath, and optional altText.`,
-    );
-  }
-  const objectValue = value as Record<string, PublicGraphqlValue>;
-  const allowedKeys = new Set(["kind", "filePath", "altText"]);
-  for (const key of Object.keys(objectValue)) {
-    if (!allowedKeys.has(key)) {
-      throw createValidationError(
-        `Public GraphQL argument '${argumentName}[${index}]' does not accept field '${key}'. Supported fields: kind, filePath, altText.`,
-      );
-    }
-  }
-  const kind = objectValue["kind"];
-  if (kind !== "image") {
-    throw createValidationError(
-      `Public GraphQL argument '${argumentName}[${index}].kind' must be 'image' in the current reviewed posting slice.`,
-    );
-  }
-  const filePath = objectValue["filePath"];
-  if (typeof filePath !== "string" || filePath.trim().length === 0) {
-    throw createValidationError(
-      `Public GraphQL argument '${argumentName}[${index}].filePath' must be a non-empty string.`,
-    );
-  }
-  const altText = objectValue["altText"];
-  if (
-    altText !== undefined &&
-    (typeof altText !== "string" || altText.trim().length === 0)
-  ) {
-    throw createValidationError(
-      `Public GraphQL argument '${argumentName}[${index}].altText' must be a non-empty string when provided.`,
-    );
-  }
-  if (typeof altText === "string" && altText.length > 1000) {
-    throw createValidationError(
-      `Public GraphQL argument '${argumentName}[${index}].altText' must be between 1 and 1000 characters when provided.`,
-    );
-  }
-  return {
-    kind,
-    filePath,
-    ...(typeof altText === "string" ? { altText } : {}),
-  };
-}
-
 function readOptionalAttachments(
   args: Readonly<Record<string, PublicGraphqlValue>>,
   name: string,
   createValidationError: ValidationErrorFactory,
 ): readonly XGatewayPostAttachmentInput[] | undefined {
-  const value = args[name];
-  if (value === undefined || value === null) {
-    return undefined;
-  }
-  if (!Array.isArray(value) || value.length === 0 || value.length > 4) {
-    throw createValidationError(
-      `Public GraphQL argument '${name}' must be a list containing between 1 and 4 attachment objects.`,
-    );
-  }
-  return value.map((item, index) =>
-    readAttachmentObject(item, name, index, createValidationError),
-  );
+  return validatePostAttachments(args[name], {
+    createValidationError,
+    allowNull: true,
+    messages: {
+      invalidCollection: `Public GraphQL argument '${name}' must be a list containing between 1 and 4 attachment objects.`,
+      invalidItem: (index) =>
+        `Public GraphQL argument '${name}[${index}]' must be an object literal with kind, filePath, and optional altText.`,
+      unexpectedField: (index, key) =>
+        `Public GraphQL argument '${name}[${index}]' does not accept field '${key}'. Supported fields: kind, filePath, altText.`,
+      invalidKind: (index) =>
+        `Public GraphQL argument '${name}[${index}].kind' must be 'image' in the current reviewed posting slice.`,
+      invalidFilePath: (index) =>
+        `Public GraphQL argument '${name}[${index}].filePath' must be a non-empty string.`,
+      invalidAltText: {
+        empty: (index) =>
+          `Public GraphQL argument '${name}[${index}].altText' must be a non-empty string when provided.`,
+        tooLong: (index) =>
+          `Public GraphQL argument '${name}[${index}].altText' must be between 1 and 1000 characters when provided.`,
+      },
+    },
+  });
 }
 
 function readObjectRecord(

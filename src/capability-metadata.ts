@@ -47,7 +47,6 @@ export type XGatewayCapabilityRequirement =
 export const STABLE_CAPABILITY_IDS = [
   "account.me",
   "post.get",
-  "likes.list",
   "post.create",
   "post.delete",
   "post.reply",
@@ -85,6 +84,66 @@ export function isStableCapabilityId(
   capabilityId: string,
 ): capabilityId is StableCapabilityId {
   return (STABLE_CAPABILITY_IDS as readonly string[]).includes(capabilityId);
+}
+
+type StablePostingCapabilityId = Exclude<
+  StableCapabilityId,
+  "account.me" | "post.get"
+>;
+
+type StablePostingCapabilityDescriptorInput = Readonly<{
+  id: StablePostingCapabilityId;
+  publicOperationName: string;
+  operation: string;
+  notes: string;
+}>;
+
+function createStablePostingCapabilityDescriptor(
+  input: StablePostingCapabilityDescriptorInput,
+): CapabilityDescriptor {
+  return {
+    id: input.id,
+    publicOperationName: input.publicOperationName,
+    surfaceCategory: "stable-contract",
+    endpointFamily: "posts",
+    operation: input.operation,
+    status: "implemented",
+    accessType: "write",
+    transportStrategy: "rest-v2",
+    preferredTransport: "rest-v2",
+    authModes: ["oauth1"],
+    notes: input.notes,
+  };
+}
+
+const STABLE_POSTING_UNSUPPORTED_REMEDIATIONS = [
+  "Configure OAuth1 credentials to use the stable posting capability.",
+  "No reviewed bearer-mode stable fallback exists for this capability in the current release.",
+  "Use 'graphql request' only if you are intentionally invoking a separate low-level upstream GraphQL workflow.",
+] as const;
+
+function createStablePostingPlanningDefinition(
+  capabilityId: StablePostingCapabilityId,
+  unsupportedConfiguredAuthReason: string,
+): CapabilityPlanningDefinition {
+  return {
+    capabilityId,
+    missingAuthRequirement: "oauth1",
+    missingAuthReason: "Stable posting currently requires OAuth1 credentials.",
+    unsupportedConfiguredAuthReason,
+    unsupportedConfiguredAuthRemediations:
+      STABLE_POSTING_UNSUPPORTED_REMEDIATIONS,
+    routes: [
+      {
+        authMode: "oauth1",
+        transport: "rest-v2",
+        adapterKind: "stable-posting",
+        readinessRequirement: "oauth1",
+        readinessReason:
+          "OAuth1 credentials are configured for the reviewed stable posting adapter.",
+      },
+    ],
+  };
 }
 
 export const CAPABILITY_REGISTRY: readonly CapabilityDescriptor[] = [
@@ -143,103 +202,60 @@ export const CAPABILITY_REGISTRY: readonly CapabilityDescriptor[] = [
     notes:
       "Stable lookup baseline uses the public post-lookup API with author and referenced-post expansion. Supports OAuth1 and bearer-token reads when the upstream token can read posts.",
   },
-  {
+  createStablePostingCapabilityDescriptor({
     id: "post.create",
     publicOperationName: "createPost",
-    surfaceCategory: "stable-contract",
-    endpointFamily: "posts",
-    operation: "create simple text post",
-    status: "implemented",
-    accessType: "write",
-    transportStrategy: "rest-v2",
-    preferredTransport: "rest-v2",
-    authModes: ["oauth1"],
+    operation: "create post with text and optional image attachments",
     notes:
-      "Stable baseline is OAuth1-backed simple text posting through the public REST API. Bearer-token posting is deferred until a reviewed user-context auth flow exists.",
-  },
-  {
+      "Stable baseline is OAuth1-backed posting through the public REST API. The reviewed slice supports text posts plus up to four inline image attachments with optional alt text. Bearer-token posting is deferred until a reviewed user-context auth flow exists.",
+  }),
+  createStablePostingCapabilityDescriptor({
     id: "post.delete",
     publicOperationName: "deletePost",
-    surfaceCategory: "stable-contract",
-    endpointFamily: "posts",
     operation: "delete an existing post",
-    status: "implemented",
-    accessType: "write",
-    transportStrategy: "rest-v2",
-    preferredTransport: "rest-v2",
-    authModes: ["oauth1"],
     notes:
       "Stable baseline is OAuth1-backed post deletion through the public REST API. Bearer-token deletion is deferred until a reviewed user-context auth flow exists.",
-  },
-  {
+  }),
+  createStablePostingCapabilityDescriptor({
     id: "post.reply",
     publicOperationName: "replyToPost",
-    surfaceCategory: "stable-contract",
-    endpointFamily: "posts",
-    operation: "reply to a post with text",
-    status: "implemented",
-    accessType: "write",
-    transportStrategy: "rest-v2",
-    preferredTransport: "rest-v2",
-    authModes: ["oauth1"],
+    operation: "reply to a post with text and optional image attachments",
     notes:
-      "Stable baseline is OAuth1-backed reply posting through the public REST API. Bearer-token posting is deferred until a reviewed user-context auth flow exists.",
-  },
-  {
+      "Stable baseline is OAuth1-backed reply posting through the public REST API. The reviewed slice supports text replies plus up to four inline image attachments with optional alt text. Bearer-token posting is deferred until a reviewed user-context auth flow exists.",
+  }),
+  createStablePostingCapabilityDescriptor({
     id: "post.quote",
     publicOperationName: "quotePost",
-    surfaceCategory: "stable-contract",
-    endpointFamily: "posts",
-    operation: "quote a post with text",
-    status: "implemented",
-    accessType: "write",
-    transportStrategy: "rest-v2",
-    preferredTransport: "rest-v2",
-    authModes: ["oauth1"],
+    operation: "quote a post with text and optional image attachments",
     notes:
-      "Stable baseline is OAuth1-backed quote posting through the public REST API. Bearer-token posting is deferred until a reviewed user-context auth flow exists.",
-  },
-  {
+      "Stable baseline is OAuth1-backed quote posting through the public REST API. The reviewed slice supports text quotes plus up to four inline image attachments with optional alt text. Bearer-token posting is deferred until a reviewed user-context auth flow exists.",
+  }),
+  createStablePostingCapabilityDescriptor({
     id: "post.repost",
     publicOperationName: "repostPost",
-    surfaceCategory: "stable-contract",
-    endpointFamily: "posts",
     operation: "repost an existing post",
-    status: "implemented",
-    accessType: "write",
-    transportStrategy: "rest-v2",
-    preferredTransport: "rest-v2",
-    authModes: ["oauth1"],
     notes:
       "Stable baseline is OAuth1-backed reposting through the public REST API. Bearer-token reposting is deferred until a reviewed user-context auth flow exists.",
-  },
-  {
+  }),
+  createStablePostingCapabilityDescriptor({
     id: "post.unrepost",
     publicOperationName: "unrepostPost",
-    surfaceCategory: "stable-contract",
-    endpointFamily: "posts",
     operation: "undo a repost",
-    status: "implemented",
-    accessType: "write",
-    transportStrategy: "rest-v2",
-    preferredTransport: "rest-v2",
-    authModes: ["oauth1"],
     notes:
       "Stable baseline is OAuth1-backed repost removal through the public REST API. Bearer-token repost removal is deferred until a reviewed user-context auth flow exists.",
-  },
+  }),
   {
     id: "likes.list",
-    publicOperationName: "likedPosts",
-    surfaceCategory: "stable-contract",
+    surfaceCategory: "deferred",
     endpointFamily: "likes",
     operation: "list liked posts for a user",
-    status: "implemented",
+    status: "blocked_by_plan",
     accessType: "read",
     transportStrategy: "rest-v2",
     preferredTransport: "rest-v2",
-    authModes: ["oauth1", "bearer"],
+    authModes: ["oauth1"],
     notes:
-      "Stable baseline uses the public liked-posts API through reviewed REST-backed adapters. OAuth1 is preferred when both credential families are configured; bearer reads are also supported.",
+      "Deferred until a reviewed live route is verified. The previously attempted OAuth1 REST adapter currently fails with upstream HTTP 400 in real CLI usage, so likes are intentionally removed from the stable CLI, SDK, and project-owned GraphQL contract until the adapter contract is corrected.",
   },
   {
     id: "post.article",
@@ -258,14 +274,14 @@ export const CAPABILITY_REGISTRY: readonly CapabilityDescriptor[] = [
     id: "media.upload",
     surfaceCategory: "deferred",
     endpointFamily: "media",
-    operation: "upload media and set alt text",
+    operation: "standalone media upload and alt-text management",
     status: "blocked_by_plan",
     accessType: "write",
     transportStrategy: "rest-v1",
     preferredTransport: "rest-v1",
-    authModes: ["oauth1", "bearer"],
+    authModes: ["oauth1"],
     notes:
-      "REST v1 upload flow was removed; GraphQL/media upload mapping is pending.",
+      "No standalone reviewed upload capability is exposed in the current release. Image upload plus optional alt text exists only as an internal OAuth1-backed helper behind the stable create/reply/quote post mutations.",
   },
   {
     id: "tweet.references",
@@ -389,160 +405,28 @@ export const CAPABILITY_PLANNING_REGISTRY: readonly CapabilityPlanningDefinition
         },
       ],
     },
-    {
-      capabilityId: "likes.list",
-      missingAuthRequirement: "configured-auth",
-      missingAuthReason:
-        "Stable liked-post lookup requires OAuth1 credentials or a bearer token.",
-      routes: [
-        {
-          authMode: "oauth1",
-          transport: "rest-v2",
-          adapterKind: "read-capability",
-          readinessRequirement: "configured-auth",
-          readinessReason:
-            "OAuth1 credentials are configured for the preferred stable liked-posts adapter.",
-        },
-        {
-          authMode: "bearer",
-          transport: "rest-v2",
-          adapterKind: "read-capability",
-          readinessRequirement: "bearer",
-          readinessReason:
-            "Bearer auth is configured for the reviewed REST-backed liked-posts adapter.",
-        },
-      ],
-    },
-    {
-      capabilityId: "post.create",
-      missingAuthRequirement: "oauth1",
-      missingAuthReason:
-        "Stable posting currently requires OAuth1 credentials.",
-      unsupportedConfiguredAuthReason:
-        "Stable 'post create' currently supports OAuth1 credentials only. Bearer-token posting is not a reviewed adapter path in this repository state.",
-      unsupportedConfiguredAuthRemediations: [
-        "Configure OAuth1 credentials to use the stable posting capability.",
-        "Or keep using 'graphql request' only for low-level GraphQL operations that explicitly require bearer auth.",
-      ],
-      routes: [
-        {
-          authMode: "oauth1",
-          transport: "rest-v2",
-          adapterKind: "stable-posting",
-          readinessRequirement: "oauth1",
-          readinessReason:
-            "OAuth1 credentials are configured for the reviewed stable posting adapter.",
-        },
-      ],
-    },
-    {
-      capabilityId: "post.delete",
-      missingAuthRequirement: "oauth1",
-      missingAuthReason:
-        "Stable posting currently requires OAuth1 credentials.",
-      unsupportedConfiguredAuthReason:
-        "Stable 'post delete' currently supports OAuth1 credentials only. Bearer-token deletion is not a reviewed adapter path in this repository state.",
-      unsupportedConfiguredAuthRemediations: [
-        "Configure OAuth1 credentials to use the stable posting capability.",
-        "Or keep using 'graphql request' only for low-level GraphQL operations that explicitly require bearer auth.",
-      ],
-      routes: [
-        {
-          authMode: "oauth1",
-          transport: "rest-v2",
-          adapterKind: "stable-posting",
-          readinessRequirement: "oauth1",
-          readinessReason:
-            "OAuth1 credentials are configured for the reviewed stable posting adapter.",
-        },
-      ],
-    },
-    {
-      capabilityId: "post.reply",
-      missingAuthRequirement: "oauth1",
-      missingAuthReason:
-        "Stable posting currently requires OAuth1 credentials.",
-      unsupportedConfiguredAuthReason:
-        "Stable 'post reply' currently supports OAuth1 credentials only. Bearer-token posting is not a reviewed adapter path in this repository state.",
-      unsupportedConfiguredAuthRemediations: [
-        "Configure OAuth1 credentials to use the stable posting capability.",
-        "Or keep using 'graphql request' only for low-level GraphQL operations that explicitly require bearer auth.",
-      ],
-      routes: [
-        {
-          authMode: "oauth1",
-          transport: "rest-v2",
-          adapterKind: "stable-posting",
-          readinessRequirement: "oauth1",
-          readinessReason:
-            "OAuth1 credentials are configured for the reviewed stable posting adapter.",
-        },
-      ],
-    },
-    {
-      capabilityId: "post.quote",
-      missingAuthRequirement: "oauth1",
-      missingAuthReason:
-        "Stable posting currently requires OAuth1 credentials.",
-      unsupportedConfiguredAuthReason:
-        "Stable 'post quote' currently supports OAuth1 credentials only. Bearer-token posting is not a reviewed adapter path in this repository state.",
-      unsupportedConfiguredAuthRemediations: [
-        "Configure OAuth1 credentials to use the stable posting capability.",
-        "Or keep using 'graphql request' only for low-level GraphQL operations that explicitly require bearer auth.",
-      ],
-      routes: [
-        {
-          authMode: "oauth1",
-          transport: "rest-v2",
-          adapterKind: "stable-posting",
-          readinessRequirement: "oauth1",
-          readinessReason:
-            "OAuth1 credentials are configured for the reviewed stable posting adapter.",
-        },
-      ],
-    },
-    {
-      capabilityId: "post.repost",
-      missingAuthRequirement: "oauth1",
-      missingAuthReason:
-        "Stable posting currently requires OAuth1 credentials.",
-      unsupportedConfiguredAuthReason:
-        "Stable 'post repost' currently supports OAuth1 credentials only. Bearer-token reposting is not a reviewed adapter path in this repository state.",
-      unsupportedConfiguredAuthRemediations: [
-        "Configure OAuth1 credentials to use the stable posting capability.",
-        "Or keep using 'graphql request' only for low-level GraphQL operations that explicitly require bearer auth.",
-      ],
-      routes: [
-        {
-          authMode: "oauth1",
-          transport: "rest-v2",
-          adapterKind: "stable-posting",
-          readinessRequirement: "oauth1",
-          readinessReason:
-            "OAuth1 credentials are configured for the reviewed stable posting adapter.",
-        },
-      ],
-    },
-    {
-      capabilityId: "post.unrepost",
-      missingAuthRequirement: "oauth1",
-      missingAuthReason:
-        "Stable posting currently requires OAuth1 credentials.",
-      unsupportedConfiguredAuthReason:
-        "Stable 'post unrepost' currently supports OAuth1 credentials only. Bearer-token repost removal is not a reviewed adapter path in this repository state.",
-      unsupportedConfiguredAuthRemediations: [
-        "Configure OAuth1 credentials to use the stable posting capability.",
-        "Or keep using 'graphql request' only for low-level GraphQL operations that explicitly require bearer auth.",
-      ],
-      routes: [
-        {
-          authMode: "oauth1",
-          transport: "rest-v2",
-          adapterKind: "stable-posting",
-          readinessRequirement: "oauth1",
-          readinessReason:
-            "OAuth1 credentials are configured for the reviewed stable posting adapter.",
-        },
-      ],
-    },
+    createStablePostingPlanningDefinition(
+      "post.create",
+      "Stable 'post create' currently supports OAuth1 credentials only. Bearer-token posting is not a reviewed adapter path in this repository state.",
+    ),
+    createStablePostingPlanningDefinition(
+      "post.delete",
+      "Stable 'post delete' currently supports OAuth1 credentials only. Bearer-token deletion is not a reviewed adapter path in this repository state.",
+    ),
+    createStablePostingPlanningDefinition(
+      "post.reply",
+      "Stable 'post reply' currently supports OAuth1 credentials only. Bearer-token posting is not a reviewed adapter path in this repository state.",
+    ),
+    createStablePostingPlanningDefinition(
+      "post.quote",
+      "Stable 'post quote' currently supports OAuth1 credentials only. Bearer-token posting is not a reviewed adapter path in this repository state.",
+    ),
+    createStablePostingPlanningDefinition(
+      "post.repost",
+      "Stable 'post repost' currently supports OAuth1 credentials only. Bearer-token reposting is not a reviewed adapter path in this repository state.",
+    ),
+    createStablePostingPlanningDefinition(
+      "post.unrepost",
+      "Stable 'post unrepost' currently supports OAuth1 credentials only. Bearer-token repost removal is not a reviewed adapter path in this repository state.",
+    ),
   ];

@@ -839,22 +839,27 @@ export type XGatewayAccountProfile = Readonly<{
   name: string;
 }>;
 
+export type XGatewayPostAttachmentKind = "image";
+
+export type XGatewayPostAttachmentInput = Readonly<{
+  kind: XGatewayPostAttachmentKind;
+  filePath: string;
+  altText?: string;
+}>;
+
 export type XGatewayPostCreateOptions = Readonly<{
   text: string;
+  attachments?: readonly XGatewayPostAttachmentInput[];
 }>;
 
 export type XGatewayPostGetOptions = Readonly<{
   postId: string;
 }>;
 
-export type XGatewayLikesListOptions = Readonly<{
-  userId: string;
-  limit?: number;
-}>;
-
 export type XGatewayPostReplyOptions = Readonly<{
   text: string;
   replyToPostId: string;
+  attachments?: readonly XGatewayPostAttachmentInput[];
 }>;
 
 export type XGatewayPostDeleteOptions = Readonly<{
@@ -886,14 +891,10 @@ export type XGatewayPostLookupResult = Readonly<{
   referencedPosts: readonly XGatewayReferencedPost[];
 }>;
 
-export type XGatewayLikesListResult = Readonly<{
-  userId: string;
-  posts: readonly XGatewayPostSummary[];
-}>;
-
 export type XGatewayPostQuoteOptions = Readonly<{
   text: string;
   quotedPostId: string;
+  attachments?: readonly XGatewayPostAttachmentInput[];
 }>;
 
 export type XGatewayPostRepostOptions = Readonly<{
@@ -929,9 +930,6 @@ export type XGatewayClient = Readonly<{
   postGet: (
     options: XGatewayPostGetOptions,
   ) => Promise<XGatewayPostLookupResult>;
-  likesList: (
-    options: XGatewayLikesListOptions,
-  ) => Promise<XGatewayLikesListResult>;
   postCreate: (options: XGatewayPostCreateOptions) => Promise<unknown>;
   postDelete: (options: XGatewayPostDeleteOptions) => Promise<unknown>;
   postReply: (options: XGatewayPostReplyOptions) => Promise<unknown>;
@@ -1324,8 +1322,9 @@ export function createXGatewayClient(
         `Public GraphQL field '${publicRequest.fieldName}'`,
         `Field '${publicRequest.fieldName}' maps to capability '${capability.id}', but that capability is currently ${capability.status}.`,
         [
-          "Use a reviewed stable CLI/SDK capability if one already exists for this workflow.",
-          "Or keep using 'graphql request' only as a low-level escape hatch until the capability adapter is implemented.",
+          "Keep using 'api request' only for reviewed project-owned GraphQL fields in the stable contract.",
+          "Use a reviewed stable convenience command only if you need a temporary transition wrapper for the same capability.",
+          "Use 'graphql request' only as a low-level escape hatch for explicit upstream GraphQL workflows until the capability adapter is implemented.",
         ],
       );
     }
@@ -1356,6 +1355,9 @@ export function createXGatewayClient(
         [publicRequest.fieldName]: projectPublicSelection(
           normalizedResult,
           publicRequest.selections,
+          publicRequest.fieldName,
+          publicRequest.selectionSchema,
+          createStablePayloadShapeError,
         ),
       },
     };
@@ -1428,7 +1430,7 @@ export function createXGatewayClient(
         "Raw GraphQL requests currently require bearer auth for live requests.",
         "Account/profile reads can use OAuth1 or a user-context bearer token where the upstream endpoint supports them.",
         "Stable post lookup prefers OAuth1 when both OAuth1 and bearer credentials are present, and otherwise falls back to bearer-token reads through the public REST API.",
-        "Stable liked-post lookup prefers OAuth1 when both OAuth1 and bearer credentials are present, and otherwise falls back to bearer-token reads through the public REST API.",
+        "Liked-post lookup is currently deferred from the stable CLI, SDK, and project-owned GraphQL contract because the previously attempted live adapter route is not yet verified.",
         "Stable posting helpers (create/delete/reply/quote/repost/unrepost) prefer OAuth1 whenever it is configured and otherwise remain unavailable to bearer-only environments.",
       ],
     };
@@ -1442,12 +1444,6 @@ export function createXGatewayClient(
     options: XGatewayPostGetOptions,
   ): Promise<XGatewayPostLookupResult> {
     return executeStableCapability("post.get", options);
-  }
-
-  async function likesList(
-    options: XGatewayLikesListOptions,
-  ): Promise<XGatewayLikesListResult> {
-    return executeStableCapability("likes.list", options);
   }
 
   async function postCreate(
@@ -1494,7 +1490,6 @@ export function createXGatewayClient(
     authScopes,
     accountMe,
     postGet,
-    likesList,
     postCreate,
     postDelete,
     postReply,

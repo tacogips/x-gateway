@@ -23,24 +23,71 @@ Provide a stable GraphQL-shaped public contract that expresses user intent witho
   - maps to capability `account.me`
 - `post(id: ID!)`
   - maps to capability `post.get`
-- `likedPosts(userId: ID!, limit: Int)`
-  - maps to capability `likes.list`
-  - stable baseline uses the capability planner and a reviewed REST-backed adapter
 
 ### Mutation
 
-- `createPost(text: String!)`
+- `createPost(text: String!, attachments: [PostAttachmentInput!])`
   - maps to capability `post.create`
-- `deletePost(id: ID!)`
+- `deletePost(postId: ID!)`
   - maps to capability `post.delete`
-- `replyToPost(text: String!, replyToPostId: ID!)`
+- `replyToPost(text: String!, replyToPostId: ID!, attachments: [PostAttachmentInput!])`
   - maps to capability `post.reply`
-- `quotePost(text: String!, quotedPostId: ID!)`
+- `quotePost(text: String!, quotedPostId: ID!, attachments: [PostAttachmentInput!])`
   - maps to capability `post.quote`
-- `repostPost(id: ID!)`
+- `repostPost(postId: ID!)`
   - maps to capability `post.repost`
-- `unrepostPost(id: ID!)`
+- `unrepostPost(postId: ID!)`
   - maps to capability `post.unrepost`
+
+### Attachment Input
+
+`PostAttachmentInput` is project-owned and intentionally smaller than upstream X media contracts.
+
+- `kind: "image"` only in the current reviewed slice
+- `filePath: String!`
+- `altText: String`
+- `attachments` may contain 1 to 4 items when provided
+- unsupported media kinds or extra object fields must fail validation explicitly
+
+Example canonical mutations:
+
+```graphql
+mutation {
+  createPost(
+    text: "hello"
+    attachments: [{ kind: "image", filePath: "/tmp/a.png", altText: "example" }]
+  ) {
+    id
+    text
+  }
+}
+```
+
+```graphql
+mutation {
+  replyToPost(
+    text: "hello"
+    replyToPostId: "123"
+    attachments: [{ kind: "image", filePath: "/tmp/a.png" }]
+  ) {
+    id
+    text
+  }
+}
+```
+
+```graphql
+mutation {
+  quotePost(
+    text: "hello"
+    quotedPostId: "123"
+    attachments: [{ kind: "image", filePath: "/tmp/a.png" }]
+  ) {
+    id
+    text
+  }
+}
+```
 
 ## Planner Responsibilities
 
@@ -74,11 +121,30 @@ Planner implementation rule:
 The first implementation slice may keep the parser intentionally small:
 
 - one top-level field per request
-- string, integer, boolean, and null argument literals
+- string, integer, boolean, null, list, and object argument literals
 - selection sets used only for response projection
 - no variables, fragments, aliases, or directives yet
 
 These limits are acceptable as long as diagnostics are explicit and the contract remains project-owned.
+
+## Validation and Migration Guidance
+
+- Validation errors must name the unsupported public field or argument.
+- Validation errors must also reject unsupported selection fields instead of silently ignoring them.
+- Validation errors must reject unexpected arguments instead of silently accepting transport-shaped extras.
+- Object-valued public fields must require a nested selection set, and scalar public fields must reject nested selections.
+- When callers use superseded contract names from earlier iterations, errors should include the canonical replacement.
+- Current migration guidance must explicitly cover:
+  - `deletePost(id: ...)` -> `deletePost(postId: ...)`
+  - `repostPost(id: ...)` -> `repostPost(postId: ...)`
+  - `unrepostPost(id: ...)` -> `unrepostPost(postId: ...)`
+- Stable liked-post lookup is currently deferred from the public GraphQL contract until a reviewed live adapter route is verified.
+- Attachment validation must reject:
+  - unknown attachment object fields
+  - `kind` values other than `"image"`
+  - empty `filePath`
+  - empty `altText`
+  - more than four attachments
 
 ## Response Shaping
 
@@ -86,13 +152,14 @@ These limits are acceptable as long as diagnostics are explicit and the contract
 - `post(id)` returns a projected post object plus `referencedPosts` when requested.
 - Mutations return stable project-defined objects, not raw transport payloads.
 - Projection is applied after capability execution so callers receive only the requested stable fields.
+- Projection must also reject adapter payload drift when a field declared as scalar returns an object/list, or when a field declared as object/list returns an incompatible payload shape.
 
 ## Explicit Non-Goals For This Slice
 
 - full GraphQL spec compliance
 - passthrough of arbitrary user GraphQL to X
 - auto-support for all deferred capability families
-- claims that `likedPosts` is live before a reviewed adapter exists
+- claims that `likes` is part of the stable contract before a reviewed live adapter exists
 
 ## References
 

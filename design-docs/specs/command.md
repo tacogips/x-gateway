@@ -13,8 +13,8 @@ Both CLIs must be scriptable, deterministic, and return structured diagnostics s
 
 Primary contract:
 
-- Stable capability-oriented commands are the primary CLI contract.
-- `api request` is the stable project-owned GraphQL-shaped contract for callers that want a single request document instead of command-specific flags.
+- `api request` is the primary CLI contract for reviewed capabilities.
+- Stable capability-oriented commands may remain temporarily as transitional convenience commands while they dispatch through the same internal capability executor.
 - `graphql request` remains available as a low-level escape hatch for explicit GraphQL access.
 - Capability inventory output must label these surfaces distinctly so `graphql request` is not mistaken for a peer stable contract.
 - Unimplemented high-level commands must fail immediately with `UNSUPPORTED` and remediation that names the supported alternative.
@@ -34,7 +34,6 @@ Primary contract:
 
 - `x-gateway account me`
 - `x-gateway post get --post-id <postId>`
-- `x-gateway likes list --user-id <userId> [--limit <count>]`
 - `x-gateway post create --text <text>`
 - `x-gateway post delete --post-id <postId>`
 - `x-gateway post reply --text <text> --reply-to-post-id <postId>`
@@ -62,7 +61,7 @@ Primary contract:
 `auth verify` design rule:
 
 - It must report capability-level readiness for the stable baseline, not only a single resolved auth family string.
-- At minimum it must cover `graphql.request`, `account.me`, `post.get`, `likes.list`, `post.create`, `post.delete`, `post.reply`, `post.quote`, `post.repost`, and `post.unrepost`.
+- At minimum it must cover `graphql.request`, `account.me`, `post.get`, `post.create`, `post.delete`, `post.reply`, `post.quote`, `post.repost`, and `post.unrepost`.
 - Each capability row must indicate whether it is ready with the current credentials and, when not ready, the blocking requirement (`missing auth`, `requires OAuth1`, or `requires user-context bearer`).
 
 ### System
@@ -168,17 +167,20 @@ GraphQL request rules:
 
 Project-owned GraphQL rules:
 
-- `api request --query` accepts the stable `x-gateway` GraphQL-shaped contract only.
+- `api request --query` accepts the stable project-owned `x-gateway` GraphQL contract only.
 - The initial parser may support only one top-level field per request.
 - Variables, fragments, aliases, and directives may remain unsupported in the first slice if diagnostics are explicit.
-- Supported initial top-level fields are `accountMe`, `post`, `likedPosts`, `createPost`, `deletePost`, `replyToPost`, `quotePost`, `repostPost`, and `unrepostPost`.
+- Supported initial top-level fields are `accountMe`, `post`, `createPost`, `deletePost`, `replyToPost`, `quotePost`, `repostPost`, and `unrepostPost`.
+- Canonical mutation arguments are `deletePost(postId: ID!)`, `repostPost(postId: ID!)`, and `unrepostPost(postId: ID!)`.
+- Canonical attachment arguments are supported on `createPost`, `replyToPost`, and `quotePost` with `attachments: [{ kind: "image", filePath: "...", altText: "..." }]`.
+- The current public GraphQL parser supports string/integer/boolean/null/list/object literals only.
 - `x-gateway-reader` must reject `api request` mutations.
 
 Capability adapter rules:
 
 - `account me` must select an auth-appropriate identity endpoint internally rather than requiring the caller to choose a transport.
 - `post get` must select a stable public lookup adapter internally and expand referenced posts when the upstream transport provides them.
-- `likes list` must select a stable public liked-posts adapter internally rather than exposing upstream query details.
+- `likes list` must remain rejected until a reviewed live adapter route is verified; capability inventory and auth diagnostics must not advertise liked-post reads as part of the stable contract while the live path is known to fail.
 - `post create` must prefer a stable public API adapter over raw X web GraphQL when public REST support is sufficient.
 - `post delete` must prefer a stable public API adapter over raw X web GraphQL when public REST support is sufficient.
 - `post reply`, `post quote`, `post repost`, and `post unrepost` must prefer stable public API adapters over raw X web GraphQL when public REST support is sufficient.
@@ -231,11 +233,12 @@ When `--json` is enabled, all failures use a stable envelope:
 
 Current implementation note:
 
-- The current implementation restores a modest hybrid baseline: local auth diagnostics, `account me`, `post get`, `likes list`, and core posting flows (`post create`, `post delete`, `post reply`, `post quote`, `post repost`, `post unrepost`) are stable commands, while media, article, and broader timeline/social-graph patterns remain deferred.
-- The next architectural slice adds a project-owned GraphQL-shaped public request path that resolves onto the same reviewed capabilities instead of leaking raw X web GraphQL as the main contract.
-- `likes list` uses the same stable capability planner path as the rest of the read baseline; callers do not need to know whether the upstream implementation is REST or GraphQL.
+- The current implementation restores a modest hybrid baseline: local auth diagnostics, `account me`, `post get`, and core posting flows (`post create`, `post delete`, `post reply`, `post quote`, `post repost`, `post unrepost`) remain available as transitional convenience commands, while likes, article, and broader timeline/social-graph patterns remain deferred.
+- The canonical path is the project-owned GraphQL public request surface, which resolves onto the same reviewed capabilities instead of leaking raw X web GraphQL as the main contract.
+- `likes list` is intentionally withheld from the stable CLI, SDK, and public GraphQL contract until a reviewed live adapter route is verified.
 - `account me` can use OAuth1 or a user-context bearer token; the stable posting helpers currently require OAuth1.
 - `post get` can use OAuth1 or bearer-token reads through the public lookup API, and it prefers OAuth1 when both are configured.
 - Stable posting helpers prefer OAuth1 whenever it is configured, even if bearer auth is also present for raw GraphQL access.
+- Stable `createPost`, `replyToPost`, and `quotePost` support inline image attachments through internal OAuth1 media upload and alt-text application; callers do not provide raw upload sequencing.
 - Support is counted only when the reviewed auth path is actually enforced by the adapter contract; latent placeholder methods inside the wrong auth adapter do not count as delivered capability support.
-- Deferred commands must still fail explicitly with `UNSUPPORTED` and remediation to use `graphql request` or wait for the missing adapter.
+- Deferred commands must still fail explicitly with `UNSUPPORTED` and remediation that keeps `api request` as the canonical surface for reviewed capabilities, while reserving `graphql request` for intentional low-level upstream GraphQL escape-hatch usage only.
