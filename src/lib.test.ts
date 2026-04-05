@@ -640,7 +640,6 @@ const ENV_KEYS = [
   "X_GW_RETRY_BACKOFF",
   "X_GW_RETRY_BASE_MS",
   "X_GW_RETRY_MAX_MS",
-  "X_GW_GRAPHQL_BASE_URL",
   "X_GW_AUTH_MODE",
   "X_GW_OUTPUT",
   "X_GW_STRICT_CAPABILITY_CHECKS",
@@ -668,12 +667,10 @@ describe("resolveConfig", () => {
     process.env["X_GW_RETRY_BACKOFF"] = "fixed";
     process.env["X_GW_RETRY_BASE_MS"] = "200";
     process.env["X_GW_RETRY_MAX_MS"] = "5000";
-    process.env["X_GW_GRAPHQL_BASE_URL"] = "https://example.com/graphql";
 
     const resolved = resolveConfig();
 
     expect(resolved.auth.token).toBe("env-token");
-    expect(resolved.graphqlBaseUrl).toBe("https://example.com/graphql");
     expect(resolved.timeoutMs).toBe(45000);
     expect(resolved.retry.retries).toBe(3);
     expect(resolved.retry.backoff).toBe("fixed");
@@ -686,7 +683,6 @@ describe("resolveConfig", () => {
 
     const resolved = resolveConfig({
       auth: { token: "param-token" },
-      graphqlBaseUrl: "https://override.example/graphql",
       retry: {
         retries: 5,
         backoff: "none",
@@ -696,7 +692,6 @@ describe("resolveConfig", () => {
     });
 
     expect(resolved.auth.token).toBe("param-token");
-    expect(resolved.graphqlBaseUrl).toBe("https://override.example/graphql");
     expect(resolved.retry.retries).toBe(5);
     expect(resolved.retry.backoff).toBe("none");
     expect(resolved.retry.baseDelayMs).toBe(1);
@@ -776,7 +771,7 @@ describe("resolveConfig", () => {
 
     const resolved = resolveConfig();
 
-    expect(resolved.graphqlBaseUrl).toBeUndefined();
+    expect(resolved.auth.token).toBeUndefined();
   });
 });
 
@@ -963,114 +958,8 @@ describe("createXGatewayClient", () => {
     );
   });
 
-  test("sends raw GraphQL requests through fetch", async () => {
-    process.env["X_GW_TOKEN"] = "env-token";
-    process.env["X_GW_GRAPHQL_BASE_URL"] = "https://example.com/graphql";
-
-    const fetchMock = vi.fn(async () => {
-      return new Response(JSON.stringify({ data: { viewer: { id: "1" } } }), {
-        status: 200,
-        headers: {
-          "content-type": "application/json",
-        },
-      });
-    });
-    globalThis.fetch = fetchMock as typeof fetch;
-
-    const client = createXGatewayClient();
-    const result = await client.request<{ data: { viewer: { id: string } } }>({
-      operationName: "Viewer",
-      documentId: "doc-1",
-      variables: { withSafetyModeUserFields: true },
-    });
-
-    expect(result.data.viewer.id).toBe("1");
-    expect(fetchMock).toHaveBeenCalledWith(
-      "https://example.com/graphql/doc-1/Viewer",
-      expect.objectContaining({
-        method: "POST",
-      }),
-    );
-  });
-
-  test("accepts GraphQL JSON media types with +json suffix", async () => {
-    process.env["X_GW_TOKEN"] = "env-token";
-
-    const fetchMock = vi.fn(async () => {
-      return new Response(JSON.stringify({ data: { viewer: { id: "2" } } }), {
-        status: 200,
-        headers: {
-          "content-type": "application/graphql-response+json; charset=utf-8",
-        },
-      });
-    });
-    globalThis.fetch = fetchMock as typeof fetch;
-
-    const client = createXGatewayClient();
-    const result = await client.request<{ data: { viewer: { id: string } } }>({
-      operationName: "Viewer",
-      documentId: "doc-2",
-    });
-
-    expect(result.data.viewer.id).toBe("2");
-  });
-
-  test("rejects GraphQL requests when only OAuth1 credentials are configured", async () => {
-    process.env["X_GW_CONSUMER_KEY"] = "ck";
-    process.env["X_GW_CONSUMER_SECRET"] = "cs";
-    process.env["X_GW_ACCESS_TOKEN"] = "at";
-    process.env["X_GW_ACCESS_TOKEN_SECRET"] = "ats";
-
-    const client = createXGatewayClient();
-
-    await expect(
-      client.request({
-        operationName: "Viewer",
-        documentId: "doc-1",
-      }),
-    ).rejects.toMatchObject({
-      payload: expect.objectContaining({
-        code: "UNSUPPORTED",
-      }),
-    });
-  });
-
-  test("rejects GraphQL requests without documentId or query", async () => {
-    process.env["X_GW_TOKEN"] = "env-token";
-
-    const client = createXGatewayClient();
-
-    await expect(
-      client.request({
-        operationName: "Viewer",
-      }),
-    ).rejects.toMatchObject({
-      payload: expect.objectContaining({
-        code: "VALIDATION_ERROR",
-      }),
-    });
-  });
-
-  test("rejects GraphQL requests when both documentId and query are provided", async () => {
-    process.env["X_GW_TOKEN"] = "env-token";
-
-    const client = createXGatewayClient();
-
-    await expect(
-      client.request({
-        operationName: "Viewer",
-        documentId: "doc-1",
-        query: "query Viewer { viewer { id } }",
-      }),
-    ).rejects.toMatchObject({
-      payload: expect.objectContaining({
-        code: "VALIDATION_ERROR",
-      }),
-    });
-  });
-
-  test("includes retry exhaustion context and retry-after metadata for retryable failures", async () => {
-    process.env["X_GW_TOKEN"] = "env-token";
+  test("includes retry exhaustion context and retry-after metadata for retryable public-graph failures", async () => {
+    process.env["X_GW_TOKEN"] = "bearer-token";
 
     const fetchMock = vi.fn(async () => {
       return new Response(JSON.stringify({ error: "rate limited" }), {
@@ -1094,9 +983,8 @@ describe("createXGatewayClient", () => {
     });
 
     await expect(
-      client.request({
-        operationName: "Viewer",
-        documentId: "doc-1",
+      client.apiRequest({
+        query: "query { postUsage(days: 14) { projectId } }",
       }),
     ).rejects.toMatchObject({
       payload: expect.objectContaining({
@@ -1108,540 +996,17 @@ describe("createXGatewayClient", () => {
     });
   });
 
-  test("exposes the stable SDK surface with capability adapters and raw GraphQL", () => {
+  test("exposes the stable SDK surface through the owned GraphQL contract", () => {
     const client = createXGatewayClient();
 
-    expect("request" in client).toBe(true);
+    expect("request" in client).toBe(false);
     expect("apiRequest" in client).toBe(true);
     expect("capabilitiesList" in client).toBe(true);
-    expect("accountMe" in client).toBe(true);
-    expect("postGet" in client).toBe(true);
-    expect("timelineSearch" in client).toBe(true);
-    expect("timelineHome" in client).toBe(true);
-    expect("timelineUser" in client).toBe(true);
-    expect("timelineMentions" in client).toBe(true);
+    expect("authVerify" in client).toBe(true);
+    expect("authScopes" in client).toBe(true);
+    expect("capabilitiesGet" in client).toBe(true);
+    expect("getResolvedConfig" in client).toBe(true);
     expect("likesList" in client).toBe(false);
-    expect("postCreate" in client).toBe(true);
-    expect("postDelete" in client).toBe(true);
-    expect("postReply" in client).toBe(true);
-    expect("postQuote" in client).toBe(true);
-    expect("postRepost" in client).toBe(true);
-    expect("postUndoRepost" in client).toBe(true);
-  });
-
-  test("supports accountMe through the REST compatibility adapter", async () => {
-    process.env["X_GW_AUTH_MODE"] = "oauth1";
-    process.env["X_GW_CONSUMER_KEY"] = "ck";
-    process.env["X_GW_CONSUMER_SECRET"] = "cs";
-    process.env["X_GW_ACCESS_TOKEN"] = "at";
-    process.env["X_GW_ACCESS_TOKEN_SECRET"] = "ats";
-
-    const client = createXGatewayClient();
-
-    await expect(client.accountMe()).resolves.toMatchObject({
-      id: "oauth1-user",
-      username: "oauth1_user",
-    });
-  });
-
-  test("supports accountMe with bearer auth through the REST compatibility adapter", async () => {
-    process.env["X_GW_TOKEN"] = "bearer-token";
-
-    const client = createXGatewayClient();
-
-    await expect(client.accountMe()).resolves.toMatchObject({
-      id: "bearer-user",
-      username: "bearer_user",
-    });
-  });
-
-  test("supports postGet through the REST compatibility adapter", async () => {
-    process.env["X_GW_AUTH_MODE"] = "oauth1";
-    process.env["X_GW_CONSUMER_KEY"] = "ck";
-    process.env["X_GW_CONSUMER_SECRET"] = "cs";
-    process.env["X_GW_ACCESS_TOKEN"] = "at";
-    process.env["X_GW_ACCESS_TOKEN_SECRET"] = "ats";
-
-    const client = createXGatewayClient();
-
-    await expect(client.postGet({ postId: "post-1" })).resolves.toMatchObject({
-      post: {
-        id: "post-1",
-        text: "post post-1",
-        author: {
-          username: "author_one",
-        },
-      },
-      referencedPosts: [
-        {
-          relation: "quoted",
-          id: "quoted-1",
-          author: {
-            username: "author_three",
-          },
-        },
-        {
-          relation: "replied_to",
-          id: "reply-1",
-          author: {
-            username: "author_two",
-          },
-        },
-      ],
-    });
-  });
-
-  test("supports postGet with bearer auth through the REST compatibility adapter", async () => {
-    process.env["X_GW_TOKEN"] = "bearer-token";
-
-    const client = createXGatewayClient();
-
-    await expect(client.postGet({ postId: "post-2" })).resolves.toMatchObject({
-      post: {
-        id: "post-2",
-      },
-      referencedPosts: expect.arrayContaining([
-        expect.objectContaining({ relation: "quoted", id: "quoted-1" }),
-      ]),
-    });
-  });
-
-  test("prefers reviewed OAuth1 read routes over a broken bearer token in mixed-auth mode", async () => {
-    process.env["X_GW_TOKEN"] = "bad-token";
-    process.env["X_GW_CONSUMER_KEY"] = "ck";
-    process.env["X_GW_CONSUMER_SECRET"] = "cs";
-    process.env["X_GW_ACCESS_TOKEN"] = "at";
-    process.env["X_GW_ACCESS_TOKEN_SECRET"] = "ats";
-
-    const client = createXGatewayClient();
-
-    await expect(
-      client.postGet({ postId: "post-mixed" }),
-    ).resolves.toMatchObject({
-      post: {
-        id: "post-mixed",
-      },
-    });
-  });
-
-  test("supports stable recent search with explicit pagination through the SDK", async () => {
-    process.env["X_GW_TOKEN"] = "bearer-token";
-
-    const client = createXGatewayClient();
-
-    await expect(
-      client.timelineSearch({
-        query: "  bun  ",
-        maxResults: 10,
-        paginationToken: "  page-2  ",
-      }),
-    ).resolves.toEqual({
-      posts: [
-        {
-          id: "search-bun-11",
-          text: "search-bun post 11",
-          createdAt: "2026-03-08T04:00:00.000Z",
-          conversationId: "search-bun-conversation-11",
-          author: {
-            id: "author-1",
-            username: "author_one",
-            name: "Author One",
-          },
-        },
-        {
-          id: "search-bun-12",
-          text: "search-bun post 12",
-          createdAt: "2026-03-08T01:00:00.000Z",
-          conversationId: "search-bun-conversation-12",
-          author: {
-            id: "author-2",
-            username: "author_two",
-            name: "Author Two",
-          },
-        },
-        {
-          id: "search-bun-13",
-          text: "search-bun post 13",
-          createdAt: "2026-03-08T02:00:00.000Z",
-          conversationId: "search-bun-conversation-13",
-          author: {
-            id: "author-1",
-            username: "author_one",
-            name: "Author One",
-          },
-        },
-        {
-          id: "search-bun-14",
-          text: "search-bun post 14",
-          createdAt: "2026-03-08T03:00:00.000Z",
-          conversationId: "search-bun-conversation-14",
-          author: {
-            id: "author-2",
-            username: "author_two",
-            name: "Author Two",
-          },
-        },
-        {
-          id: "search-bun-15",
-          text: "search-bun post 15",
-          createdAt: "2026-03-08T04:00:00.000Z",
-          conversationId: "search-bun-conversation-15",
-          author: {
-            id: "author-1",
-            username: "author_one",
-            name: "Author One",
-          },
-        },
-        {
-          id: "search-bun-16",
-          text: "search-bun post 16",
-          createdAt: "2026-03-08T01:00:00.000Z",
-          conversationId: "search-bun-conversation-16",
-          author: {
-            id: "author-2",
-            username: "author_two",
-            name: "Author Two",
-          },
-        },
-        {
-          id: "search-bun-17",
-          text: "search-bun post 17",
-          createdAt: "2026-03-08T02:00:00.000Z",
-          conversationId: "search-bun-conversation-17",
-          author: {
-            id: "author-1",
-            username: "author_one",
-            name: "Author One",
-          },
-        },
-        {
-          id: "search-bun-18",
-          text: "search-bun post 18",
-          createdAt: "2026-03-08T03:00:00.000Z",
-          conversationId: "search-bun-conversation-18",
-          author: {
-            id: "author-2",
-            username: "author_two",
-            name: "Author Two",
-          },
-        },
-        {
-          id: "search-bun-19",
-          text: "search-bun post 19",
-          createdAt: "2026-03-08T04:00:00.000Z",
-          conversationId: "search-bun-conversation-19",
-          author: {
-            id: "author-1",
-            username: "author_one",
-            name: "Author One",
-          },
-        },
-        {
-          id: "search-bun-20",
-          text: "search-bun post 20",
-          createdAt: "2026-03-08T01:00:00.000Z",
-          conversationId: "search-bun-conversation-20",
-          author: {
-            id: "author-2",
-            username: "author_two",
-            name: "Author Two",
-          },
-        },
-      ],
-      pageInfo: {
-        resultCount: 10,
-        previousToken: "page-1",
-        newestId: "search-bun-11",
-        oldestId: "search-bun-20",
-      },
-    });
-
-    expect(twitterMockState.timelineCalls).toContainEqual({
-      kind: "search",
-      authMode: "bearer",
-      query: "bun",
-      maxResults: 10,
-      paginationToken: "page-2",
-    });
-  });
-
-  test("supports stable home, user, and mentions timelines through the SDK", async () => {
-    process.env["X_GW_CONSUMER_KEY"] = "ck";
-    process.env["X_GW_CONSUMER_SECRET"] = "cs";
-    process.env["X_GW_ACCESS_TOKEN"] = "at";
-    process.env["X_GW_ACCESS_TOKEN_SECRET"] = "ats";
-
-    const client = createXGatewayClient();
-
-    const homeTimeline = await client.timelineHome({
-      maxResults: 5,
-    });
-    expect(homeTimeline.posts[0]).toMatchObject({ id: "home-1" });
-    expect(homeTimeline.posts[1]).toMatchObject({ id: "home-2" });
-    expect(homeTimeline.pageInfo).toMatchObject({
-      resultCount: 5,
-      nextToken: "page-2",
-    });
-
-    const userTimeline = await client.timelineUser({
-      userId: "  user-42  ",
-      maxResults: 5,
-      paginationToken: "  page-2  ",
-    });
-    expect(userTimeline.posts[0]).toMatchObject({ id: "user-user-42-6" });
-    expect(userTimeline.pageInfo).toMatchObject({
-      resultCount: 5,
-      previousToken: "page-1",
-    });
-
-    const mentionsTimeline = await client.timelineMentions({
-      userId: "user-42",
-      maxResults: 5,
-    });
-    expect(mentionsTimeline.posts[0]).toMatchObject({
-      id: "mentions-user-42-1",
-    });
-    expect(mentionsTimeline.pageInfo).toMatchObject({
-      resultCount: 5,
-      nextToken: "page-2",
-    });
-  });
-
-  test("validates stable timeline pagination bounds through the SDK", async () => {
-    process.env["X_GW_TOKEN"] = "bearer-token";
-
-    const client = createXGatewayClient();
-
-    await expect(
-      client.timelineSearch({
-        query: "bun",
-        maxResults: 9,
-      }),
-    ).rejects.toMatchObject({
-      payload: expect.objectContaining({
-        code: "VALIDATION_ERROR",
-        details: expect.stringContaining(
-          "maxResults must be an integer between 10 and 100.",
-        ),
-      }),
-    });
-
-    await expect(
-      client.timelineHome({
-        maxResults: 4,
-      }),
-    ).rejects.toMatchObject({
-      payload: expect.objectContaining({
-        code: "VALIDATION_ERROR",
-        details: expect.stringContaining(
-          "maxResults must be an integer between 5 and 100.",
-        ),
-      }),
-    });
-  });
-
-  test("supports postCreate through the REST compatibility adapter", async () => {
-    process.env["X_GW_AUTH_MODE"] = "oauth1";
-    process.env["X_GW_CONSUMER_KEY"] = "ck";
-    process.env["X_GW_CONSUMER_SECRET"] = "cs";
-    process.env["X_GW_ACCESS_TOKEN"] = "at";
-    process.env["X_GW_ACCESS_TOKEN_SECRET"] = "ats";
-
-    const client = createXGatewayClient();
-
-    await expect(client.postCreate({ text: "hello" })).resolves.toMatchObject({
-      data: {
-        id: "tweet-1",
-        text: "hello",
-      },
-    });
-  });
-
-  test("supports postDelete through the REST compatibility adapter", async () => {
-    process.env["X_GW_AUTH_MODE"] = "oauth1";
-    process.env["X_GW_CONSUMER_KEY"] = "ck";
-    process.env["X_GW_CONSUMER_SECRET"] = "cs";
-    process.env["X_GW_ACCESS_TOKEN"] = "at";
-    process.env["X_GW_ACCESS_TOKEN_SECRET"] = "ats";
-
-    const client = createXGatewayClient();
-
-    await expect(
-      client.postDelete({ postId: "tweet-9" }),
-    ).resolves.toMatchObject({
-      data: {
-        deleted: true,
-        postId: "tweet-9",
-      },
-    });
-  });
-
-  test("supports postReply through the REST compatibility adapter", async () => {
-    process.env["X_GW_AUTH_MODE"] = "oauth1";
-    process.env["X_GW_CONSUMER_KEY"] = "ck";
-    process.env["X_GW_CONSUMER_SECRET"] = "cs";
-    process.env["X_GW_ACCESS_TOKEN"] = "at";
-    process.env["X_GW_ACCESS_TOKEN_SECRET"] = "ats";
-
-    const client = createXGatewayClient();
-
-    await expect(
-      client.postReply({ text: "hello", replyToPostId: "post-1" }),
-    ).resolves.toMatchObject({
-      data: {
-        id: "tweet-2",
-        text: "hello",
-        replyToPostId: "post-1",
-      },
-    });
-  });
-
-  test("supports postQuote through the REST compatibility adapter", async () => {
-    process.env["X_GW_AUTH_MODE"] = "oauth1";
-    process.env["X_GW_CONSUMER_KEY"] = "ck";
-    process.env["X_GW_CONSUMER_SECRET"] = "cs";
-    process.env["X_GW_ACCESS_TOKEN"] = "at";
-    process.env["X_GW_ACCESS_TOKEN_SECRET"] = "ats";
-
-    const client = createXGatewayClient();
-
-    await expect(
-      client.postQuote({ text: "hello", quotedPostId: "post-2" }),
-    ).resolves.toMatchObject({
-      data: {
-        id: "tweet-3",
-        text: "hello",
-        quotedPostId: "post-2",
-      },
-    });
-  });
-
-  test("supports postRepost and postUndoRepost through the REST compatibility adapter", async () => {
-    process.env["X_GW_AUTH_MODE"] = "oauth1";
-    process.env["X_GW_CONSUMER_KEY"] = "ck";
-    process.env["X_GW_CONSUMER_SECRET"] = "cs";
-    process.env["X_GW_ACCESS_TOKEN"] = "at";
-    process.env["X_GW_ACCESS_TOKEN_SECRET"] = "ats";
-
-    const client = createXGatewayClient();
-
-    await expect(
-      client.postRepost({ postId: "post-3" }),
-    ).resolves.toMatchObject({
-      data: {
-        retweeted: true,
-        userId: "oauth1-user",
-        postId: "post-3",
-      },
-    });
-    await expect(
-      client.postUndoRepost({ postId: "post-3" }),
-    ).resolves.toMatchObject({
-      data: {
-        retweeted: false,
-        userId: "oauth1-user",
-        postId: "post-3",
-      },
-    });
-  });
-
-  test("prefers OAuth1 for stable posting when bearer and OAuth1 credentials are both present", async () => {
-    process.env["X_GW_TOKEN"] = "bearer-token";
-    process.env["X_GW_CONSUMER_KEY"] = "ck";
-    process.env["X_GW_CONSUMER_SECRET"] = "cs";
-    process.env["X_GW_ACCESS_TOKEN"] = "at";
-    process.env["X_GW_ACCESS_TOKEN_SECRET"] = "ats";
-
-    const client = createXGatewayClient();
-
-    await expect(client.postCreate({ text: "hello" })).resolves.toMatchObject({
-      data: {
-        id: "tweet-1",
-        text: "hello",
-      },
-    });
-    await expect(
-      client.postRepost({ postId: "post-3" }),
-    ).resolves.toMatchObject({
-      data: {
-        retweeted: true,
-        userId: "oauth1-user",
-        postId: "post-3",
-      },
-    });
-  });
-
-  test("rejects bearer auth for stable postCreate until a reviewed user-context path exists", async () => {
-    process.env["X_GW_TOKEN"] = "bearer-token";
-
-    const client = createXGatewayClient();
-
-    await expect(client.postCreate({ text: "hello" })).rejects.toMatchObject({
-      payload: expect.objectContaining({
-        code: "UNSUPPORTED",
-        details: expect.stringContaining("OAuth1 credentials only"),
-        remediations: expect.arrayContaining([
-          "No reviewed bearer-mode stable fallback exists for this capability in the current release.",
-        ]),
-      }),
-    });
-  });
-
-  test("rejects bearer auth for expanded stable posting helpers", async () => {
-    process.env["X_GW_TOKEN"] = "bearer-token";
-
-    const client = createXGatewayClient();
-
-    await expect(
-      client.postDelete({ postId: "tweet-9" }),
-    ).rejects.toMatchObject({
-      payload: expect.objectContaining({
-        code: "UNSUPPORTED",
-        details: expect.stringContaining("OAuth1 credentials only"),
-      }),
-    });
-    await expect(
-      client.postReply({ text: "hello", replyToPostId: "post-1" }),
-    ).rejects.toMatchObject({
-      payload: expect.objectContaining({
-        code: "UNSUPPORTED",
-        details: expect.stringContaining("OAuth1 credentials only"),
-      }),
-    });
-    await expect(
-      client.postQuote({ text: "hello", quotedPostId: "post-2" }),
-    ).rejects.toMatchObject({
-      payload: expect.objectContaining({
-        code: "UNSUPPORTED",
-        details: expect.stringContaining("OAuth1 credentials only"),
-      }),
-    });
-    await expect(client.postRepost({ postId: "post-3" })).rejects.toMatchObject(
-      {
-        payload: expect.objectContaining({
-          code: "UNSUPPORTED",
-          details: expect.stringContaining("OAuth1 credentials only"),
-        }),
-      },
-    );
-  });
-
-  test("normalizes adapter auth errors for SDK callers", async () => {
-    process.env["X_GW_TOKEN"] = "bad-token";
-
-    const client = createXGatewayClient();
-
-    await expect(client.accountMe()).rejects.toMatchObject({
-      payload: expect.objectContaining({
-        code: "AUTH_EXPIRED",
-        classification: "auth",
-        summary: "Authenticated account lookup failed",
-        details: expect.stringContaining("rest-v2/bearer"),
-        remediations: expect.arrayContaining([
-          "Refresh or replace the configured credential, then retry the same capability.",
-        ]),
-      }),
-    });
   });
 
   test("supports the project-owned GraphQL accountMe contract through the SDK", async () => {
@@ -1922,73 +1287,6 @@ describe("createXGatewayClient", () => {
         },
       },
     });
-  });
-
-  test("supports attachment-backed post mutations through the SDK and uploads alt text internally", async () => {
-    process.env["X_GW_CONSUMER_KEY"] = "ck";
-    process.env["X_GW_CONSUMER_SECRET"] = "cs";
-    process.env["X_GW_ACCESS_TOKEN"] = "at";
-    process.env["X_GW_ACCESS_TOKEN_SECRET"] = "ats";
-
-    const client = createXGatewayClient();
-
-    await expect(
-      client.postCreate({
-        text: "hello",
-        attachments: [
-          {
-            kind: "image",
-            filePath: "/tmp/create-a.png",
-            altText: "create alt",
-          },
-        ],
-      }),
-    ).resolves.toMatchObject({
-      data: {
-        id: "tweet-1",
-        text: "hello",
-      },
-    });
-
-    await expect(
-      client.postReply({
-        text: "reply",
-        replyToPostId: "post-1",
-        attachments: [{ kind: "image", filePath: "/tmp/reply-a.png" }],
-      }),
-    ).resolves.toMatchObject({
-      data: {
-        id: "tweet-2",
-        text: "reply",
-      },
-    });
-
-    await expect(
-      client.postQuote({
-        text: "quote",
-        quotedPostId: "post-2",
-        attachments: [{ kind: "image", filePath: "/tmp/quote-a.png" }],
-      }),
-    ).resolves.toMatchObject({
-      data: {
-        id: "tweet-3",
-        text: "quote",
-      },
-    });
-
-    expect(twitterMockState.uploadedMedia).toEqual([
-      { filePath: "/tmp/create-a.png", target: "tweet" },
-      { filePath: "/tmp/reply-a.png", target: "tweet" },
-      { filePath: "/tmp/quote-a.png", target: "tweet" },
-    ]);
-    expect(twitterMockState.mediaMetadata).toEqual([
-      { mediaId: "media-1", altText: "create alt" },
-    ]);
-    expect(twitterMockState.tweetCalls).toEqual([
-      { text: "hello", mediaIds: ["media-1"], kind: "tweet" },
-      { text: "reply", mediaIds: ["media-2"], kind: "reply" },
-      { text: "quote", mediaIds: ["media-3"], kind: "quote" },
-    ]);
   });
 
   test("supports attachment-backed public GraphQL post mutations through the SDK", async () => {
@@ -2605,19 +1903,14 @@ describe("executeCli", () => {
 
   test("rejects bare required string flags instead of treating them as true", async () => {
     await expect(
-      executeCli(
-        ["graphql", "request", "--operation-name", "--document-id", "doc-1"],
-        {
-          commandName: "x-gateway",
-          surface: "full",
-        },
-      ),
+      executeCli(["api", "request", "--query"], {
+        commandName: "x-gateway",
+        surface: "full",
+      }),
     ).rejects.toMatchObject({
       payload: expect.objectContaining({
         code: "VALIDATION_ERROR",
-        details: expect.stringContaining(
-          "Flag --operation-name requires a value",
-        ),
+        details: expect.stringContaining("Flag --query requires a value"),
       }),
     });
   });
@@ -2625,15 +1918,7 @@ describe("executeCli", () => {
   test("rejects bare numeric flags instead of coercing them to true", async () => {
     await expect(
       executeCli(
-        [
-          "graphql",
-          "request",
-          "--operation-name",
-          "Viewer",
-          "--document-id",
-          "doc-1",
-          "--retry",
-        ],
+        ["api", "request", "--query", "query { accountMe { id } }", "--retry"],
         {
           commandName: "x-gateway",
           surface: "full",
@@ -2651,14 +1936,10 @@ describe("executeCli", () => {
     await expect(
       executeCli(
         [
-          "graphql",
+          "api",
           "request",
-          "--operation-type",
-          "mutation",
-          "--operation-name",
-          "CreatePost",
-          "--document-id",
-          "doc-1",
+          "--query",
+          'mutation { createPost(text: "hello") { id } }',
         ],
         {
           commandName: "x-gateway-reader",
@@ -2678,14 +1959,7 @@ describe("executeCli", () => {
 
     await expect(
       executeCli(
-        [
-          "graphql",
-          "request",
-          "--operation-name",
-          "Viewer",
-          "--document-id",
-          "doc-1",
-        ],
+        ["api", "request", "--query", "query { accountMe { id } }"],
         {
           commandName: "x-gateway",
           surface: "full",
@@ -2755,68 +2029,45 @@ describe("executeCli", () => {
     });
   });
 
-  test("supports account me through the CLI", async () => {
-    process.env["X_GW_AUTH_MODE"] = "oauth1";
-    process.env["X_GW_CONSUMER_KEY"] = "ck";
-    process.env["X_GW_CONSUMER_SECRET"] = "cs";
-    process.env["X_GW_ACCESS_TOKEN"] = "at";
-    process.env["X_GW_ACCESS_TOKEN_SECRET"] = "ats";
-
+  test("rejects removed legacy convenience commands through the CLI", async () => {
     await expect(
       executeCli(["account", "me"], {
         commandName: "x-gateway",
         surface: "full",
       }),
-    ).resolves.toMatchObject({
-      id: "oauth1-user",
-      username: "oauth1_user",
+    ).rejects.toMatchObject({
+      payload: expect.objectContaining({
+        code: "UNSUPPORTED",
+        details: expect.stringContaining(
+          "no longer part of the supported CLI surface",
+        ),
+      }),
     });
-  });
 
-  test("supports stable timeline commands through the CLI", async () => {
-    process.env["X_GW_TOKEN"] = "bearer-token";
-
-    const searchResult = await executeCli(
-      [
-        "timeline",
-        "search",
-        "--query",
-        "  bun  ",
-        "--max-results",
-        "10",
-        "--pagination-token",
-        "  page-2  ",
-      ],
-      {
+    await expect(
+      executeCli(["usage", "tweets", "--days", "14"], {
         commandName: "x-gateway",
         surface: "full",
-      },
-    );
-    expect(searchResult).toMatchObject({
-      pageInfo: expect.objectContaining({
-        resultCount: 10,
-        previousToken: "page-1",
+      }),
+    ).rejects.toMatchObject({
+      payload: expect.objectContaining({
+        code: "UNSUPPORTED",
+        remediations: expect.arrayContaining([
+          expect.stringContaining("api request --query <graphql>"),
+        ]),
       }),
     });
-    expect(
-      (searchResult as { posts: ReadonlyArray<{ id: string }> }).posts[0],
-    ).toMatchObject({ id: "search-bun-11" });
 
-    const homeResult = await executeCli(
-      ["timeline", "home", "--max-results", "5"],
-      {
+    await expect(
+      executeCli(["timeline", "search", "--query", "bun"], {
         commandName: "x-gateway-reader",
         surface: "reader",
-      },
-    );
-    expect(homeResult).toMatchObject({
-      pageInfo: expect.objectContaining({
-        nextToken: "page-2",
+      }),
+    ).rejects.toMatchObject({
+      payload: expect.objectContaining({
+        code: "UNSUPPORTED",
       }),
     });
-    expect(
-      (homeResult as { posts: ReadonlyArray<{ id: string }> }).posts[0],
-    ).toMatchObject({ id: "home-1" });
   });
 
   test("supports the project-owned GraphQL contract through the CLI", async () => {
@@ -2838,6 +2089,81 @@ describe("executeCli", () => {
         accountMe: {
           id: "oauth1-user",
           username: "oauth1_user",
+        },
+      },
+    });
+  });
+
+  test("supports postUsage through the project-owned GraphQL CLI contract", async () => {
+    process.env["X_GW_TOKEN"] = "bearer-token";
+
+    const fetchMock = vi.fn(async () => {
+      return new Response(
+        JSON.stringify({
+          data: {
+            cap_reset_day: 31,
+            daily_client_app_usage: [
+              {
+                client_app_id: "client-app-1",
+                usage: [
+                  {
+                    date: "2026-04-01T00:00:00.000Z",
+                    usage: 12,
+                  },
+                ],
+                usage_result_count: 1,
+              },
+            ],
+            daily_project_usage: {
+              project_id: "project-1",
+              usage: [
+                {
+                  date: "2026-04-01T00:00:00.000Z",
+                  usage: 12,
+                },
+              ],
+            },
+            project_cap: 5000,
+            project_id: "project-1",
+            project_usage: 12,
+          },
+        }),
+        {
+          status: 200,
+          headers: {
+            "content-type": "application/json",
+          },
+        },
+      );
+    });
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    await expect(
+      executeCli(
+        [
+          "api",
+          "request",
+          "--query",
+          "query { postUsage(days: 14) { projectId projectUsage dailyProjectUsage { usage { date usage } } } }",
+        ],
+        {
+          commandName: "x-gateway",
+          surface: "full",
+        },
+      ),
+    ).resolves.toEqual({
+      data: {
+        postUsage: {
+          projectId: "project-1",
+          projectUsage: 12,
+          dailyProjectUsage: {
+            usage: [
+              {
+                date: "2026-04-01T00:00:00.000Z",
+                usage: 12,
+              },
+            ],
+          },
         },
       },
     });
@@ -3210,18 +2536,16 @@ describe("executeCli", () => {
     });
   });
 
-  test("supports post get through the CLI on both surfaces", async () => {
-    process.env["X_GW_TOKEN"] = "bearer-token";
-
+  test("rejects removed post convenience commands through the CLI on both surfaces", async () => {
     await expect(
       executeCli(["post", "get", "--post-id", "post-7"], {
         commandName: "x-gateway",
         surface: "full",
       }),
-    ).resolves.toMatchObject({
-      post: {
-        id: "post-7",
-      },
+    ).rejects.toMatchObject({
+      payload: expect.objectContaining({
+        code: "UNSUPPORTED",
+      }),
     });
 
     await expect(
@@ -3229,10 +2553,10 @@ describe("executeCli", () => {
         commandName: "x-gateway-reader",
         surface: "reader",
       }),
-    ).resolves.toMatchObject({
-      post: {
-        id: "post-8",
-      },
+    ).rejects.toMatchObject({
+      payload: expect.objectContaining({
+        code: "UNSUPPORTED",
+      }),
     });
   });
 
@@ -3271,278 +2595,42 @@ describe("executeCli", () => {
     });
   });
 
-  test("omits write commands from reader usage output", async () => {
+  test("omits removed legacy command groups from reader usage output", async () => {
     await expect(
       executeCli([], {
         commandName: "x-gateway-reader",
         surface: "reader",
       }),
-    ).resolves.toContain("post get");
+    ).resolves.not.toContain("post get");
     await expect(
       executeCli([], {
         commandName: "x-gateway-reader",
         surface: "reader",
       }),
     ).resolves.not.toContain("post create");
-  });
-
-  test("supports post create through the full CLI", async () => {
-    process.env["X_GW_AUTH_MODE"] = "oauth1";
-    process.env["X_GW_CONSUMER_KEY"] = "ck";
-    process.env["X_GW_CONSUMER_SECRET"] = "cs";
-    process.env["X_GW_ACCESS_TOKEN"] = "at";
-    process.env["X_GW_ACCESS_TOKEN_SECRET"] = "ats";
-
     await expect(
-      executeCli(
-        [
-          "post",
-          "create",
-          "--text",
-          "hello",
-          "--attachments-json",
-          '[{"kind":"image","filePath":"/tmp/create-cli.png","altText":"create cli alt"}]',
-        ],
-        {
-          commandName: "x-gateway",
-          surface: "full",
-        },
-      ),
-    ).resolves.toMatchObject({
-      data: {
-        id: "tweet-1",
-        text: "hello",
-      },
-    });
-
-    expect(twitterMockState.uploadedMedia).toEqual([
-      { filePath: "/tmp/create-cli.png", target: "tweet" },
-    ]);
-    expect(twitterMockState.mediaMetadata).toEqual([
-      { mediaId: "media-1", altText: "create cli alt" },
-    ]);
-    expect(twitterMockState.tweetCalls).toEqual([
-      { text: "hello", mediaIds: ["media-1"], kind: "tweet" },
-    ]);
-  });
-
-  test("supports post delete through the full CLI", async () => {
-    process.env["X_GW_AUTH_MODE"] = "oauth1";
-    process.env["X_GW_CONSUMER_KEY"] = "ck";
-    process.env["X_GW_CONSUMER_SECRET"] = "cs";
-    process.env["X_GW_ACCESS_TOKEN"] = "at";
-    process.env["X_GW_ACCESS_TOKEN_SECRET"] = "ats";
-
-    await expect(
-      executeCli(["post", "delete", "--post-id", "tweet-9"], {
-        commandName: "x-gateway",
-        surface: "full",
-      }),
-    ).resolves.toMatchObject({
-      data: {
-        deleted: true,
-        postId: "tweet-9",
-      },
-    });
-  });
-
-  test("supports expanded post commands through the full CLI", async () => {
-    process.env["X_GW_AUTH_MODE"] = "oauth1";
-    process.env["X_GW_CONSUMER_KEY"] = "ck";
-    process.env["X_GW_CONSUMER_SECRET"] = "cs";
-    process.env["X_GW_ACCESS_TOKEN"] = "at";
-    process.env["X_GW_ACCESS_TOKEN_SECRET"] = "ats";
-
-    await expect(
-      executeCli(
-        [
-          "post",
-          "reply",
-          "--text",
-          "hello",
-          "--reply-to-post-id",
-          "post-1",
-          "--attachments-json",
-          '[{"kind":"image","filePath":"/tmp/reply-cli.png"}]',
-        ],
-        {
-          commandName: "x-gateway",
-          surface: "full",
-        },
-      ),
-    ).resolves.toMatchObject({
-      data: {
-        id: "tweet-2",
-        replyToPostId: "post-1",
-      },
-    });
-    await expect(
-      executeCli(
-        [
-          "post",
-          "quote",
-          "--text",
-          "hello",
-          "--quoted-post-id",
-          "post-2",
-          "--attachments-json",
-          '[{"kind":"image","filePath":"/tmp/quote-cli.png"}]',
-        ],
-        {
-          commandName: "x-gateway",
-          surface: "full",
-        },
-      ),
-    ).resolves.toMatchObject({
-      data: {
-        id: "tweet-3",
-        quotedPostId: "post-2",
-      },
-    });
-    await expect(
-      executeCli(["post", "repost", "--post-id", "post-3"], {
-        commandName: "x-gateway",
-        surface: "full",
-      }),
-    ).resolves.toMatchObject({
-      data: {
-        retweeted: true,
-        postId: "post-3",
-      },
-    });
-    await expect(
-      executeCli(["post", "unrepost", "--post-id", "post-3"], {
-        commandName: "x-gateway",
-        surface: "full",
-      }),
-    ).resolves.toMatchObject({
-      data: {
-        retweeted: false,
-        postId: "post-3",
-      },
-    });
-
-    expect(twitterMockState.uploadedMedia).toEqual([
-      { filePath: "/tmp/reply-cli.png", target: "tweet" },
-      { filePath: "/tmp/quote-cli.png", target: "tweet" },
-    ]);
-    expect(twitterMockState.mediaMetadata).toEqual([]);
-    expect(twitterMockState.tweetCalls).toEqual([
-      { text: "hello", mediaIds: ["media-1"], kind: "reply" },
-      { text: "hello", mediaIds: ["media-2"], kind: "quote" },
-    ]);
-  });
-
-  test("rejects malformed attachments-json on stable CLI post commands", async () => {
-    process.env["X_GW_AUTH_MODE"] = "oauth1";
-    process.env["X_GW_CONSUMER_KEY"] = "ck";
-    process.env["X_GW_CONSUMER_SECRET"] = "cs";
-    process.env["X_GW_ACCESS_TOKEN"] = "at";
-    process.env["X_GW_ACCESS_TOKEN_SECRET"] = "ats";
-
-    await expect(
-      executeCli(
-        [
-          "post",
-          "create",
-          "--text",
-          "hello",
-          "--attachments-json",
-          '{"kind":"image","filePath":"/tmp/not-an-array.png"}',
-        ],
-        {
-          commandName: "x-gateway",
-          surface: "full",
-        },
-      ),
-    ).rejects.toMatchObject({
-      payload: expect.objectContaining({
-        code: "VALIDATION_ERROR",
-        details: expect.stringContaining(
-          "must be a JSON array containing between 1 and 4 attachment objects",
-        ),
-      }),
-    });
-  });
-
-  test("rejects post create with bearer auth through the CLI", async () => {
-    process.env["X_GW_TOKEN"] = "bearer-token";
-
-    await expect(
-      executeCli(["post", "create", "--text", "hello"], {
-        commandName: "x-gateway",
-        surface: "full",
-      }),
-    ).rejects.toMatchObject({
-      payload: expect.objectContaining({
-        code: "UNSUPPORTED",
-        details: expect.stringContaining("OAuth1 credentials only"),
-      }),
-    });
-  });
-
-  test("rejects expanded post commands with bearer auth through the CLI", async () => {
-    process.env["X_GW_TOKEN"] = "bearer-token";
-
-    await expect(
-      executeCli(["post", "delete", "--post-id", "tweet-9"], {
-        commandName: "x-gateway",
-        surface: "full",
-      }),
-    ).rejects.toMatchObject({
-      payload: expect.objectContaining({
-        code: "UNSUPPORTED",
-      }),
-    });
-    await expect(
-      executeCli(
-        ["post", "reply", "--text", "hello", "--reply-to-post-id", "post-1"],
-        {
-          commandName: "x-gateway",
-          surface: "full",
-        },
-      ),
-    ).rejects.toMatchObject({
-      payload: expect.objectContaining({
-        code: "UNSUPPORTED",
-      }),
-    });
-    await expect(
-      executeCli(
-        ["post", "quote", "--text", "hello", "--quoted-post-id", "post-2"],
-        {
-          commandName: "x-gateway",
-          surface: "full",
-        },
-      ),
-    ).rejects.toMatchObject({
-      payload: expect.objectContaining({
-        code: "UNSUPPORTED",
-      }),
-    });
-    await expect(
-      executeCli(["post", "repost", "--post-id", "post-3"], {
-        commandName: "x-gateway",
-        surface: "full",
-      }),
-    ).rejects.toMatchObject({
-      payload: expect.objectContaining({
-        code: "UNSUPPORTED",
-      }),
-    });
-  });
-
-  test("keeps post create blocked in reader mode", async () => {
-    await expect(
-      executeCli(["post", "create", "--text", "hello"], {
+      executeCli([], {
         commandName: "x-gateway-reader",
         surface: "reader",
       }),
+    ).resolves.not.toContain("usage tweets");
+  });
+
+  test("rejects removed write-oriented convenience commands through the CLI", async () => {
+    await expect(
+      executeCli(["post", "create", "--text", "hello"], {
+        commandName: "x-gateway",
+        surface: "full",
+      }),
     ).rejects.toMatchObject({
       payload: expect.objectContaining({
         code: "UNSUPPORTED",
+        details: expect.stringContaining(
+          "no longer part of the supported CLI surface",
+        ),
       }),
     });
+
     await expect(
       executeCli(["post", "delete", "--post-id", "tweet-9"], {
         commandName: "x-gateway-reader",
@@ -3558,6 +2646,7 @@ describe("executeCli", () => {
   test("includes transport strategy and tightened auth metadata in capability inventory", () => {
     const client = createXGatewayClient();
     const capability = client.capabilitiesGet("post.delete");
+    const usageTweets = client.capabilitiesGet("usage.tweets");
     const timelineSearch = client.capabilitiesGet("timeline.search");
     const timelineHome = client.capabilitiesGet("timeline.home");
     const deferredSocial = client.capabilitiesGet("social.follows");
@@ -3570,6 +2659,10 @@ describe("executeCli", () => {
     expect(capability.accessType).toBe("write");
     expect(capability.preferredTransport).toBe("rest-v2");
     expect(capability.authModes).toEqual(["oauth1"]);
+    expect(usageTweets.transportStrategy).toBe("rest-v2");
+    expect(usageTweets.publicOperationName).toBe("postUsage");
+    expect(usageTweets.authModes).toEqual(["bearer"]);
+    expect(usageTweets.notes).toContain("usage counts");
     expect(stableLikes.status).toBe("blocked_by_plan");
     expect(stableLikes.publicOperationName).toBeUndefined();
     expect(stableLikes.surfaceCategory).toBe("deferred");
@@ -3607,6 +2700,7 @@ describe("executeCli", () => {
       "homeTimeline",
       "mentionsTimeline",
       "post",
+      "postUsage",
       "quotePost",
       "replyToPost",
       "repostPost",
@@ -3636,7 +2730,7 @@ describe("executeCli", () => {
   });
 
   test("honors retry env settings when CLI flags omit retry controls", async () => {
-    process.env["X_GW_TOKEN"] = "env-token";
+    process.env["X_GW_TOKEN"] = "bearer-token";
     process.env["X_GW_RETRY"] = "1";
 
     const fetchMock = vi.fn(async () => {
@@ -3652,14 +2746,7 @@ describe("executeCli", () => {
 
     await expect(
       executeCli(
-        [
-          "graphql",
-          "request",
-          "--operation-name",
-          "Viewer",
-          "--document-id",
-          "doc-1",
-        ],
+        ["api", "request", "--query", "query { postUsage(days: 14) { projectId } }"],
         {
           commandName: "x-gateway",
           surface: "full",
@@ -3675,28 +2762,14 @@ describe("executeCli", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  test("accepts --graphql-base-url as the GraphQL-only endpoint override", async () => {
-    process.env["X_GW_TOKEN"] = "env-token";
-
-    const fetchMock = vi.fn(async () => {
-      return new Response(JSON.stringify({ data: { viewer: { id: "1" } } }), {
-        status: 200,
-        headers: {
-          "content-type": "application/json",
-        },
-      });
-    });
-    globalThis.fetch = fetchMock as typeof fetch;
-
+  test("rejects removed raw-graphql-specific flags on the public CLI surface", async () => {
     await expect(
       executeCli(
         [
-          "graphql",
+          "api",
           "request",
-          "--operation-name",
-          "Viewer",
-          "--document-id",
-          "doc-1",
+          "--query",
+          "query { accountMe { id } }",
           "--graphql-base-url",
           "https://cli.example/graphql",
         ],
@@ -3705,18 +2778,12 @@ describe("executeCli", () => {
           surface: "full",
         },
       ),
-    ).resolves.toMatchObject({
-      data: {
-        viewer: {
-          id: "1",
-        },
-      },
+    ).rejects.toMatchObject({
+      payload: expect.objectContaining({
+        code: "VALIDATION_ERROR",
+        details: expect.stringContaining("Unknown flag --graphql-base-url"),
+      }),
     });
-
-    expect(fetchMock).toHaveBeenCalledWith(
-      "https://cli.example/graphql/doc-1/Viewer",
-      expect.any(Object),
-    );
   });
 
   test("validates bare global trace-id flags through the normal CLI error path", async () => {
@@ -3733,16 +2800,14 @@ describe("executeCli", () => {
     });
   });
 
-  test("rejects deprecated api-base flag aliases instead of silently accepting them", async () => {
+  test("rejects removed api-base flag aliases instead of silently accepting them", async () => {
     await expect(
       executeCli(
         [
-          "graphql",
+          "api",
           "request",
-          "--operation-name",
-          "Viewer",
-          "--document-id",
-          "doc-1",
+          "--query",
+          "query { accountMe { id } }",
           "--api-base-url",
           "https://legacy.example/graphql",
         ],
@@ -3754,9 +2819,7 @@ describe("executeCli", () => {
     ).rejects.toMatchObject({
       payload: expect.objectContaining({
         code: "VALIDATION_ERROR",
-        details: expect.stringContaining(
-          "Flag --api-base-url is no longer supported",
-        ),
+        details: expect.stringContaining("Unknown flag --api-base-url"),
       }),
     });
   });

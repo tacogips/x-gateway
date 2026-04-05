@@ -8,7 +8,6 @@ import {
   type XGatewayConfig,
   type XGatewayOperationType,
 } from "./lib";
-import { validatePostAttachments } from "./post-attachments";
 
 export type CliSurface = "full" | "reader";
 
@@ -33,13 +32,13 @@ const GLOBAL_FLAG_NAMES = new Set([
   "trace-id",
   "config-mode",
   "auth-mode",
-  "graphql-base-url",
   "timeout-ms",
   "retry",
   "retry-backoff",
   "retry-base-ms",
   "retry-max-ms",
   "strict-capability-checks",
+  "days",
   "token",
   "consumer-key",
   "consumer-secret",
@@ -49,9 +48,7 @@ const GLOBAL_FLAG_NAMES = new Set([
   "client-secret",
 ]);
 
-const DEPRECATED_FLAG_NAMES = new Map<string, string>([
-  ["api-base-url", "--graphql-base-url"],
-]);
+const DEPRECATED_FLAG_NAMES = new Map<string, string>();
 
 function parseArgs(argv: readonly string[]): ParsedArgs {
   const positionals: string[] = [];
@@ -199,18 +196,6 @@ function getRequiredFlag(args: ParsedArgs, key: string): string {
   return value;
 }
 
-function getOptionalTrimmedStringFlag(
-  args: ParsedArgs,
-  key: string,
-): string | undefined {
-  const value = getOptionalStringFlag(args, key);
-  return value?.trim();
-}
-
-function getRequiredTrimmedFlag(args: ParsedArgs, key: string): string {
-  return getRequiredFlag(args, key).trim();
-}
-
 function createFlagValidationError(message: string): XGatewayError {
   return new XGatewayError({
     code: "VALIDATION_ERROR",
@@ -239,17 +224,6 @@ function allowedCommandFlagNames(
     return allowed;
   }
 
-  if (group === "graphql" && action === "request") {
-    allowed.add("operation-type");
-    allowed.add("operation-name");
-    allowed.add("document-id");
-    allowed.add("query");
-    allowed.add("variables-json");
-    allowed.add("features-json");
-    allowed.add("field-toggles-json");
-    return allowed;
-  }
-
   if (group === "api" && action === "request") {
     allowed.add("query");
     return allowed;
@@ -257,61 +231,6 @@ function allowedCommandFlagNames(
 
   if (group === "capabilities" && action === "get") {
     allowed.add("id");
-    return allowed;
-  }
-
-  if (group === "post" && action === "create") {
-    allowed.add("text");
-    allowed.add("attachments-json");
-    return allowed;
-  }
-
-  if (group === "post" && action === "delete") {
-    allowed.add("post-id");
-    return allowed;
-  }
-
-  if (group === "post" && action === "get") {
-    allowed.add("post-id");
-    return allowed;
-  }
-
-  if (group === "post" && action === "reply") {
-    allowed.add("text");
-    allowed.add("reply-to-post-id");
-    allowed.add("attachments-json");
-    return allowed;
-  }
-
-  if (group === "post" && action === "quote") {
-    allowed.add("text");
-    allowed.add("quoted-post-id");
-    allowed.add("attachments-json");
-    return allowed;
-  }
-
-  if (group === "post" && (action === "repost" || action === "unrepost")) {
-    allowed.add("post-id");
-    return allowed;
-  }
-
-  if (group === "timeline" && action === "search") {
-    allowed.add("query");
-    allowed.add("max-results");
-    allowed.add("pagination-token");
-    return allowed;
-  }
-
-  if (group === "timeline" && action === "home") {
-    allowed.add("max-results");
-    allowed.add("pagination-token");
-    return allowed;
-  }
-
-  if (group === "timeline" && (action === "user" || action === "mentions")) {
-    allowed.add("user-id");
-    allowed.add("max-results");
-    allowed.add("pagination-token");
     return allowed;
   }
 
@@ -337,81 +256,6 @@ function assertAllowedFlags(
       throw createFlagValidationError(`Unknown flag --${key}.`);
     }
   }
-}
-
-function parseJsonRecordFlag(
-  args: ParsedArgs,
-  key: string,
-): Readonly<Record<string, unknown>> | undefined {
-  const parsed = parseJsonFlag(args, key);
-  if (parsed === undefined) {
-    return undefined;
-  }
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-    throw createFlagValidationError(
-      `Flag --${key} must be a JSON object, not an array or primitive value.`,
-    );
-  }
-
-  return parsed as Readonly<Record<string, unknown>>;
-}
-
-function parseJsonFlag(args: ParsedArgs, key: string): unknown {
-  const value = getOptionalStringFlag(args, key);
-  if (value === undefined) {
-    return undefined;
-  }
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(value) as unknown;
-  } catch (error: unknown) {
-    const detail =
-      error instanceof Error ? error.message : "Unknown JSON parse error";
-    throw createFlagValidationError(
-      `Flag --${key} must be valid JSON. ${detail}`,
-    );
-  }
-
-  return parsed;
-}
-
-function parseAttachmentsJsonFlag(args: ParsedArgs) {
-  const parsed = parseJsonFlag(args, "attachments-json");
-  return validatePostAttachments(parsed, {
-    createValidationError: createFlagValidationError,
-    messages: {
-      invalidCollection:
-        "Flag --attachments-json must be a JSON array containing between 1 and 4 attachment objects.",
-      invalidItem: (index) =>
-        `Flag --attachments-json item ${index} must be an object.`,
-      unexpectedField: (index, key) =>
-        `Flag --attachments-json item ${index} does not accept field '${key}'. Supported fields: kind, filePath, altText.`,
-      invalidKind: (index) =>
-        `Flag --attachments-json item ${index}.kind must be 'image' in the current reviewed posting slice.`,
-      invalidFilePath: (index) =>
-        `Flag --attachments-json item ${index}.filePath must be a non-empty string.`,
-      invalidAltText: {
-        empty: (index) =>
-          `Flag --attachments-json item ${index}.altText must be a non-empty string when provided.`,
-        tooLong: (index) =>
-          `Flag --attachments-json item ${index}.altText must be between 1 and 1000 characters when provided.`,
-      },
-    },
-  });
-}
-
-function getOperationType(args: ParsedArgs): XGatewayOperationType {
-  const value = getOptionalStringFlag(args, "operation-type");
-  if (value === undefined || value === "query") {
-    return "query";
-  }
-  if (value === "mutation") {
-    return "mutation";
-  }
-  throw createFlagValidationError(
-    "Flag --operation-type must be either 'query' or 'mutation'.",
-  );
 }
 
 function printSuccess(
@@ -532,37 +376,14 @@ function buildConfigFromFlags(args: ParsedArgs): XGatewayConfig {
       clientId: getOptionalStringFlag(args, "client-id"),
       clientSecret: getOptionalStringFlag(args, "client-secret"),
     },
-    graphqlBaseUrl: getOptionalStringFlag(args, "graphql-base-url"),
   };
 }
 
-function usage(commandName: string, surface: CliSurface): string {
-  const graphqlCommand =
-    surface === "reader"
-      ? `  ${commandName} graphql request --operation-name <name> [--operation-type query] (--document-id <id> | --query <graphql>) [--variables-json <json>] [--features-json <json>] [--field-toggles-json <json>]`
-      : `  ${commandName} graphql request --operation-name <name> [--operation-type query|mutation] (--document-id <id> | --query <graphql>) [--variables-json <json>] [--features-json <json>] [--field-toggles-json <json>]`;
-
+function usage(commandName: string): string {
   return [
     `${commandName} command usage:`,
     `  ${commandName} auth verify|scopes`,
     `  ${commandName} api request --query <graphql>`,
-    `  ${commandName} account me`,
-    `  ${commandName} post get --post-id <postId>`,
-    `  ${commandName} timeline search --query <query> [--max-results <n>] [--pagination-token <token>]`,
-    `  ${commandName} timeline home [--max-results <n>] [--pagination-token <token>]`,
-    `  ${commandName} timeline user --user-id <userId> [--max-results <n>] [--pagination-token <token>]`,
-    `  ${commandName} timeline mentions --user-id <userId> [--max-results <n>] [--pagination-token <token>]`,
-    ...(surface === "full"
-      ? [
-          `  ${commandName} post create --text <text> [--attachments-json <json>]`,
-          `  ${commandName} post delete --post-id <postId>`,
-          `  ${commandName} post reply --text <text> --reply-to-post-id <postId> [--attachments-json <json>]`,
-          `  ${commandName} post quote --text <text> --quoted-post-id <postId> [--attachments-json <json>]`,
-          `  ${commandName} post repost --post-id <postId>`,
-          `  ${commandName} post unrepost --post-id <postId>`,
-        ]
-      : []),
-    `${graphqlCommand} [--graphql-base-url <url>]`,
     `  ${commandName} capabilities list`,
     `  ${commandName} capabilities get --id <capabilityId>`,
     `  ${commandName} health`,
@@ -570,9 +391,9 @@ function usage(commandName: string, surface: CliSurface): string {
     "",
     "Notes:",
     "  - 'api request' is the primary public interface for reviewed capabilities.",
-    "  - Stable capability commands remain available as transitional convenience wrappers.",
-    "  - 'graphql request' remains available only as a low-level escape hatch.",
-    "  - Unimplemented high-level commands are rejected until a reviewed adapter exists.",
+    "  - Legacy convenience command groups were removed from the public CLI surface.",
+    "  - Raw upstream GraphQL is not part of the public CLI surface.",
+    "  - Unimplemented high-level workflows must be added as reviewed project-owned GraphQL fields first.",
   ].join("\n");
 }
 
@@ -590,7 +411,7 @@ function createReadOnlyCommandError(
     ],
     remediations: [
       "Use x-gateway for mutation operations.",
-      "Re-run with 'graphql request --operation-type query' if the workflow should remain read-only.",
+      "Re-run with a read-only project-owned GraphQL query if the workflow should remain read-only.",
       `Run ${commandName} with no arguments to view the read-only command list`,
     ],
     classification: "unsupported",
@@ -641,8 +462,28 @@ function createUnsupportedCommandSurfaceError(
     ],
     remediations: [
       `Use '${commandName} api request --query <graphql>' for reviewed project-owned GraphQL operations.`,
-      `Use '${commandName} graphql request ...' only if you need the low-level GraphQL escape hatch.`,
-      "Add a reviewed capability adapter before reintroducing this command group.",
+      "Add a reviewed project-owned GraphQL field before reintroducing this workflow.",
+    ],
+    classification: "unsupported",
+    retryable: false,
+  });
+}
+
+function createRemovedLegacyCommandError(
+  commandName: string,
+  attempted: string,
+): XGatewayError {
+  return new XGatewayError({
+    code: "UNSUPPORTED",
+    summary: `${attempted} was removed from the public ${commandName} surface`,
+    details: `The legacy command '${attempted}' is no longer part of the supported CLI surface. Use the canonical project-owned GraphQL interface instead.`,
+    likelyCauses: [
+      "A transitional convenience command remained in prior workflow documentation or shell history",
+      "The repository now treats GraphQL as the only reviewed public data interface",
+    ],
+    remediations: [
+      `Use '${commandName} api request --query <graphql>' for reviewed project-owned operations.`,
+      `Run '${commandName}' with no arguments to view the current supported command list.`,
     ],
     classification: "unsupported",
     retryable: false,
@@ -664,7 +505,6 @@ function createUnknownCommandError(
     remediations: [
       `Run '${commandName}' with no arguments to view supported commands.`,
       `Use '${commandName} api request --query <graphql>' for the canonical public interface.`,
-      `Use '${commandName} graphql request ...' only for low-level upstream GraphQL escape-hatch usage.`,
     ],
     classification: "validation",
     retryable: false,
@@ -680,15 +520,16 @@ function assertSupportedCommandSurface(
     "health",
     "version",
     "api",
-    "graphql",
     "auth",
     "capabilities",
-    "account",
-    "post",
-    "timeline",
   ]);
   if (supported.has(group)) {
     return;
+  }
+  const removedLegacy = new Set(["account", "usage", "post", "timeline"]);
+  if (removedLegacy.has(group)) {
+    const attempted = action ? `${group} ${action}` : group;
+    throw createRemovedLegacyCommandError(commandName, attempted);
   }
   const deferred = new Set([
     "media",
@@ -720,7 +561,7 @@ export async function executeCli(
     getBooleanFlag(parsed, "pretty");
     getOptionalStringFlag(parsed, "trace-id");
     buildConfigFromFlags(parsed);
-    return usage(options.commandName, options.surface);
+    return usage(options.commandName);
   }
 
   assertSupportedCommandSurface(options.commandName, group, action);
@@ -747,7 +588,7 @@ export async function executeCli(
   const operationType =
     group === "api" && action === "request"
       ? inferApiRequestOperationType(getRequiredFlag(parsed, "query"))
-      : getOperationType(parsed);
+      : ("query" as XGatewayOperationType);
   ensureMutableCommand(
     options.surface,
     options.commandName,
@@ -771,26 +612,6 @@ export async function executeCli(
     );
   }
 
-  if (group === "graphql" && action === "request") {
-    const documentId = getOptionalStringFlag(parsed, "document-id");
-    const query = getOptionalStringFlag(parsed, "query");
-    const variables = parseJsonRecordFlag(parsed, "variables-json");
-    const features = parseJsonRecordFlag(parsed, "features-json");
-    const fieldToggles = parseJsonRecordFlag(parsed, "field-toggles-json");
-    const traceId = getOptionalStringFlag(parsed, "trace-id");
-
-    return client.request({
-      operationName: getRequiredFlag(parsed, "operation-name"),
-      operationType,
-      ...(documentId === undefined ? {} : { documentId }),
-      ...(query === undefined ? {} : { query }),
-      ...(variables === undefined ? {} : { variables }),
-      ...(features === undefined ? {} : { features }),
-      ...(fieldToggles === undefined ? {} : { fieldToggles }),
-      ...(traceId === undefined ? {} : { traceId }),
-    });
-  }
-
   if (group === "api" && action === "request") {
     const query = getRequiredFlag(parsed, "query");
     const traceId = getOptionalStringFlag(parsed, "trace-id");
@@ -799,106 +620,6 @@ export async function executeCli(
       query,
       ...(traceId === undefined ? {} : { traceId }),
     });
-  }
-
-  if (group === "account") {
-    if (action === "me") {
-      return client.accountMe();
-    }
-    throw createUnknownCommandError(
-      options.commandName,
-      `${group} ${action ?? ""}`.trim(),
-    );
-  }
-
-  if (group === "post") {
-    if (action === "get") {
-      return client.postGet({
-        postId: getRequiredFlag(parsed, "post-id"),
-      });
-    }
-    if (action === "create") {
-      const attachments = parseAttachmentsJsonFlag(parsed);
-      return client.postCreate({
-        text: getRequiredFlag(parsed, "text"),
-        ...(attachments === undefined ? {} : { attachments }),
-      });
-    }
-    if (action === "delete") {
-      return client.postDelete({
-        postId: getRequiredFlag(parsed, "post-id"),
-      });
-    }
-    if (action === "reply") {
-      const attachments = parseAttachmentsJsonFlag(parsed);
-      return client.postReply({
-        text: getRequiredFlag(parsed, "text"),
-        replyToPostId: getRequiredFlag(parsed, "reply-to-post-id"),
-        ...(attachments === undefined ? {} : { attachments }),
-      });
-    }
-    if (action === "quote") {
-      const attachments = parseAttachmentsJsonFlag(parsed);
-      return client.postQuote({
-        text: getRequiredFlag(parsed, "text"),
-        quotedPostId: getRequiredFlag(parsed, "quoted-post-id"),
-        ...(attachments === undefined ? {} : { attachments }),
-      });
-    }
-    if (action === "repost") {
-      return client.postRepost({
-        postId: getRequiredFlag(parsed, "post-id"),
-      });
-    }
-    if (action === "unrepost") {
-      return client.postUndoRepost({
-        postId: getRequiredFlag(parsed, "post-id"),
-      });
-    }
-    throw createUnknownCommandError(
-      options.commandName,
-      `${group} ${action ?? ""}`.trim(),
-    );
-  }
-
-  if (group === "timeline") {
-    const maxResults = getOptionalNumberFlag(parsed, "max-results");
-    const paginationToken = getOptionalTrimmedStringFlag(
-      parsed,
-      "pagination-token",
-    );
-
-    if (action === "search") {
-      return client.timelineSearch({
-        query: getRequiredTrimmedFlag(parsed, "query"),
-        ...(maxResults === undefined ? {} : { maxResults }),
-        ...(paginationToken === undefined ? {} : { paginationToken }),
-      });
-    }
-    if (action === "home") {
-      return client.timelineHome({
-        ...(maxResults === undefined ? {} : { maxResults }),
-        ...(paginationToken === undefined ? {} : { paginationToken }),
-      });
-    }
-    if (action === "user") {
-      return client.timelineUser({
-        userId: getRequiredTrimmedFlag(parsed, "user-id"),
-        ...(maxResults === undefined ? {} : { maxResults }),
-        ...(paginationToken === undefined ? {} : { paginationToken }),
-      });
-    }
-    if (action === "mentions") {
-      return client.timelineMentions({
-        userId: getRequiredTrimmedFlag(parsed, "user-id"),
-        ...(maxResults === undefined ? {} : { maxResults }),
-        ...(paginationToken === undefined ? {} : { paginationToken }),
-      });
-    }
-    throw createUnknownCommandError(
-      options.commandName,
-      `${group} ${action ?? ""}`.trim(),
-    );
   }
 
   if (group === "capabilities") {

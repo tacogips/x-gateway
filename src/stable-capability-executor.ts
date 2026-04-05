@@ -26,11 +26,16 @@ import type {
   XGatewayTimelinePageOptions,
   XGatewayTimelineSearchOptions,
   XGatewayTimelineUserOptions,
+  XGatewayUsageTweetsOptions,
+  XGatewayUsageTweetsResult,
 } from "./lib";
 
 export type XGatewayReadCapabilityAdapter = Readonly<{
   adapterKind: "rest-oauth1" | "rest-bearer";
   accountMe: () => Promise<XGatewayAccountProfile>;
+  usageTweets: (
+    options: XGatewayUsageTweetsOptions,
+  ) => Promise<XGatewayUsageTweetsResult>;
   postGet: (
     options: XGatewayPostGetOptions,
   ) => Promise<XGatewayPostLookupResult>;
@@ -60,6 +65,7 @@ export type XGatewayStablePostingAdapter = Readonly<{
 
 export type StableCapabilityInputById = Readonly<{
   "account.me": undefined;
+  "usage.tweets": XGatewayUsageTweetsOptions;
   "post.get": XGatewayPostGetOptions;
   "timeline.search": XGatewayTimelineSearchOptions;
   "timeline.home": XGatewayTimelinePageOptions;
@@ -75,6 +81,7 @@ export type StableCapabilityInputById = Readonly<{
 
 export type StableCapabilityResultById = Readonly<{
   "account.me": XGatewayAccountProfile;
+  "usage.tweets": XGatewayUsageTweetsResult;
   "post.get": XGatewayPostLookupResult;
   "timeline.search": XGatewayPostPage;
   "timeline.home": XGatewayPostPage;
@@ -242,6 +249,18 @@ export function createStableCapabilityExecutor(
           "Authenticated account lookup",
           {
             read: async (adapter) => adapter.accountMe(),
+          },
+          traceId,
+        ),
+    },
+    "usage.tweets": {
+      capabilityLabel: "Post usage statistics",
+      plan: (input, traceId) =>
+        buildCapabilityExecutionPlan(
+          "usage.tweets",
+          "Post usage statistics",
+          {
+            read: async (adapter) => adapter.usageTweets(input),
           },
           traceId,
         ),

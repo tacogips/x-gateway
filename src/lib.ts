@@ -22,7 +22,6 @@ import {
   createStableCapabilityExecutor,
   type StableCapabilityInputById,
 } from "./stable-capability-executor";
-import { createRawGraphqlRequester } from "./raw-graphql-client";
 
 export type {
   CapabilityDescriptor,
@@ -87,7 +86,6 @@ export type XGatewayConfig = Readonly<{
   configMode?: XGatewayConfigMode | undefined;
   authMode?: XGatewayAuthMode | undefined;
   auth?: XGatewayAuthConfig | undefined;
-  graphqlBaseUrl?: string | undefined;
   timeoutMs?: number | undefined;
   retry?: XGatewayRetryConfig | undefined;
   strictCapabilityChecks?: boolean | undefined;
@@ -96,7 +94,6 @@ export type XGatewayConfig = Readonly<{
 export type XGatewayResolvedConfig = Readonly<{
   configMode: XGatewayConfigMode;
   auth: XGatewayAuthConfig;
-  graphqlBaseUrl?: string;
   timeoutMs: number;
   retry: Readonly<{
     retries: number;
@@ -126,7 +123,6 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_RETRY_COUNT = 2;
 const DEFAULT_RETRY_BASE_MS = 300;
 const DEFAULT_RETRY_MAX_MS = 10_000;
-const DEFAULT_GRAPHQL_BASE_URL = "https://x.com/i/api/graphql";
 function readEnv(name: string): string | undefined {
   const raw = process.env[name];
   if (!raw) {
@@ -252,29 +248,6 @@ function validateOptionalInteger(
   return input;
 }
 
-function validateOptionalGraphqlBaseUrl(
-  input: string | undefined,
-  name: string,
-): string | undefined {
-  if (input === undefined) {
-    return undefined;
-  }
-  const trimmed = input.trim();
-  if (trimmed.length === 0) {
-    throw createValidationError(`${name} must not be empty.`);
-  }
-  let protocol: string;
-  try {
-    protocol = new globalThis.URL(trimmed).protocol;
-  } catch {
-    throw createValidationError(`${name} must be an absolute http(s) URL.`);
-  }
-  if (protocol !== "http:" && protocol !== "https:") {
-    throw createValidationError(`${name} must use http or https.`);
-  }
-  return trimmed;
-}
-
 export function resolveConfig(
   config: XGatewayConfig = {},
 ): XGatewayResolvedConfig {
@@ -370,16 +343,9 @@ export function resolveConfig(
       0,
     );
 
-  const graphqlBaseUrl = validateOptionalGraphqlBaseUrl(
-    config.graphqlBaseUrl ?? readEnv("X_GW_GRAPHQL_BASE_URL"),
-    config.graphqlBaseUrl !== undefined
-      ? "config.graphqlBaseUrl"
-      : "X_GW_GRAPHQL_BASE_URL",
-  );
   return {
     configMode,
     auth: mergedAuth,
-    ...(graphqlBaseUrl === undefined ? {} : { graphqlBaseUrl }),
     timeoutMs,
     retry: {
       retries,
@@ -822,17 +788,6 @@ async function withTimeout<T>(
   }
 }
 
-export type XGatewayRequestOptions = Readonly<{
-  operationName: string;
-  operationType?: XGatewayOperationType;
-  documentId?: string;
-  query?: string;
-  variables?: Readonly<Record<string, unknown>>;
-  features?: Readonly<Record<string, unknown>>;
-  fieldToggles?: Readonly<Record<string, unknown>>;
-  traceId?: string;
-}>;
-
 export type XGatewayAccountProfile = Readonly<{
   id: string;
   username: string;
@@ -921,6 +876,35 @@ export type XGatewayTimelineUserOptions = Readonly<
   }
 >;
 
+export type XGatewayUsageTweetsOptions = Readonly<{
+  days?: number;
+}>;
+
+export type XGatewayUsageDay = Readonly<{
+  date: string;
+  usage: number;
+}>;
+
+export type XGatewayUsageClientApp = Readonly<{
+  clientAppId: string;
+  usageResultCount: number;
+  usage: readonly XGatewayUsageDay[];
+}>;
+
+export type XGatewayUsageProjectTimeline = Readonly<{
+  projectId: string;
+  usage: readonly XGatewayUsageDay[];
+}>;
+
+export type XGatewayUsageTweetsResult = Readonly<{
+  capResetDay: number;
+  dailyClientAppUsage: readonly XGatewayUsageClientApp[];
+  dailyProjectUsage: XGatewayUsageProjectTimeline;
+  projectCap: number;
+  projectId: string;
+  projectUsage: number;
+}>;
+
 export type XGatewayPostQuoteOptions = Readonly<{
   text: string;
   quotedPostId: string;
@@ -948,7 +932,6 @@ export type XGatewayApiRequestOptions = Readonly<{
 
 export type XGatewayClient = Readonly<{
   getResolvedConfig: () => XGatewayResolvedConfig;
-  request: <T>(options: XGatewayRequestOptions) => Promise<T>;
   apiRequest: (
     options: XGatewayApiRequestOptions,
   ) => Promise<Readonly<{ data: Readonly<Record<string, unknown>> }>>;
@@ -956,28 +939,6 @@ export type XGatewayClient = Readonly<{
   authScopes: () => Promise<
     Readonly<{ authMode: string; notes: readonly string[] }>
   >;
-  accountMe: () => Promise<XGatewayAccountProfile>;
-  postGet: (
-    options: XGatewayPostGetOptions,
-  ) => Promise<XGatewayPostLookupResult>;
-  timelineSearch: (
-    options: XGatewayTimelineSearchOptions,
-  ) => Promise<XGatewayPostPage>;
-  timelineHome: (
-    options?: XGatewayTimelinePageOptions,
-  ) => Promise<XGatewayPostPage>;
-  timelineUser: (
-    options: XGatewayTimelineUserOptions,
-  ) => Promise<XGatewayPostPage>;
-  timelineMentions: (
-    options: XGatewayTimelineUserOptions,
-  ) => Promise<XGatewayPostPage>;
-  postCreate: (options: XGatewayPostCreateOptions) => Promise<unknown>;
-  postDelete: (options: XGatewayPostDeleteOptions) => Promise<unknown>;
-  postReply: (options: XGatewayPostReplyOptions) => Promise<unknown>;
-  postQuote: (options: XGatewayPostQuoteOptions) => Promise<unknown>;
-  postRepost: (options: XGatewayPostRepostOptions) => Promise<unknown>;
-  postUndoRepost: (options: XGatewayPostRepostOptions) => Promise<unknown>;
   capabilitiesList: () => readonly CapabilityDescriptor[];
   capabilitiesGet: (id: string) => CapabilityDescriptor;
 }>;
@@ -1045,7 +1006,6 @@ export function createXGatewayClient(
 ): XGatewayClient {
   const resolved = resolveConfig(config);
   const resolvedCapabilityAuth = createResolvedCapabilityAuth(resolved.auth);
-  const graphQlBaseUrl = resolved.graphqlBaseUrl ?? DEFAULT_GRAPHQL_BASE_URL;
   const capabilityAdapterFactories = createCapabilityAdapterFactories({
     auth: resolved.auth,
     createError,
@@ -1337,18 +1297,6 @@ export function createXGatewayClient(
     );
   }
 
-  const rawGraphqlRequester = createRawGraphqlRequester({
-    auth: resolved.auth,
-    configuredAuthMode: getConfiguredAuthMode(resolved.auth),
-    graphqlBaseUrl: graphQlBaseUrl,
-    executeWithRetry,
-    createError,
-    createValidationError,
-    createUnsupportedError: (subject, details, remediations) =>
-      createUnsupportedError(subject, details, remediations ?? []),
-    withOptionalTrace,
-  });
-
   async function apiRequest(
     options: XGatewayApiRequestOptions,
   ): Promise<Readonly<{ data: Readonly<Record<string, unknown>> }>> {
@@ -1364,9 +1312,8 @@ export function createXGatewayClient(
         `Public GraphQL field '${publicRequest.fieldName}'`,
         `Field '${publicRequest.fieldName}' maps to capability '${capability.id}', but that capability is currently ${capability.status}.`,
         [
-          "Keep using 'api request' only for reviewed project-owned GraphQL fields in the stable contract.",
-          "Use a reviewed stable convenience command only if you need a temporary transition wrapper for the same capability.",
-          "Use 'graphql request' only as a low-level escape hatch for explicit upstream GraphQL workflows until the capability adapter is implemented.",
+          "Keep using the project-owned GraphQL query surface only for reviewed fields in the stable contract.",
+          "Add a reviewed capability adapter and canonical public field before exposing this workflow.",
         ],
       );
     }
@@ -1469,7 +1416,8 @@ export function createXGatewayClient(
         "Use permission-denied errors from concrete operations as authoritative diagnostics.",
         `Configured auth resolution mode: ${resolved.configMode}.`,
         `Available credential families: ${availableAuthModes.length > 0 ? availableAuthModes.join(", ") : "none"}.`,
-        "Raw GraphQL requests currently require bearer auth for live requests.",
+        "User-facing operations should go through the project-owned GraphQL query surface.",
+        "Usage inspection via the stable usage endpoint currently requires bearer auth and returns consumption counts rather than exact dollar charges.",
         "Account/profile reads can use OAuth1 or a user-context bearer token where the upstream endpoint supports them.",
         "Stable post lookup prefers OAuth1 when both OAuth1 and bearer credentials are present, and otherwise falls back to bearer-token reads through the public REST API.",
         "Liked-post lookup is currently deferred from the stable CLI, SDK, and project-owned GraphQL contract because the previously attempted live adapter route is not yet verified.",
@@ -1478,94 +1426,11 @@ export function createXGatewayClient(
     };
   }
 
-  async function accountMe(): Promise<XGatewayAccountProfile> {
-    return executeStableCapability("account.me", undefined);
-  }
-
-  async function postGet(
-    options: XGatewayPostGetOptions,
-  ): Promise<XGatewayPostLookupResult> {
-    return executeStableCapability("post.get", options);
-  }
-
-  async function timelineSearch(
-    options: XGatewayTimelineSearchOptions,
-  ): Promise<XGatewayPostPage> {
-    return executeStableCapability("timeline.search", options);
-  }
-
-  async function timelineHome(
-    options: XGatewayTimelinePageOptions = {},
-  ): Promise<XGatewayPostPage> {
-    return executeStableCapability("timeline.home", options);
-  }
-
-  async function timelineUser(
-    options: XGatewayTimelineUserOptions,
-  ): Promise<XGatewayPostPage> {
-    return executeStableCapability("timeline.user", options);
-  }
-
-  async function timelineMentions(
-    options: XGatewayTimelineUserOptions,
-  ): Promise<XGatewayPostPage> {
-    return executeStableCapability("timeline.mentions", options);
-  }
-
-  async function postCreate(
-    options: XGatewayPostCreateOptions,
-  ): Promise<unknown> {
-    return executeStableCapability("post.create", options);
-  }
-
-  async function postDelete(
-    options: XGatewayPostDeleteOptions,
-  ): Promise<unknown> {
-    return executeStableCapability("post.delete", options);
-  }
-
-  async function postReply(
-    options: XGatewayPostReplyOptions,
-  ): Promise<unknown> {
-    return executeStableCapability("post.reply", options);
-  }
-
-  async function postQuote(
-    options: XGatewayPostQuoteOptions,
-  ): Promise<unknown> {
-    return executeStableCapability("post.quote", options);
-  }
-
-  async function postRepost(
-    options: XGatewayPostRepostOptions,
-  ): Promise<unknown> {
-    return executeStableCapability("post.repost", options);
-  }
-
-  async function postUndoRepost(
-    options: XGatewayPostRepostOptions,
-  ): Promise<unknown> {
-    return executeStableCapability("post.unrepost", options);
-  }
-
   return {
     getResolvedConfig: () => resolved,
-    request: rawGraphqlRequester.request,
     apiRequest,
     authVerify,
     authScopes,
-    accountMe,
-    postGet,
-    timelineSearch,
-    timelineHome,
-    timelineUser,
-    timelineMentions,
-    postCreate,
-    postDelete,
-    postReply,
-    postQuote,
-    postRepost,
-    postUndoRepost,
     capabilitiesList,
     capabilitiesGet,
   };

@@ -41,6 +41,31 @@ export const PUBLIC_GRAPHQL_TYPE_DEFS = /* GraphQL */ `
     oldestId: String
   }
 
+  type UsageDay {
+    date: String!
+    usage: Int!
+  }
+
+  type ClientAppUsage {
+    clientAppId: String!
+    usageResultCount: Int!
+    usage: [UsageDay!]!
+  }
+
+  type ProjectUsageTimeline {
+    projectId: String!
+    usage: [UsageDay!]!
+  }
+
+  type PostUsage {
+    capResetDay: Int!
+    dailyClientAppUsage: [ClientAppUsage!]!
+    dailyProjectUsage: ProjectUsageTimeline!
+    projectCap: Int!
+    projectId: String!
+    projectUsage: Int!
+  }
+
   type PostPage {
     posts: [Post!]!
     pageInfo: PageInfo!
@@ -63,6 +88,7 @@ export const PUBLIC_GRAPHQL_TYPE_DEFS = /* GraphQL */ `
 
   type Query {
     accountMe: Account!
+    postUsage(days: Int): PostUsage!
     post(id: String!): Post!
     searchPosts(
       query: String!

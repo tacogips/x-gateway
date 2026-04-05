@@ -46,6 +46,7 @@ export type XGatewayCapabilityRequirement =
 
 export const STABLE_CAPABILITY_IDS = [
   "account.me",
+  "usage.tweets",
   "post.get",
   "timeline.search",
   "timeline.home",
@@ -103,6 +104,7 @@ type StablePostingCapabilityId = Exclude<
 type StableReadCapabilityId = Extract<
   StableCapabilityId,
   | "account.me"
+  | "usage.tweets"
   | "post.get"
   | "timeline.search"
   | "timeline.home"
@@ -282,6 +284,15 @@ export const CAPABILITY_REGISTRY: readonly CapabilityDescriptor[] = [
     notes:
       "Uses REST-backed identity adapters. OAuth1 is stable; bearer support depends on a user-context token rather than an app-only bearer.",
   },
+  createStableReadCapabilityDescriptor({
+    id: "usage.tweets",
+    publicOperationName: "postUsage",
+    endpointFamily: "usage",
+    operation: "fetch daily post consumption counts",
+    authModes: ["bearer"],
+    notes:
+      "Uses the REST v2 usage endpoint for daily post-consumption tracking. This capability returns usage counts and caps, not an exact current dollar cost.",
+  }),
   createStableReadCapabilityDescriptor({
     id: "post.get",
     publicOperationName: "post",
@@ -497,6 +508,22 @@ export const CAPABILITY_PLANNING_REGISTRY: readonly CapabilityPlanningDefinition
           readinessRequirement: "user-context-bearer",
           readinessReason:
             "Bearer auth is configured, but account identity lookup requires a user-context bearer token to succeed live.",
+        },
+      ],
+    },
+    {
+      capabilityId: "usage.tweets",
+      missingAuthRequirement: "bearer",
+      missingAuthReason:
+        "Usage inspection requires a bearer token for the reviewed usage endpoint.",
+      routes: [
+        {
+          authMode: "bearer",
+          transport: "rest-v2",
+          adapterKind: "read-capability",
+          readinessRequirement: "bearer",
+          readinessReason:
+            "Bearer auth is configured for the reviewed usage endpoint adapter.",
         },
       ],
     },

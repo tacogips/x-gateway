@@ -386,6 +386,96 @@ function normalizePostPageResult(
   };
 }
 
+function normalizeUsageDay(
+  value: unknown,
+  fieldName: string,
+  createPayloadError: PayloadErrorFactory,
+): Readonly<Record<string, unknown>> {
+  return readObjectRecord(
+    value,
+    fieldName,
+    "The usage adapter returned a non-object usage-day payload.",
+    createPayloadError,
+  );
+}
+
+function normalizeUsageClientAppResult(
+  value: unknown,
+  fieldName: string,
+  createPayloadError: PayloadErrorFactory,
+): Readonly<Record<string, unknown>> {
+  const result = readObjectRecord(
+    value,
+    fieldName,
+    "The usage adapter returned a non-object client-app usage payload.",
+    createPayloadError,
+  );
+  const usage = readArrayValue(
+    result["usage"],
+    fieldName,
+    "The usage adapter returned a non-array client-app 'usage' payload.",
+    createPayloadError,
+  ).map((entry) => normalizeUsageDay(entry, fieldName, createPayloadError));
+  return {
+    ...result,
+    usage,
+  };
+}
+
+function normalizeUsageProjectTimelineResult(
+  value: unknown,
+  fieldName: string,
+  createPayloadError: PayloadErrorFactory,
+): Readonly<Record<string, unknown>> {
+  const result = readObjectRecord(
+    value,
+    fieldName,
+    "The usage adapter returned a non-object project usage payload.",
+    createPayloadError,
+  );
+  const usage = readArrayValue(
+    result["usage"],
+    fieldName,
+    "The usage adapter returned a non-array project 'usage' payload.",
+    createPayloadError,
+  ).map((entry) => normalizeUsageDay(entry, fieldName, createPayloadError));
+  return {
+    ...result,
+    usage,
+  };
+}
+
+function normalizePostUsageResult(
+  value: unknown,
+  fieldName: string,
+  createPayloadError: PayloadErrorFactory,
+): Readonly<Record<string, unknown>> {
+  const result = readObjectRecord(
+    value,
+    fieldName,
+    "The usage adapter did not return the expected usage payload shape.",
+    createPayloadError,
+  );
+  const dailyClientAppUsage = readArrayValue(
+    result["dailyClientAppUsage"],
+    fieldName,
+    "The usage adapter returned a non-array 'dailyClientAppUsage' payload.",
+    createPayloadError,
+  ).map((entry) =>
+    normalizeUsageClientAppResult(entry, fieldName, createPayloadError),
+  );
+  const dailyProjectUsage = normalizeUsageProjectTimelineResult(
+    result["dailyProjectUsage"],
+    fieldName,
+    createPayloadError,
+  );
+  return {
+    ...result,
+    dailyClientAppUsage,
+    dailyProjectUsage,
+  };
+}
+
 function validateSelectionsAgainstSchema(
   topLevelFieldName: string,
   selections: readonly PublicGraphqlSelection[],
@@ -443,6 +533,14 @@ function createPublicApiFieldRegistry(
   );
   const accountMeSelectionSchema = readSchemaFieldSelectionSchema(
     "accountMe",
+    "query",
+  );
+  const postUsageAllowedArgumentNames = readSchemaFieldArgumentNames(
+    "postUsage",
+    "query",
+  );
+  const postUsageSelectionSchema = readSchemaFieldSelectionSchema(
+    "postUsage",
     "query",
   );
   const postAllowedArgumentNames = readSchemaFieldArgumentNames(
@@ -548,6 +646,31 @@ function createPublicApiFieldRegistry(
         return undefined;
       },
       normalizeResult: (value) => value,
+    },
+    {
+      fieldName: "postUsage",
+      capabilityId: "usage.tweets",
+      operationType: "query",
+      allowedArgumentNames: postUsageAllowedArgumentNames,
+      selectionSchema: postUsageSelectionSchema,
+      buildCapabilityInput: (args) => {
+        rejectUnexpectedArguments(
+          "postUsage",
+          args,
+          postUsageAllowedArgumentNames,
+          createValidationError,
+        );
+        const days = readOptionalIntegerLiteral(
+          args,
+          "days",
+          createValidationError,
+        );
+        return {
+          ...(days === undefined ? {} : { days }),
+        };
+      },
+      normalizeResult: (value, fieldName) =>
+        normalizePostUsageResult(value, fieldName, createPayloadError),
     },
     {
       fieldName: "post",

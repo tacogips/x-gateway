@@ -27,6 +27,11 @@ import type {
   XGatewayTimelinePageOptions,
   XGatewayTimelineSearchOptions,
   XGatewayTimelineUserOptions,
+  XGatewayUsageClientApp,
+  XGatewayUsageDay,
+  XGatewayUsageProjectTimeline,
+  XGatewayUsageTweetsOptions,
+  XGatewayUsageTweetsResult,
 } from "./lib";
 import type {
   XGatewayReadCapabilityAdapter,
@@ -72,6 +77,43 @@ type V2TimelinePayload = Readonly<{
     users?: readonly UserV2[];
   }>;
   meta?: V2TimelineMeta;
+}>;
+
+type UsageApiUsageEntryPayload = Readonly<{
+  date?: unknown;
+  usage?: unknown;
+}>;
+
+type UsageApiClientAppPayload = Readonly<{
+  client_app_id?: unknown;
+  usage?: unknown;
+  usage_result_count?: unknown;
+}>;
+
+type UsageApiProjectPayload = Readonly<{
+  project_id?: unknown;
+  usage?: unknown;
+}>;
+
+type UsageApiDataPayload = Readonly<{
+  cap_reset_day?: unknown;
+  daily_client_app_usage?: unknown;
+  daily_project_usage?: unknown;
+  project_cap?: unknown;
+  project_id?: unknown;
+  project_usage?: unknown;
+}>;
+
+type UsageApiErrorPayload = Readonly<{
+  title?: unknown;
+  detail?: unknown;
+  type?: unknown;
+  status?: unknown;
+}>;
+
+type UsageApiResponsePayload = Readonly<{
+  data?: unknown;
+  errors?: unknown;
 }>;
 
 function isNonEmpty(value: string | undefined): value is string {
@@ -289,6 +331,37 @@ function validateOptionalMaxResults(
   return value;
 }
 
+function parseRetryAfterMs(headerValue: string | null): number | undefined {
+  if (headerValue === null || !isNonEmpty(headerValue)) {
+    return undefined;
+  }
+
+  const seconds = Number(headerValue);
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    return Math.floor(seconds * 1000);
+  }
+
+  const retryAt = Date.parse(headerValue);
+  if (!Number.isFinite(retryAt)) {
+    return undefined;
+  }
+
+  return Math.max(retryAt - Date.now(), 0);
+}
+
+async function parseResponseBody(response: Response): Promise<unknown> {
+  const contentType = response.headers.get("content-type") ?? "";
+  if (
+    contentType.includes("application/json") ||
+    contentType.includes("+json")
+  ) {
+    return (await response.json()) as unknown;
+  }
+  return {
+    raw: await response.text(),
+  };
+}
+
 export function createCapabilityAdapterFactories(
   dependencies: CapabilityAdapterDependencies,
 ): Readonly<{
@@ -299,6 +372,287 @@ export function createCapabilityAdapterFactories(
     authMode: "oauth1" | "bearer",
   ) => XGatewayStablePostingAdapter;
 }> {
+  function createUsagePayloadError(detail: string): XGatewayError {
+    return dependencies.createError({
+      code: "UPSTREAM_FAILURE",
+      summary: "Usage endpoint returned an unexpected payload",
+      details: detail,
+      likelyCauses: [
+        "The upstream usage endpoint returned a schema different from the reviewed baseline",
+        "The account lacks access to the expected usage response shape",
+      ],
+      remediations: [
+        "Inspect the upstream usage response and update the reviewed mapper if the X API contract changed.",
+        "Confirm the bearer token and project still have access to usage metrics.",
+      ],
+      classification: "upstream",
+      retryable: false,
+    });
+  }
+
+  function readUsageInteger(value: unknown, fieldName: string): number {
+    if (
+      typeof value === "number" &&
+      Number.isInteger(value) &&
+      Number.isFinite(value) &&
+      value >= 0
+    ) {
+      return value;
+    }
+    throw createUsagePayloadError(
+      `Field '${fieldName}' must be a non-negative integer in the usage response.`,
+    );
+  }
+
+  function readUsageString(value: unknown, fieldName: string): string {
+    if (typeof value === "string" && value.trim().length > 0) {
+      return value;
+    }
+    throw createUsagePayloadError(
+      `Field '${fieldName}' must be a non-empty string in the usage response.`,
+    );
+  }
+
+  function readUsageEntry(
+    value: unknown,
+    fieldName: string,
+  ): XGatewayUsageDay {
+    if (typeof value !== "object" || value === null) {
+      throw createUsagePayloadError(
+        `Field '${fieldName}' must contain usage entry objects.`,
+      );
+    }
+    const entry = value as UsageApiUsageEntryPayload;
+    return {
+      date: readUsageString(entry.date, `${fieldName}.date`),
+      usage: readUsageInteger(entry.usage, `${fieldName}.usage`),
+    };
+  }
+
+  function readUsageEntryArray(
+    value: unknown,
+    fieldName: string,
+  ): readonly XGatewayUsageDay[] {
+    if (!Array.isArray(value)) {
+      throw createUsagePayloadError(
+        `Field '${fieldName}' must be an array in the usage response.`,
+      );
+    }
+    return value.map((entry, index) =>
+      readUsageEntry(entry, `${fieldName}[${index}]`),
+    );
+  }
+
+  function readUsageClientApp(
+    value: unknown,
+    fieldName: string,
+  ): XGatewayUsageClientApp {
+    if (typeof value !== "object" || value === null) {
+      throw createUsagePayloadError(
+        `Field '${fieldName}' must contain client-app usage objects.`,
+      );
+    }
+    const clientApp = value as UsageApiClientAppPayload;
+    return {
+      clientAppId: readUsageString(
+        clientApp.client_app_id,
+        `${fieldName}.client_app_id`,
+      ),
+      usage: readUsageEntryArray(clientApp.usage, `${fieldName}.usage`),
+      usageResultCount: readUsageInteger(
+        clientApp.usage_result_count,
+        `${fieldName}.usage_result_count`,
+      ),
+    };
+  }
+
+  function readUsageClientAppArray(
+    value: unknown,
+    fieldName: string,
+  ): readonly XGatewayUsageClientApp[] {
+    if (!Array.isArray(value)) {
+      throw createUsagePayloadError(
+        `Field '${fieldName}' must be an array in the usage response.`,
+      );
+    }
+    return value.map((entry, index) =>
+      readUsageClientApp(entry, `${fieldName}[${index}]`),
+    );
+  }
+
+  function readUsageProjectTimeline(
+    value: unknown,
+    fieldName: string,
+  ): XGatewayUsageProjectTimeline {
+    if (typeof value !== "object" || value === null) {
+      throw createUsagePayloadError(
+        `Field '${fieldName}' must be an object in the usage response.`,
+      );
+    }
+    const projectTimeline = value as UsageApiProjectPayload;
+    return {
+      projectId: readUsageString(
+        projectTimeline.project_id,
+        `${fieldName}.project_id`,
+      ),
+      usage: readUsageEntryArray(projectTimeline.usage, `${fieldName}.usage`),
+    };
+  }
+
+  function mapUsageTweetsPayload(payload: unknown): XGatewayUsageTweetsResult {
+    if (typeof payload !== "object" || payload === null) {
+      throw createUsagePayloadError(
+        "The usage endpoint did not return an object payload.",
+      );
+    }
+    const data = payload as UsageApiDataPayload;
+    return {
+      capResetDay: readUsageInteger(data.cap_reset_day, "cap_reset_day"),
+      dailyClientAppUsage: readUsageClientAppArray(
+        data.daily_client_app_usage,
+        "daily_client_app_usage",
+      ),
+      dailyProjectUsage: readUsageProjectTimeline(
+        data.daily_project_usage,
+        "daily_project_usage",
+      ),
+      projectCap: readUsageInteger(data.project_cap, "project_cap"),
+      projectId: readUsageString(data.project_id, "project_id"),
+      projectUsage: readUsageInteger(data.project_usage, "project_usage"),
+    };
+  }
+
+  function validateUsageDays(
+    value: number | undefined,
+    fieldName: string,
+  ): number | undefined {
+    if (value === undefined) {
+      return undefined;
+    }
+    if (!Number.isInteger(value) || value < 1 || value > 90) {
+      throw dependencies.createValidationError(
+        `${fieldName} must be an integer between 1 and 90.`,
+      );
+    }
+    return value;
+  }
+
+  function readUsageApiProblemDetail(payload: unknown): string | undefined {
+    if (typeof payload !== "object" || payload === null) {
+      return undefined;
+    }
+    const responsePayload = payload as UsageApiResponsePayload;
+    if (!Array.isArray(responsePayload.errors) || responsePayload.errors.length === 0) {
+      return undefined;
+    }
+    const [firstError] = responsePayload.errors as readonly UsageApiErrorPayload[];
+    if (typeof firstError !== "object" || firstError === null) {
+      return undefined;
+    }
+    const title =
+      typeof firstError.title === "string" ? firstError.title : "Usage request failed";
+    const detail =
+      typeof firstError.detail === "string" ? firstError.detail : undefined;
+    const status =
+      typeof firstError.status === "number" ? String(firstError.status) : undefined;
+    return [title, detail, status === undefined ? undefined : `status=${status}`]
+      .filter((part): part is string => part !== undefined && part.length > 0)
+      .join(": ");
+  }
+
+  async function fetchUsageTweets(
+    options: XGatewayUsageTweetsOptions,
+  ): Promise<XGatewayUsageTweetsResult> {
+    const days = validateUsageDays(options.days, "days");
+    if (!hasBearerToken(dependencies.auth)) {
+      throw dependencies.createError({
+        code: "AUTH_MISSING",
+        summary: "Authentication configuration missing",
+        details:
+          "The reviewed usage endpoint adapter requires X_GW_TOKEN or auth.token.",
+        likelyCauses: [
+          "Bearer token was not configured",
+          "Only OAuth1 credentials were provided",
+        ],
+        remediations: ["Set X_GW_TOKEN for bearer-token usage."],
+        classification: "auth",
+        retryable: false,
+      });
+    }
+
+    const query = new URLSearchParams();
+    if (days !== undefined) {
+      query.set("days", String(days));
+    }
+    const endpoint = `https://api.x.com/2/usage/tweets${
+      query.size === 0 ? "" : `?${query.toString()}`
+    }`;
+    const response = await fetch(endpoint, {
+      method: "GET",
+      headers: {
+        authorization: `Bearer ${dependencies.auth.token!}`,
+        accept: "application/json",
+      },
+    });
+    const payload = await parseResponseBody(response);
+
+    if (!response.ok) {
+      const retryAfterMs = parseRetryAfterMs(response.headers.get("retry-after"));
+      const detail =
+        readUsageApiProblemDetail(payload) ??
+        (typeof payload === "object" && payload !== null
+          ? JSON.stringify(payload)
+          : String(payload));
+      throw dependencies.createError({
+        code:
+          response.status === 401
+            ? "AUTH_INVALID"
+            : response.status === 403
+              ? "PERMISSION_DENIED"
+              : response.status === 404
+                ? "RESOURCE_NOT_FOUND"
+                : response.status === 429
+                  ? "RATE_LIMITED"
+                  : "UPSTREAM_FAILURE",
+        summary: "Usage request failed",
+        details: `HTTP ${response.status} returned from GET /2/usage/tweets. Response body: ${detail}`,
+        likelyCauses: [
+          "Bearer token is invalid or lacks access to usage metrics",
+          "The project does not have access to the usage endpoint for the selected environment",
+          "The upstream usage endpoint returned an error payload",
+        ],
+        remediations: [
+          "Confirm the bearer token is valid and attached to the expected X project.",
+          "Retry with a supported bearer token after verifying project usage access in the Developer Console.",
+          "If the problem persists, inspect the upstream response body for tier-specific access limits.",
+        ],
+        classification:
+          response.status === 401
+            ? "auth"
+            : response.status === 403
+              ? "permission"
+              : response.status === 429
+                ? "rate_limit"
+                : "upstream",
+        retryable: response.status === 429 || response.status >= 500,
+        httpStatus: response.status,
+        ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
+      });
+    }
+
+    const responsePayload =
+      typeof payload === "object" && payload !== null
+        ? (payload as UsageApiResponsePayload)
+        : undefined;
+    if (responsePayload?.data === undefined) {
+      throw createUsagePayloadError(
+        "The usage endpoint returned a successful HTTP response without a 'data' object.",
+      );
+    }
+
+    return mapUsageTweetsPayload(responsePayload.data);
+  }
+
   function createOauth1RestClient(): TwitterApi {
     if (!hasOauth1(dependencies.auth)) {
       throw dependencies.createError({
@@ -477,6 +831,23 @@ export function createCapabilityAdapterFactories(
           name: user.name,
         };
       },
+      usageTweets: async () => {
+        throw dependencies.createError({
+          code: "UNSUPPORTED",
+          summary: "Post usage statistics require bearer auth",
+          details:
+            "The reviewed usage endpoint adapter uses bearer authentication only. OAuth1 credentials are not sufficient for GET /2/usage/tweets in the current stable surface.",
+          likelyCauses: [
+            "Only OAuth1 credentials were configured",
+            "The usage endpoint was invoked through an unsupported auth family",
+          ],
+          remediations: [
+            "Configure X_GW_TOKEN or auth.token for bearer-backed usage inspection.",
+          ],
+          classification: "unsupported",
+          retryable: false,
+        });
+      },
       postGet,
       timelineSearch,
       timelineHome,
@@ -614,6 +985,7 @@ export function createCapabilityAdapterFactories(
         });
         return mapBearerAccountProfile(response, dependencies.createError);
       },
+      usageTweets: fetchUsageTweets,
       postGet,
       timelineSearch,
       timelineHome,
