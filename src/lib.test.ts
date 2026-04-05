@@ -60,6 +60,7 @@ vi.mock("twitter-api-v2", () => {
     }>;
     conversation_id?: string;
     in_reply_to_user_id?: string;
+    public_metrics?: Readonly<Record<string, number>>;
     organic_metrics?: Readonly<Record<string, number>>;
     promoted_metrics?: Readonly<Record<string, number>>;
     referenced_tweets?: readonly Readonly<{
@@ -389,6 +390,12 @@ vi.mock("twitter-api-v2", () => {
           id: "quoted-1",
           text: "quoted text",
           author_id: "author-3",
+          public_metrics: {
+            like_count: 4,
+            reply_count: 1,
+            retweet_count: 2,
+            quote_count: 1,
+          },
           organic_metrics: {
             impression_count: 123,
           },
@@ -746,6 +753,13 @@ vi.mock("twitter-api-v2", () => {
                 id: postId,
                 text: `post ${postId}`,
                 author_id: "author-1",
+                public_metrics: {
+                  like_count: 7,
+                  reply_count: 5,
+                  retweet_count: 3,
+                  quote_count: 2,
+                  bookmark_count: 11,
+                },
                 organic_metrics: {
                   impression_count: 200,
                 },
@@ -1215,6 +1229,11 @@ describe("createXGatewayClient", () => {
           selectedAuthMode: "bearer",
         }),
         expect.objectContaining({
+          capabilityId: "post.replies",
+          status: "ready",
+          selectedAuthMode: "bearer",
+        }),
+        expect.objectContaining({
           capabilityId: "post.create",
           status: "blocked",
           requirement: "oauth1",
@@ -1286,7 +1305,7 @@ describe("createXGatewayClient", () => {
 
     await expect(
       client.graphqlQuery({
-        query: "query { postUsage(days: 14) { projectId } }",
+        query: "query { apiUsage(days: 14) { projectId } }",
       }),
     ).rejects.toMatchObject({
       payload: expect.objectContaining({
@@ -1370,6 +1389,104 @@ describe("createXGatewayClient", () => {
               id: "reply-1",
             },
           ],
+        },
+      },
+    });
+  });
+
+  test("returns stable post metrics when upstream metric fields are available", async () => {
+    process.env["X_GW_TOKEN"] = "bearer-token";
+
+    const client = createXGatewayClient();
+
+    await expect(
+      client.graphqlQuery({
+        query:
+          'query { post(id: "post-42") { id metrics { likeCount replyCount repostCount quoteCount bookmarkCount impressionCount } } }',
+      }),
+    ).resolves.toEqual({
+      data: {
+        post: {
+          id: "post-42",
+          metrics: {
+            likeCount: 7,
+            replyCount: 5,
+            repostCount: 3,
+            quoteCount: 2,
+            bookmarkCount: 11,
+            impressionCount: 200,
+          },
+        },
+      },
+    });
+  });
+
+  test("returns null metric fields when upstream metrics are unavailable", async () => {
+    process.env["X_GW_TOKEN"] = "bearer-token";
+
+    const client = createXGatewayClient();
+
+    await expect(
+      client.graphqlQuery({
+        query:
+          'query { userTimeline(userId: "user-42", maxResults: 10) { posts { id metrics { likeCount replyCount repostCount quoteCount bookmarkCount impressionCount } } pageInfo { resultCount } } }',
+      }),
+    ).resolves.toMatchObject({
+      data: {
+        userTimeline: {
+          posts: expect.arrayContaining([
+            {
+              id: "user-user-42-1",
+              metrics: {
+                likeCount: null,
+                replyCount: null,
+                repostCount: null,
+                quoteCount: null,
+                bookmarkCount: null,
+                impressionCount: null,
+              },
+            },
+          ]),
+          pageInfo: {
+            resultCount: 10,
+          },
+        },
+      },
+    });
+  });
+
+  test("supports recursive replies selections through the project-owned GraphQL post contract", async () => {
+    process.env["X_GW_TOKEN"] = "bearer-token";
+
+    const client = createXGatewayClient();
+
+    await expect(
+      client.graphqlQuery({
+        query:
+          'query { post(id: "post-42") { id replies(maxResults: 10) { posts { id replies(maxResults: 10) { posts { id } pageInfo { resultCount } } } pageInfo { resultCount } } } }',
+      }),
+    ).resolves.toMatchObject({
+      data: {
+        post: {
+          id: "post-42",
+          replies: {
+            posts: expect.arrayContaining([
+              expect.objectContaining({
+                id: "search-in_reply_to_tweet_id:post-42-1",
+                replies: {
+                  posts: expect.arrayContaining([
+                    { id: "search-in_reply_to_tweet_id:search-in_reply_to_tweet_id:post-42-1-1" },
+                  ]),
+                  pageInfo: {
+                    resultCount: 10,
+                  },
+                },
+              }),
+            ]),
+            pageInfo: {
+              resultCount: 10,
+            },
+          },
         },
       },
     });
@@ -1851,6 +1968,37 @@ describe("createXGatewayClient", () => {
     });
   });
 
+  test("supports replies selections on Post objects returned by timeline fields", async () => {
+    process.env["X_GW_TOKEN"] = "bearer-token";
+
+    const client = createXGatewayClient();
+
+    await expect(
+      client.graphqlQuery({
+        query:
+          'query { userTimeline(userId: "user-42", maxResults: 10) { posts { id replies(maxResults: 10) { pageInfo { resultCount } } } pageInfo { resultCount } } }',
+      }),
+    ).resolves.toMatchObject({
+      data: {
+        userTimeline: {
+          posts: expect.arrayContaining([
+            {
+              id: "user-user-42-1",
+              replies: {
+                pageInfo: {
+                  resultCount: 10,
+                },
+              },
+            },
+          ]),
+          pageInfo: {
+            resultCount: 10,
+          },
+        },
+      },
+    });
+  });
+
   test("supports the project-owned GraphQL mutation contract through the SDK", async () => {
     process.env["X_GW_CONSUMER_KEY"] = "ck";
     process.env["X_GW_CONSUMER_SECRET"] = "cs";
@@ -2110,6 +2258,20 @@ describe("createXGatewayClient", () => {
     process.env["X_GW_TOKEN"] = "bearer-token";
 
     const client = createXGatewayClient();
+
+    await expect(
+      client.graphqlQuery({
+        query:
+          'query { postReplies(postId: "post-1", maxResults: 10) { posts { id } } }',
+      }),
+    ).rejects.toMatchObject({
+      payload: expect.objectContaining({
+        code: "VALIDATION_ERROR",
+        details: expect.stringContaining(
+          "Public GraphQL field 'postReplies' has been removed from the stable x-gateway contract.",
+        ),
+      }),
+    });
 
     await expect(
       client.graphqlQuery({
@@ -2407,6 +2569,59 @@ describe("createXGatewayClient", () => {
         ),
       }),
     });
+
+    await expect(
+      client.graphqlQuery({
+        query: 'query { post(id: "post-1") { replies } }',
+      }),
+    ).rejects.toMatchObject({
+      payload: expect.objectContaining({
+        code: "VALIDATION_ERROR",
+        details: expect.stringContaining(
+          "Public GraphQL selection 'post.replies' must include a nested selection set.",
+        ),
+      }),
+    });
+  });
+
+  test("rejects unexpected nested reply selection arguments on the project-owned GraphQL contract", async () => {
+    process.env["X_GW_TOKEN"] = "bearer-token";
+
+    const client = createXGatewayClient();
+
+    await expect(
+      client.graphqlQuery({
+        query:
+          'query { post(id: "post-1") { replies(limit: 10) { pageInfo { resultCount } } } }',
+      }),
+    ).rejects.toMatchObject({
+      payload: expect.objectContaining({
+        code: "VALIDATION_ERROR",
+        details: expect.stringContaining(
+          "Public GraphQL selection 'post.replies' does not accept argument 'limit'.",
+        ),
+      }),
+    });
+  });
+
+  test("rejects unsafe post ids before building nested reply lookup queries", async () => {
+    process.env["X_GW_TOKEN"] = "bearer-token";
+
+    const client = createXGatewayClient();
+
+    await expect(
+      client.graphqlQuery({
+        query:
+          'query { post(id: "post)1") { replies(maxResults: 10) { posts { id } } } }',
+      }),
+    ).rejects.toMatchObject({
+      payload: expect.objectContaining({
+        code: "VALIDATION_ERROR",
+        details: expect.stringContaining(
+          "postId contains unsupported characters for reply lookup search.",
+        ),
+      }),
+    });
   });
 
   test("rejects public GraphQL operation names with explicit migration guidance", async () => {
@@ -2513,8 +2728,46 @@ describe("createXGatewayClient", () => {
           ],
         },
         selections: [
-          { name: "id", selections: [] },
-          { name: "text", selections: [] },
+          { name: "id", arguments: {}, selections: [] },
+          { name: "text", arguments: {}, selections: [] },
+        ],
+      },
+    });
+  });
+
+  test("parses nested public GraphQL field arguments on selections", () => {
+    expect(
+      parsePublicGraphqlDocument(
+        'query { post(id: "post-1") { replies(maxResults: 10) { pageInfo { resultCount } } } }',
+        (message) => new Error(message),
+      ),
+    ).toEqual({
+      operationType: "query",
+      field: {
+        name: "post",
+        arguments: {
+          id: "post-1",
+        },
+        selections: [
+          {
+            name: "replies",
+            arguments: {
+              maxResults: 10,
+            },
+            selections: [
+              {
+                name: "pageInfo",
+                arguments: {},
+                selections: [
+                  {
+                    name: "resultCount",
+                    arguments: {},
+                    selections: [],
+                  },
+                ],
+              },
+            ],
+          },
         ],
       },
     });
@@ -2841,7 +3094,7 @@ describe("executeCli", () => {
     });
   });
 
-  test("supports postUsage through the project-owned GraphQL CLI contract", async () => {
+  test("supports apiUsage through the project-owned GraphQL CLI contract", async () => {
     process.env["X_GW_TOKEN"] = "bearer-token";
 
     const fetchMock = vi.fn(async () => {
@@ -2890,7 +3143,7 @@ describe("executeCli", () => {
         [
           "graphql",
           "query",
-          "query { postUsage(days: 14) { projectId projectUsage dailyProjectUsage { usage { date usage } } } }",
+          "query { apiUsage(days: 14) { projectId projectUsage dailyProjectUsage { usage { date usage } } } }",
         ],
         {
           commandName: "x-gateway",
@@ -2899,7 +3152,7 @@ describe("executeCli", () => {
       ),
     ).resolves.toEqual({
       data: {
-        postUsage: {
+        apiUsage: {
           projectId: "project-1",
           projectUsage: 12,
           dailyProjectUsage: {
@@ -2912,6 +3165,77 @@ describe("executeCli", () => {
           },
         },
       },
+    });
+  });
+
+  test("normalizes apiUsage when the upstream payload omits daily breakdowns", async () => {
+    process.env["X_GW_TOKEN"] = "bearer-token";
+
+    const fetchMock = vi.fn(async () => {
+      return new Response(
+        JSON.stringify({
+          data: {
+            cap_reset_day: 26,
+            project_cap: "2000000",
+            project_id: "2026869187206135808",
+            project_usage: "0",
+          },
+        }),
+        {
+          status: 200,
+          headers: {
+            "content-type": "application/json",
+          },
+        },
+      );
+    });
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    await expect(
+      executeCli(
+        [
+          "graphql",
+          "query",
+          "query { apiUsage(days: 30) { projectId projectUsage projectCap capResetDay dailyProjectUsage { projectId usage { date usage } } dailyClientAppUsage { clientAppId usageResultCount usage { date usage } } } }",
+        ],
+        {
+          commandName: "x-gateway",
+          surface: "full",
+        },
+      ),
+    ).resolves.toEqual({
+      data: {
+        apiUsage: {
+          projectId: "2026869187206135808",
+          projectUsage: 0,
+          projectCap: 2000000,
+          capResetDay: 26,
+          dailyProjectUsage: {
+            projectId: "2026869187206135808",
+            usage: [],
+          },
+          dailyClientAppUsage: [],
+        },
+      },
+    });
+  });
+
+  test("rejects deprecated postUsage with an explicit migration message", async () => {
+    process.env["X_GW_TOKEN"] = "bearer-token";
+
+    await expect(
+      executeCli(
+        ["graphql", "query", "query { postUsage(days: 14) { projectId } }"],
+        {
+          commandName: "x-gateway",
+          surface: "full",
+        },
+      ),
+    ).rejects.toMatchObject({
+      payload: expect.objectContaining({
+        code: "VALIDATION_ERROR",
+        details: expect.stringContaining("renamed to 'apiUsage'"),
+      }),
     });
   });
 
@@ -2985,6 +3309,27 @@ describe("executeCli", () => {
         [
           "graphql",
           "query",
+          'query { postReplies(postId: "post-1", maxResults: 10) { posts { id } } }',
+        ],
+        {
+          commandName: "x-gateway",
+          surface: "full",
+        },
+      ),
+    ).rejects.toMatchObject({
+      payload: expect.objectContaining({
+        code: "VALIDATION_ERROR",
+        details: expect.stringContaining(
+          "Public GraphQL field 'postReplies' has been removed from the stable x-gateway contract.",
+        ),
+      }),
+    });
+
+    await expect(
+      executeCli(
+        [
+          "graphql",
+          "query",
           'query { likedPosts(userId: "user-1", limit: 2) { id } }',
         ],
         {
@@ -3024,6 +3369,45 @@ describe("executeCli", () => {
           text: "post post-7",
           author: {
             username: "author_one",
+          },
+        },
+      },
+    });
+  });
+
+  test("supports recursive replies selections through the project-owned GraphQL CLI contract", async () => {
+    process.env["X_GW_TOKEN"] = "bearer-token";
+
+    await expect(
+      executeCli(
+        [
+          "graphql",
+          "query",
+          'query { post(id: "post-42") { id replies(maxResults: 10) { posts { id replies(maxResults: 10) { pageInfo { resultCount } } } pageInfo { resultCount } } } }',
+        ],
+        {
+          commandName: "x-gateway",
+          surface: "full",
+        },
+      ),
+    ).resolves.toMatchObject({
+      data: {
+        post: {
+          id: "post-42",
+          replies: {
+            posts: expect.arrayContaining([
+              expect.objectContaining({
+                id: "search-in_reply_to_tweet_id:post-42-1",
+                replies: {
+                  pageInfo: {
+                    resultCount: 10,
+                  },
+                },
+              }),
+            ]),
+            pageInfo: {
+              resultCount: 10,
+            },
           },
         },
       },
@@ -3413,6 +3797,7 @@ describe("executeCli", () => {
   test("includes transport strategy and tightened auth metadata in capability inventory", () => {
     const client = createXGatewayClient();
     const capability = client.capabilitiesGet("post.delete");
+    const postReplies = client.capabilitiesGet("post.replies");
     const usageTweets = client.capabilitiesGet("usage.tweets");
     const timelineSearch = client.capabilitiesGet("timeline.search");
     const timelineHome = client.capabilitiesGet("timeline.home");
@@ -3425,8 +3810,12 @@ describe("executeCli", () => {
     expect(capability.accessType).toBe("write");
     expect(capability.preferredTransport).toBe("rest-v2");
     expect(capability.authModes).toEqual(["oauth1"]);
+    expect(postReplies.transportStrategy).toBe("rest-v2");
+    expect(postReplies.publicOperationName).toBeUndefined();
+    expect(postReplies.accessType).toBe("read");
+    expect(postReplies.authModes).toEqual(["oauth1", "bearer"]);
     expect(usageTweets.transportStrategy).toBe("rest-v2");
-    expect(usageTweets.publicOperationName).toBe("postUsage");
+    expect(usageTweets.publicOperationName).toBe("apiUsage");
     expect(usageTweets.authModes).toEqual(["bearer"]);
     expect(usageTweets.notes).toContain("usage counts");
     expect(stableLikes.status).toBe("blocked_by_plan");
@@ -3477,12 +3866,12 @@ describe("executeCli", () => {
 
     expect(publicOperationNames).toEqual([
       "accountMe",
+      "apiUsage",
       "createPost",
       "deletePost",
       "homeTimeline",
       "mentionsTimeline",
       "post",
-      "postUsage",
       "quotePost",
       "replyToPost",
       "repostPost",
@@ -3531,7 +3920,7 @@ describe("executeCli", () => {
         [
           "graphql",
           "query",
-          "query { postUsage(days: 14) { projectId } }",
+          "query { apiUsage(days: 14) { projectId } }",
         ],
         {
           commandName: "x-gateway",

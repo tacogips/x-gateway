@@ -8,6 +8,7 @@ This directory contains reference materials for system design and implementation
 |------|-----|-------------|
 | TypeScript Documentation | https://www.typescriptlang.org/docs/ | Official TypeScript documentation |
 | Bun Documentation | https://bun.sh/docs | Official Bun runtime documentation |
+| X API Recent Search | https://docs.x.com/x-api/posts/search-recent-posts | Official X recent-search endpoint documentation used for stable direct-reply lookup design |
 
 ## Reference Documents
 

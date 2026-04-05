@@ -1,5 +1,5 @@
 {
-  "lastUpdated": "2026-04-05T09:05:00Z",
+  "lastUpdated": "2026-04-05T10:52:50Z",
   "phases": {
     "1": { "status": "READY" },
     "2": { "status": "BLOCKED" },
@@ -9,7 +9,7 @@
   "plans": {
     "x-gateway-canonical-public-graphql-interface": {
       "phase": 1,
-      "status": "In Progress",
+      "status": "Completed",
       "tasks": {
         "TASK-001": {
           "status": "Completed",
@@ -238,6 +238,79 @@
           "status": "Completed",
           "parallelizable": false,
           "deps": ["TASK-002", "TASK-003"]
+        }
+      }
+    },
+    "x-gateway-post-replies-query": {
+      "phase": 1,
+      "status": "Completed",
+      "tasks": {
+        "TASK-001": {
+          "status": "Completed",
+          "parallelizable": false,
+          "deps": []
+        },
+        "TASK-002": {
+          "status": "Completed",
+          "parallelizable": false,
+          "deps": ["TASK-001"]
+        },
+        "TASK-003": {
+          "status": "Completed",
+          "parallelizable": false,
+          "deps": ["TASK-001", "TASK-002"]
+        },
+        "TASK-004": {
+          "status": "Completed",
+          "parallelizable": true,
+          "deps": ["TASK-002", "TASK-003"]
+        }
+      }
+    },
+    "x-gateway-recursive-post-replies": {
+      "phase": 1,
+      "status": "Completed",
+      "tasks": {
+        "TASK-001": {
+          "status": "Completed",
+          "parallelizable": false,
+          "deps": []
+        },
+        "TASK-002": {
+          "status": "Completed",
+          "parallelizable": false,
+          "deps": ["TASK-001"]
+        },
+        "TASK-003": {
+          "status": "Completed",
+          "parallelizable": false,
+          "deps": ["TASK-001", "TASK-002"]
+        },
+        "TASK-004": {
+          "status": "Completed",
+          "parallelizable": true,
+          "deps": ["TASK-002", "TASK-003"]
+        }
+      }
+    },
+    "x-gateway-post-metrics-nullable": {
+      "phase": 1,
+      "status": "Completed",
+      "tasks": {
+        "TASK-001": {
+          "status": "Completed",
+          "parallelizable": false,
+          "deps": []
+        },
+        "TASK-002": {
+          "status": "Completed",
+          "parallelizable": false,
+          "deps": ["TASK-001"]
+        },
+        "TASK-003": {
+          "status": "Completed",
+          "parallelizable": true,
+          "deps": ["TASK-002"]
         }
       }
     },
@@ -536,7 +609,7 @@
     },
     "x-gateway-likes-list-baseline": {
       "phase": 1,
-      "status": "Blocked",
+      "status": "Completed",
       "tasks": {
         "TASK-001": {
           "status": "Completed",
@@ -577,6 +650,27 @@
       }
     },
     "x-gateway-usage-tweets-baseline": {
+      "phase": 1,
+      "status": "Completed",
+      "tasks": {
+        "TASK-001": {
+          "status": "Completed",
+          "parallelizable": false,
+          "deps": []
+        },
+        "TASK-002": {
+          "status": "Completed",
+          "parallelizable": false,
+          "deps": ["TASK-001"]
+        },
+        "TASK-003": {
+          "status": "Completed",
+          "parallelizable": true,
+          "deps": ["TASK-001", "TASK-002"]
+        }
+      }
+    },
+    "x-gateway-api-usage-surface-alignment": {
       "phase": 1,
       "status": "Completed",
       "tasks": {

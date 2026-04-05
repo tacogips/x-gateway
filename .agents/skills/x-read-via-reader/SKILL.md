@@ -36,6 +36,10 @@ x-gateway-reader graphql query 'query { post(id: "123") { id text author { usern
 ```
 
 ```bash
+x-gateway-reader graphql query 'query { post(id: "123") { id text replies(maxResults: 10) { posts { id text replies(maxResults: 10) { pageInfo { resultCount } } } pageInfo { resultCount } } } }'
+```
+
+```bash
 x-gateway-reader graphql query 'query { searchPosts(query: "openai", maxResults: 5) { posts { id text author { username } } pageInfo { resultCount nextToken } } }'
 ```
 
@@ -52,7 +56,7 @@ x-gateway-reader graphql query 'query { mentionsTimeline(userId: "user-42", maxR
 ```
 
 ```bash
-x-gateway-reader graphql query 'query { postUsage(days: 14) { projectId projectUsage dailyProjectUsage { usage { date usage } } } }'
+x-gateway-reader graphql query 'query { apiUsage(days: 14) { projectId projectUsage dailyProjectUsage { usage { date usage } } } }'
 ```
 
 ## Guardrails

@@ -15,6 +15,7 @@ import {
 import { createCapabilityAdapterFactories } from "./capability-adapters";
 import { inferPublicGraphqlOperationType } from "./public-graphql-parser";
 import {
+  buildNestedRepliesSelectionInput,
   createPublicGraphqlQueryPlan,
   projectPublicSelection,
 } from "./public-graphql-contract";
@@ -838,6 +839,12 @@ export type XGatewayPostGetOptions = Readonly<{
   includePromoted?: boolean;
 }>;
 
+export type XGatewayPostRepliesOptions = Readonly<
+  XGatewayTimelinePageOptions & {
+    postId: string;
+  }
+>;
+
 export type XGatewayPostReplyOptions = Readonly<{
   text: string;
   replyToPostId: string;
@@ -848,10 +855,20 @@ export type XGatewayPostDeleteOptions = Readonly<{
   postId: string;
 }>;
 
+export type XGatewayPostMetrics = Readonly<{
+  likeCount: number | null;
+  replyCount: number | null;
+  repostCount: number | null;
+  quoteCount: number | null;
+  bookmarkCount: number | null;
+  impressionCount: number | null;
+}>;
+
 export type XGatewayPostSummary = Readonly<{
   id: string;
   text: string;
   promotionStatus: XGatewayPromotionStatus;
+  metrics: XGatewayPostMetrics;
   author?: XGatewayAccountProfile;
   createdAt?: string;
   conversationId?: string;
@@ -979,6 +996,11 @@ export type XGatewayClient = Readonly<{
   capabilitiesList: () => readonly CapabilityDescriptor[];
   capabilitiesGet: (id: string) => CapabilityDescriptor;
 }>;
+
+const MAX_PUBLIC_GRAPHQL_REPLY_EXPANSIONS = 25;
+type NestedReplyHydrationState = {
+  replyExpansions: number;
+};
 
 export type CommandError = Readonly<{ exitCode: number; error: XGatewayError }>;
 
@@ -1379,10 +1401,18 @@ export function createXGatewayClient(
       ),
       publicRequest.fieldName,
     );
+    const hydratedResult = await hydrateNestedPublicSelections(
+      normalizedResult,
+      publicRequest.selections,
+      publicRequest.fieldName,
+      publicRequest.selectionSchema,
+      publicRequest.traceId,
+      { replyExpansions: 0 },
+    );
     return {
       data: {
         [publicRequest.fieldName]: projectPublicSelection(
-          normalizedResult,
+          hydratedResult,
           publicRequest.selections,
           publicRequest.fieldName,
           publicRequest.selectionSchema,
@@ -1390,6 +1420,102 @@ export function createXGatewayClient(
         ),
       },
     };
+  }
+
+  async function hydrateNestedPublicSelections(
+    value: unknown,
+    selections: readonly import("./public-graphql-parser").PublicGraphqlSelection[],
+    selectionPath: string,
+    schema: import("./public-graphql-contract").PlannedPublicGraphqlQuery["selectionSchema"],
+    traceId: string | undefined,
+    state: NestedReplyHydrationState,
+  ): Promise<unknown> {
+    if (value === null || value === undefined) {
+      return value;
+    }
+
+    if (schema.kind === "scalar") {
+      return value;
+    }
+
+    if (schema.kind === "list") {
+      if (!Array.isArray(value)) {
+        return value;
+      }
+      return Promise.all(
+        value.map((item, index) =>
+          hydrateNestedPublicSelections(
+            item,
+            selections,
+            `${selectionPath}[${index}]`,
+            schema.item,
+            traceId,
+            state,
+          ),
+        ),
+      );
+    }
+
+    if (typeof value !== "object" || Array.isArray(value)) {
+      return value;
+    }
+
+    const record: Record<string, unknown> = { ...(value as Record<string, unknown>) };
+    for (const selection of selections) {
+      const childSchema = schema.fields[selection.name];
+      if (!childSchema) {
+        continue;
+      }
+      const childPath = `${selectionPath}.${selection.name}`;
+      if (selection.name === "replies") {
+        const postId = record["id"];
+        if (typeof postId !== "string" || postId.trim().length === 0) {
+          throw createStablePayloadShapeError(
+            childPath,
+            `Projected selection '${childPath}' requires a parent post object with a stable string 'id' field.`,
+          );
+        }
+        state.replyExpansions += 1;
+        if (state.replyExpansions > MAX_PUBLIC_GRAPHQL_REPLY_EXPANSIONS) {
+          throw createValidationError(
+            `Public GraphQL selection '${childPath}' exceeded the nested reply expansion limit of ${MAX_PUBLIC_GRAPHQL_REPLY_EXPANSIONS} reply lookups in a single request. Reduce replies maxResults or nesting depth.`,
+          );
+        }
+        const repliesValue = await executeStableCapability(
+          "post.replies",
+          buildNestedRepliesSelectionInput(
+            postId,
+            selection.arguments,
+            childPath,
+            createValidationError,
+          ),
+          traceId,
+        );
+        record[selection.name] = await hydrateNestedPublicSelections(
+          repliesValue,
+          selection.selections,
+          childPath,
+          childSchema,
+          traceId,
+          state,
+        );
+        continue;
+      }
+
+      if (!(selection.name in record)) {
+        continue;
+      }
+      record[selection.name] = await hydrateNestedPublicSelections(
+        record[selection.name],
+        selection.selections,
+        childPath,
+        childSchema,
+        traceId,
+        state,
+      );
+    }
+
+    return record;
   }
 
   function capabilitiesList(): readonly CapabilityDescriptor[] {

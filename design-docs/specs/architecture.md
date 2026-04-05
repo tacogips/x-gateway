@@ -32,6 +32,7 @@ Policy decision:
 - Capability-level input validation and capability gating
 - Use-case services expose stable operations such as account lookup and post creation
 - Public GraphQL request parsing and request-to-capability planning
+- Limited nested capability execution for reviewed child fields such as `Post.replies(...)`
 - Orchestration for chained operations chooses internal adapters per capability
 - Unsupported command-group detection so callers fail before assuming a non-existent mapping exists
 
@@ -82,6 +83,7 @@ Policy decision:
 - Planner logic should be explicit in code: a project-owned public-operation registry maps request fields to capabilities, and a separate reviewed route registry selects auth family plus transport per capability.
 - Registry coherence is part of the architecture, not just a test convenience: project-owned public field names must stay in sync with capability metadata, and implemented stable capabilities must stay aligned across metadata, route planning, and executor dispatch.
 - Stable capability execution should also be registry-driven: once a capability id is selected, CLI helpers, SDK methods, and the public GraphQL contract should dispatch through the same internal execution registry instead of maintaining per-entrypoint switch statements.
+- Nested public GraphQL capability execution is intentionally exceptional and reviewed field-specific in the current architecture. `Post.replies(...)` may trigger bounded recursive execution through the same stable capability registry, while other nested fields remain projection-only unless explicitly designed.
 - Route order matters and must be data-driven rather than hidden in helper branching. Example: `post.get` may prefer OAuth1 REST while still declaring bearer REST as a reviewed fallback.
 - When both bearer and OAuth1 credentials are available, each capability should choose its reviewed auth path independently instead of letting one credential family shadow the other globally.
 - A reviewed adapter path counts as implemented only when the corresponding auth/transport contract is enforced in code, not merely mentioned in capability docs or left behind as unused methods.
@@ -124,8 +126,10 @@ All failures map to stable internal codes. Messages include probable root cause 
 The long-term implementation target remains broad coverage of X API capabilities available to the configured app tier and scopes. Delivery is capability-by-capability rather than transport-first:
 
 - Phase 1: restore practical OAuth1-compatible operations through stable REST-backed adapters for the highest-value flows
-- Phase 1 current baseline: `account.me`, `post.get`, `post.create`, `post.delete`, `post.reply`, `post.quote`, `post.repost`, and `post.unrepost`
+- Phase 1 current baseline: `account.me`, `post.get`, `post.replies`, `post.create`, `post.delete`, `post.reply`, `post.quote`, `post.repost`, and `post.unrepost`
 - Phase 1 canonical public GraphQL fields: `accountMe`, `post`, `createPost`, `deletePost`, `replyToPost`, `quotePost`, `repostPost`, and `unrepostPost`
+- Direct reply listing is part of the stable contract through `post.replies`, implemented as direct-reply recent search and exposed canonically through nested `Post.replies(...)`.
+- Recursive reply expansion is also supported through `Post.replies(...)`, using bounded nested execution on top of the same stable `post.replies` capability.
 - Phase 1 canonical mutation baseline includes inline image attachments for `createPost`, `replyToPost`, and `quotePost` through project-owned attachment input that maps onto internal OAuth1 media upload plus stable REST posting
 - `likes.list` remains deferred until a reviewed live route is verified; it is intentionally not part of the canonical public GraphQL contract in the current repository state
 - Phase 2: add GraphQL-backed adapters where public REST does not cover the required behavior
@@ -156,6 +160,7 @@ Publishing subsystem must model these patterns as first-class operations:
 - post with video media
 - article/long-form publish path where API supports it
 - retrieval and expansion of referenced/original posts
+- retrieval of stable post metrics with nullable fields when upstream access is partial
 
 ## Error Classification Model
 

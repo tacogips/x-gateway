@@ -86,11 +86,10 @@ Large features are split into multiple related plans with cross-references.
 | `active/x-gateway-raw-graphql-isolation.md` | Completed | `design-docs/specs/architecture.md#module-boundaries-planned` | 2026-03-08 |
 | `active/x-gateway-stable-execution-module-extraction.md` | Completed | `design-docs/specs/architecture.md#module-boundaries-planned` | 2026-04-05 |
 | `active/x-gateway-transport-adapter-extraction.md` | Completed | `design-docs/specs/architecture.md#module-boundaries-planned` | 2026-03-08 |
-| `active/x-gateway-likes-list-baseline.md` | Blocked | `design-docs/specs/architecture.md#capability-matrix-implementation-target` | 2026-03-08 |
 | `active/x-gateway-contract-coherence-hardening.md` | Completed | `design-docs/specs/architecture.md#stable-contract-with-internal-adapters` | 2026-03-08 |
 | `active/x-gateway-stable-capability-coherence.md` | Completed | `design-docs/specs/architecture.md#stable-contract-with-internal-adapters` | 2026-03-08 |
 | `active/x-gateway-surface-category-clarification.md` | Completed | `design-docs/specs/architecture.md#stable-contract-with-internal-adapters` | 2026-03-08 |
-| `active/x-gateway-canonical-public-graphql-interface.md` | In Progress | `design-docs/specs/architecture.md#stable-contract-with-internal-adapters`, `design-docs/specs/command.md#project-owned-graphql-contract`, `design-docs/specs/design-public-graphql-contract.md` | 2026-04-05 |
+| `active/x-gateway-canonical-public-graphql-interface.md` | Completed | `design-docs/specs/architecture.md#stable-contract-with-internal-adapters`, `design-docs/specs/command.md#project-owned-graphql-contract`, `design-docs/specs/design-public-graphql-contract.md` | 2026-04-05 |
 | `active/x-gateway-graphql-cli-namespace.md` | Completed | `design-docs/specs/design-graphql-command-surface.md`, `design-docs/specs/command.md#project-owned-graphql-contract` | 2026-04-05 |
 | `active/x-gateway-sdk-graphql-surface-alignment.md` | Completed | `design-docs/specs/architecture.md#overview`, `design-docs/specs/design-public-graphql-contract.md#contract-rules`, `design-docs/specs/design-graphql-command-surface.md` | 2026-04-05 |
 
@@ -108,6 +107,10 @@ Large features are split into multiple related plans with cross-references.
 | `completed/x-gateway-post-delete-baseline.md` | 2026-03-08 | `design-docs/specs/architecture.md#stable-contract-with-internal-adapters` |
 | `completed/x-gateway-auth-readiness-diagnostics.md` | 2026-03-08 | `design-docs/specs/command.md#auth-and-session` |
 | `completed/x-gateway-public-graphql-contract.md` | 2026-03-08 | `design-docs/specs/design-public-graphql-contract.md` |
+| `completed/x-gateway-likes-list-baseline.md` | 2026-04-05 | `design-docs/specs/architecture.md#capability-matrix-implementation-target` |
+| `completed/x-gateway-post-replies-query.md` | 2026-04-05 | `design-docs/specs/design-post-replies-query.md` |
+| `completed/x-gateway-recursive-post-replies.md` | 2026-04-05 | `design-docs/specs/design-recursive-post-replies.md` |
+| `completed/x-gateway-post-metrics-nullable.md` | 2026-04-05 | `design-docs/specs/design-post-metrics.md` |
 | `completed/x-gateway-public-request-planner-extraction.md` | 2026-03-08 | `design-docs/specs/architecture.md#module-boundaries-planned` |
 
 ## Phase Dependencies (for impl-exec-auto)
@@ -136,7 +139,6 @@ PHASE_TO_PLANS = {
     "active/x-gateway-raw-graphql-isolation.md",
     "active/x-gateway-stable-execution-module-extraction.md",
     "active/x-gateway-transport-adapter-extraction.md",
-    "active/x-gateway-likes-list-baseline.md",
     "active/x-gateway-contract-coherence-hardening.md",
     "active/x-gateway-stable-capability-coherence.md",
     "active/x-gateway-surface-category-clarification.md",

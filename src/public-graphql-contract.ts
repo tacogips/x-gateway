@@ -5,6 +5,8 @@ import {
   isNonNullType,
   isObjectType,
   isScalarType,
+  type GraphQLField,
+  type GraphQLFieldMap,
   type GraphQLOutputType,
 } from "graphql";
 import {
@@ -18,7 +20,10 @@ import {
   type PublicGraphqlSelection,
 } from "./public-graphql-parser";
 import { PUBLIC_GRAPHQL_SCHEMA } from "./public-graphql-schema";
-import type { XGatewayPostAttachmentInput } from "./lib";
+import type {
+  XGatewayPostAttachmentInput,
+  XGatewayPostRepliesOptions,
+} from "./lib";
 import { validatePostAttachments } from "./post-attachments";
 
 type ValidationErrorFactory = (message: string) => Error;
@@ -75,15 +80,24 @@ type PublicSelectionSchema =
 function buildSelectionSchemaFromOutputType(
   outputType: GraphQLOutputType,
   optional = true,
+  objectFieldCache = new Map<string, Record<string, PublicSelectionSchema>>(),
 ): PublicSelectionSchema {
   if (isNonNullType(outputType)) {
-    return buildSelectionSchemaFromOutputType(outputType.ofType, false);
+    return buildSelectionSchemaFromOutputType(
+      outputType.ofType,
+      false,
+      objectFieldCache,
+    );
   }
 
   if (isListType(outputType)) {
     return {
       kind: "list",
-      item: buildSelectionSchemaFromOutputType(outputType.ofType),
+      item: buildSelectionSchemaFromOutputType(
+        outputType.ofType,
+        true,
+        objectFieldCache,
+      ),
       ...(optional ? { optional: true } : {}),
     };
   }
@@ -94,14 +108,20 @@ function buildSelectionSchemaFromOutputType(
   }
 
   if (isObjectType(namedType)) {
-    const fields = Object.fromEntries(
-      Object.entries(namedType.getFields()).map(
-        ([fieldName, fieldDefinition]) => [
-          fieldName,
-          buildSelectionSchemaFromOutputType(fieldDefinition.type),
-        ],
-      ),
-    );
+    const cachedFields = objectFieldCache.get(namedType.name);
+    const fields = cachedFields ?? {};
+    if (!cachedFields) {
+      objectFieldCache.set(namedType.name, fields);
+      for (const [fieldName, fieldDefinition] of Object.entries(
+        namedType.getFields(),
+      )) {
+        fields[fieldName] = buildSelectionSchemaFromOutputType(
+          fieldDefinition.type,
+          true,
+          objectFieldCache,
+        );
+      }
+    }
     return {
       kind: "object",
       fields,
@@ -159,6 +179,16 @@ function rejectDeprecatedPublicFieldName(
   fieldName: string,
   createValidationError: ValidationErrorFactory,
 ): never {
+  if (fieldName === "postUsage") {
+    throw createValidationError(
+      "Public GraphQL field 'postUsage' has been renamed to 'apiUsage'. Use apiUsage(days: ...) { projectId projectUsage projectCap capResetDay ... } instead.",
+    );
+  }
+  if (fieldName === "postReplies") {
+    throw createValidationError(
+      "Public GraphQL field 'postReplies' has been removed from the stable x-gateway contract. Use post(id: \"...\") { replies(maxResults: ..., paginationToken: ...) { posts { ... } pageInfo { ... } } } instead.",
+    );
+  }
   if (fieldName === "likedPosts") {
     throw createValidationError(
       "Public GraphQL field 'likedPosts' is not part of the current stable x-gateway contract. Stable liked-post lookup is deferred until a reviewed live adapter route is verified.",
@@ -318,6 +348,23 @@ function rejectUnexpectedArguments(
   if (unexpectedArgumentName) {
     throw createValidationError(
       `Public GraphQL field '${fieldName}' does not accept argument '${unexpectedArgumentName}'. Supported arguments: ${allowedArgumentNames.join(", ") || "(none)"}.`,
+    );
+  }
+}
+
+function rejectUnexpectedSelectionArguments(
+  selectionPath: string,
+  args: Readonly<Record<string, PublicGraphqlValue>>,
+  allowedArgumentNames: readonly string[],
+  createValidationError: ValidationErrorFactory,
+): void {
+  const allowed = new Set(allowedArgumentNames);
+  const unexpectedArgumentName = Object.keys(args).find(
+    (name) => !allowed.has(name),
+  );
+  if (unexpectedArgumentName) {
+    throw createValidationError(
+      `Public GraphQL selection '${selectionPath}' does not accept argument '${unexpectedArgumentName}'. Supported arguments: ${allowedArgumentNames.join(", ") || "(none)"}.`,
     );
   }
 }
@@ -536,7 +583,7 @@ function normalizeUsageProjectTimelineResult(
   };
 }
 
-function normalizePostUsageResult(
+function normalizeApiUsageResult(
   value: unknown,
   fieldName: string,
   createPayloadError: PayloadErrorFactory,
@@ -567,15 +614,41 @@ function normalizePostUsageResult(
   };
 }
 
-function validateSelectionsAgainstSchema(
-  topLevelFieldName: string,
-  selections: readonly PublicGraphqlSelection[],
-  schema: PublicSelectionSchema,
+function readObjectFieldMapFromOutputType(
+  outputType: GraphQLOutputType,
+  selectionPath: string,
   createValidationError: ValidationErrorFactory,
-  selectionPath = topLevelFieldName,
+): GraphQLFieldMap<unknown, unknown> {
+  let currentType = outputType;
+  while (isNonNullType(currentType) || isListType(currentType)) {
+    currentType = currentType.ofType;
+  }
+  const namedType = getNamedType(currentType);
+  if (!isObjectType(namedType)) {
+    throw createValidationError(
+      `Public GraphQL selection '${selectionPath}' resolved to an unsupported schema shape.`,
+    );
+  }
+  return namedType.getFields();
+}
+
+function validateSelectionField(
+  selection: PublicGraphqlSelection,
+  fieldDefinition: GraphQLField<unknown, unknown>,
+  createValidationError: ValidationErrorFactory,
+  selectionPath: string,
 ): void {
-  if (schema.kind === "scalar") {
-    if (selections.length > 0) {
+  rejectUnexpectedSelectionArguments(
+    selectionPath,
+    selection.arguments,
+    fieldDefinition.args.map((argument) => argument.name),
+    createValidationError,
+  );
+
+  const outputType = fieldDefinition.type;
+  const namedType = getNamedType(outputType);
+  if (isScalarType(namedType) || isEnumType(namedType)) {
+    if (selection.selections.length > 0) {
       throw createValidationError(
         `Public GraphQL selection '${selectionPath}' is scalar and cannot include nested fields.`,
       );
@@ -583,35 +656,91 @@ function validateSelectionsAgainstSchema(
     return;
   }
 
-  if (selections.length === 0) {
+  if (selection.selections.length === 0) {
     throw createValidationError(
       `Public GraphQL selection '${selectionPath}' must include a nested selection set.`,
     );
   }
 
-  const objectSchema = schema.kind === "list" ? schema.item : schema;
-  if (objectSchema.kind !== "object") {
-    throw createValidationError(
-      `Public GraphQL selection '${selectionPath}' resolved to an unsupported schema shape.`,
-    );
-  }
-
-  for (const selection of selections) {
-    const childSchema = objectSchema.fields[selection.name];
-    const childPath = `${selectionPath}.${selection.name}`;
-    if (!childSchema) {
+  const childFieldMap = readObjectFieldMapFromOutputType(
+    outputType,
+    selectionPath,
+    createValidationError,
+  );
+  for (const childSelection of selection.selections) {
+    const childPath = `${selectionPath}.${childSelection.name}`;
+    const childField = childFieldMap[childSelection.name];
+    if (!childField) {
       throw createValidationError(
         `Public GraphQL selection '${childPath}' is not part of the stable x-gateway contract.`,
       );
     }
-    validateSelectionsAgainstSchema(
-      topLevelFieldName,
-      selection.selections,
-      childSchema,
+    validateSelectionField(
+      childSelection,
+      childField,
       createValidationError,
       childPath,
     );
   }
+}
+
+function validateSelectionsAgainstSchema(
+  topLevelFieldName: string,
+  selections: readonly PublicGraphqlSelection[],
+  operationType: PublicGraphqlOperationType,
+  createValidationError: ValidationErrorFactory,
+): void {
+  const rootField = getPublicRootType(operationType).getFields()[topLevelFieldName];
+  if (!rootField) {
+    throw createValidationError(
+      `Public GraphQL field '${topLevelFieldName}' is not part of the stable x-gateway contract.`,
+    );
+  }
+  for (const selection of selections) {
+    const selectionPath = `${topLevelFieldName}.${selection.name}`;
+    const fieldDefinition = readObjectFieldMapFromOutputType(
+      rootField.type,
+      topLevelFieldName,
+      createValidationError,
+    )[selection.name];
+    if (!fieldDefinition) {
+      throw createValidationError(
+        `Public GraphQL selection '${selectionPath}' is not part of the stable x-gateway contract.`,
+      );
+    }
+    validateSelectionField(
+      selection,
+      fieldDefinition,
+      createValidationError,
+      selectionPath,
+    );
+  }
+}
+
+export function buildNestedRepliesSelectionInput(
+  postId: string,
+  args: Readonly<Record<string, PublicGraphqlValue>>,
+  selectionPath: string,
+  createValidationError: ValidationErrorFactory,
+): XGatewayPostRepliesOptions {
+  const repliesField = PUBLIC_GRAPHQL_SCHEMA.getType("Post");
+  if (!isObjectType(repliesField)) {
+    throw new Error("Public GraphQL schema is missing object type 'Post'.");
+  }
+  const repliesDefinition = repliesField.getFields()["replies"];
+  if (!repliesDefinition) {
+    throw new Error("Public GraphQL schema is missing field 'Post.replies'.");
+  }
+  rejectUnexpectedSelectionArguments(
+    selectionPath,
+    args,
+    repliesDefinition.args.map((argument) => argument.name),
+    createValidationError,
+  );
+  return {
+    postId: postId.trim(),
+    ...readOptionalPostPageArguments(args, createValidationError),
+  };
 }
 
 function createPublicGraphqlFieldRegistry(
@@ -626,12 +755,12 @@ function createPublicGraphqlFieldRegistry(
     "accountMe",
     "query",
   );
-  const postUsageAllowedArgumentNames = readSchemaFieldArgumentNames(
-    "postUsage",
+  const apiUsageAllowedArgumentNames = readSchemaFieldArgumentNames(
+    "apiUsage",
     "query",
   );
-  const postUsageSelectionSchema = readSchemaFieldSelectionSchema(
-    "postUsage",
+  const apiUsageSelectionSchema = readSchemaFieldSelectionSchema(
+    "apiUsage",
     "query",
   );
   const postAllowedArgumentNames = readSchemaFieldArgumentNames(
@@ -739,16 +868,16 @@ function createPublicGraphqlFieldRegistry(
       normalizeResult: (value) => value,
     },
     {
-      fieldName: "postUsage",
+      fieldName: "apiUsage",
       capabilityId: "usage.tweets",
       operationType: "query",
-      allowedArgumentNames: postUsageAllowedArgumentNames,
-      selectionSchema: postUsageSelectionSchema,
+      allowedArgumentNames: apiUsageAllowedArgumentNames,
+      selectionSchema: apiUsageSelectionSchema,
       buildCapabilityInput: (args) => {
         rejectUnexpectedArguments(
-          "postUsage",
+          "apiUsage",
           args,
-          postUsageAllowedArgumentNames,
+          apiUsageAllowedArgumentNames,
           createValidationError,
         );
         const days = readOptionalIntegerLiteral(
@@ -761,7 +890,7 @@ function createPublicGraphqlFieldRegistry(
         };
       },
       normalizeResult: (value, fieldName) =>
-        normalizePostUsageResult(value, fieldName, createPayloadError),
+        normalizeApiUsageResult(value, fieldName, createPayloadError),
     },
     {
       fieldName: "post",
@@ -1218,7 +1347,7 @@ export function createPublicGraphqlQueryPlan(
   validateSelectionsAgainstSchema(
     fieldDefinition.fieldName,
     document.field.selections,
-    fieldDefinition.selectionSchema,
+    fieldDefinition.operationType,
     createValidationError,
   );
 

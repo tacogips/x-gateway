@@ -21,6 +21,7 @@ import type {
   XGatewayPostGetOptions,
   XGatewayPostLookupResult,
   XGatewayPostQuoteOptions,
+  XGatewayPostRepliesOptions,
   XGatewayPostReplyOptions,
   XGatewayPostRepostOptions,
   XGatewayTimelinePageOptions,
@@ -39,6 +40,9 @@ export type XGatewayReadCapabilityAdapter = Readonly<{
   postGet: (
     options: XGatewayPostGetOptions,
   ) => Promise<XGatewayPostLookupResult>;
+  postReplies: (
+    options: XGatewayPostRepliesOptions,
+  ) => Promise<XGatewayPostPage>;
   timelineSearch: (
     options: XGatewayTimelineSearchOptions,
   ) => Promise<XGatewayPostPage>;
@@ -67,6 +71,7 @@ export type StableCapabilityInputById = Readonly<{
   "account.me": undefined;
   "usage.tweets": XGatewayUsageTweetsOptions;
   "post.get": XGatewayPostGetOptions;
+  "post.replies": XGatewayPostRepliesOptions;
   "timeline.search": XGatewayTimelineSearchOptions;
   "timeline.home": XGatewayTimelinePageOptions;
   "timeline.user": XGatewayTimelineUserOptions;
@@ -83,6 +88,7 @@ export type StableCapabilityResultById = Readonly<{
   "account.me": XGatewayAccountProfile;
   "usage.tweets": XGatewayUsageTweetsResult;
   "post.get": XGatewayPostLookupResult;
+  "post.replies": XGatewayPostPage;
   "timeline.search": XGatewayPostPage;
   "timeline.home": XGatewayPostPage;
   "timeline.user": XGatewayPostPage;
@@ -274,11 +280,11 @@ export function createStableCapabilityExecutor(
         ),
     },
     "usage.tweets": {
-      capabilityLabel: "Post usage statistics",
+      capabilityLabel: "API usage statistics",
       plan: (input, traceId) =>
         buildCapabilityExecutionPlan(
           "usage.tweets",
-          "Post usage statistics",
+          "API usage statistics",
           {
             read: async (adapter) => adapter.usageTweets(input),
           },
@@ -293,6 +299,18 @@ export function createStableCapabilityExecutor(
           "Post lookup",
           {
             read: async (adapter) => adapter.postGet(input),
+          },
+          traceId,
+        ),
+    },
+    "post.replies": {
+      capabilityLabel: "Post replies",
+      plan: (input, traceId) =>
+        buildCapabilityExecutionPlan(
+          "post.replies",
+          "Post replies",
+          {
+            read: async (adapter) => adapter.postReplies(input),
           },
           traceId,
         ),

@@ -128,7 +128,7 @@ If any of the above is missing:
 ## Initial Implementation Sequence
 
 1. define registry artifact format (`design-docs/specs` + generated machine-readable index)
-2. restore the highest-value stable adapters first (`auth.verify`, `account.me`, `post.get`, `post.create`, `post.delete`, `post.reply`, `post.quote`, `post.repost`, `post.unrepost`), while keeping `likes.list` deferred until a reviewed live route is verified
+2. restore the highest-value stable adapters first (`auth.verify`, `account.me`, `post.get`, `post.replies`, `post.create`, `post.delete`, `post.reply`, `post.quote`, `post.repost`, `post.unrepost`), while keeping `likes.list` deferred until a reviewed live route is verified
 3. add a project-owned public GraphQL contract that maps those public fields onto the same reviewed capabilities
 4. expand posting and read capabilities where REST-backed adapters are reliable
 5. add GraphQL-backed adapters only for capabilities that cannot be covered cleanly by the public REST surface

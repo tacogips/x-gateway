@@ -18,6 +18,7 @@ export type PublicGraphqlValue =
 
 export type PublicGraphqlSelection = Readonly<{
   name: string;
+  arguments: Readonly<Record<string, PublicGraphqlValue>>;
   selections: readonly PublicGraphqlSelection[];
 }>;
 
@@ -109,6 +110,13 @@ function parseFieldNode(
       "Public GraphQL directives are not supported in this implementation slice.",
     );
   }
+  const fieldArguments: Record<string, PublicGraphqlValue> = {};
+  for (const argument of fieldNode.arguments ?? []) {
+    fieldArguments[argument.name.value] = parseValueNode(
+      argument.value,
+      createValidationError,
+    );
+  }
   const selections =
     fieldNode.selectionSet?.selections.map((selectionNode) => {
       if (selectionNode.kind !== Kind.FIELD) {
@@ -120,6 +128,7 @@ function parseFieldNode(
     }) ?? [];
   return {
     name: fieldNode.name.value,
+    arguments: fieldArguments,
     selections,
   };
 }

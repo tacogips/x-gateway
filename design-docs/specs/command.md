@@ -46,7 +46,7 @@ Primary contract:
 `auth verify` design rule:
 
 - It must report capability-level readiness for the stable baseline, not only a single resolved auth family string.
-- At minimum it must cover `account.me`, `usage.tweets`, `post.get`, `timeline.search`, `timeline.home`, `timeline.user`, `timeline.mentions`, `post.create`, `post.delete`, `post.reply`, `post.quote`, `post.repost`, and `post.unrepost`.
+- At minimum it must cover `account.me`, `usage.tweets`, `post.get`, `post.replies`, `timeline.search`, `timeline.home`, `timeline.user`, `timeline.mentions`, `post.create`, `post.delete`, `post.reply`, `post.quote`, `post.repost`, and `post.unrepost`.
 - Each capability row must indicate whether it is ready with the current credentials and, when not ready, the blocking requirement (`missing auth`, `requires OAuth1`, or `requires user-context bearer`).
 
 ### System
@@ -137,6 +137,7 @@ Project-owned GraphQL rules:
 - The initial parser may support only one top-level field per request.
 - Variables, fragments, aliases, and directives may remain unsupported in the first slice if diagnostics are explicit.
 - Supported initial top-level fields are `accountMe`, `post`, `createPost`, `deletePost`, `replyToPost`, `quotePost`, `repostPost`, and `unrepostPost`.
+- Reviewed nested field arguments are supported for `Post.replies(maxResults:, paginationToken:, ...)`.
 - Canonical mutation arguments are `deletePost(postId: ID!)`, `repostPost(postId: ID!)`, and `unrepostPost(postId: ID!)`.
 - Canonical attachment arguments are supported on `createPost`, `replyToPost`, and `quotePost` with `attachments: [{ kind: "image", filePath: "...", altText: "..." }]`.
 - The current public GraphQL parser supports string/integer/boolean/null/list/object literals only.
@@ -146,6 +147,9 @@ Capability adapter rules:
 
 - `account me` must select an auth-appropriate identity endpoint internally rather than requiring the caller to choose a transport.
 - `post get` must select a stable public lookup adapter internally and expand referenced posts when the upstream transport provides them.
+- `post replies` must select the reviewed recent-search adapter internally and keep direct-reply semantics scoped to the requested parent post id.
+- Nested `Post.replies(...)` must dispatch through the same reviewed `post.replies` capability and remain bounded to avoid unreviewed unbounded fan-out.
+- Post metrics must use nullable fields in the stable payload so missing upstream metric access yields `null` rather than a failed post query.
 - `likes list` must remain rejected until a reviewed live adapter route is verified; capability inventory and auth diagnostics must not advertise liked-post reads as part of the stable contract while the live path is known to fail.
 - `post create` must prefer a stable public API adapter when public REST support is sufficient.
 - `post delete` must prefer a stable public API adapter when public REST support is sufficient.
@@ -206,5 +210,6 @@ Current implementation note:
 - `post get` can use OAuth1 or bearer-token reads through the public lookup API, and it prefers OAuth1 when both are configured.
 - Stable posting helpers prefer OAuth1 whenever it is configured.
 - Stable `createPost`, `replyToPost`, and `quotePost` support inline image attachments through internal OAuth1 media upload and alt-text application; callers do not provide raw upload sequencing.
+- Stable `Post.replies(...)` allows recursive direct-reply traversal within one GraphQL request, subject to a bounded per-request expansion limit.
 - Support is counted only when the reviewed auth path is actually enforced by the adapter contract; latent placeholder methods inside the wrong auth adapter do not count as delivered capability support.
 - Deferred commands must still fail explicitly with `UNSUPPORTED` and remediation that keeps `graphql query` as the canonical surface for reviewed capabilities.

@@ -31,8 +31,10 @@ import type {
   XGatewayPostDeleteOptions,
   XGatewayPostGetOptions,
   XGatewayPostLookupResult,
+  XGatewayPostMetrics,
   XGatewayPromotionStatus,
   XGatewayPostQuoteOptions,
+  XGatewayPostRepliesOptions,
   XGatewayPostReferenceRelation,
   XGatewayPostReplyOptions,
   XGatewayPostRepostOptions,
@@ -79,6 +81,7 @@ const POST_LOOKUP_FIELDS: Partial<Tweetv2FieldsParams> = {
     "created_at",
     "in_reply_to_user_id",
     "organic_metrics",
+    "public_metrics",
     "promoted_metrics",
     "referenced_tweets",
   ],
@@ -207,6 +210,10 @@ type PostReadOptions = Readonly<{
 }>;
 
 type TweetMetricShape = Readonly<Record<string, unknown>>;
+type TweetMetricFieldName =
+  | "public_metrics"
+  | "organic_metrics"
+  | "promoted_metrics";
 
 function isObjectRecord(
   value: unknown,
@@ -222,10 +229,58 @@ function hasNumericMetricValue(metrics: TweetMetricShape): boolean {
 
 function readTweetMetrics(
   tweet: TweetV2,
-  fieldName: "organic_metrics" | "promoted_metrics",
+  fieldName: TweetMetricFieldName,
 ): TweetMetricShape | undefined {
   const value = (tweet as TweetV2 & Readonly<Record<string, unknown>>)[fieldName];
   return isObjectRecord(value) ? value : undefined;
+}
+
+function readNullableMetricNumber(
+  metrics: TweetMetricShape | undefined,
+  metricName: string,
+): number | null {
+  const value = metrics?.[metricName];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function readFirstAvailableMetricNumber(
+  tweet: TweetV2,
+  fieldNames: readonly TweetMetricFieldName[],
+  metricName: string,
+): number | null {
+  for (const fieldName of fieldNames) {
+    const value = readNullableMetricNumber(
+      readTweetMetrics(tweet, fieldName),
+      metricName,
+    );
+    if (value !== null) {
+      return value;
+    }
+  }
+  return null;
+}
+
+function mapPostMetrics(tweet: TweetV2): XGatewayPostMetrics {
+  return {
+    likeCount: readFirstAvailableMetricNumber(tweet, ["public_metrics"], "like_count"),
+    replyCount: readFirstAvailableMetricNumber(tweet, ["public_metrics"], "reply_count"),
+    repostCount: readFirstAvailableMetricNumber(
+      tweet,
+      ["public_metrics"],
+      "retweet_count",
+    ),
+    quoteCount: readFirstAvailableMetricNumber(tweet, ["public_metrics"], "quote_count"),
+    bookmarkCount: readFirstAvailableMetricNumber(
+      tweet,
+      ["public_metrics"],
+      "bookmark_count",
+    ),
+    impressionCount: readFirstAvailableMetricNumber(
+      tweet,
+      ["public_metrics", "organic_metrics", "promoted_metrics"],
+      "impression_count",
+    ),
+  };
 }
 
 function detectPromotionStatus(tweet: TweetV2): XGatewayPromotionStatus {
@@ -515,6 +570,7 @@ async function mapPostSummary(
     id: tweet.id,
     text: tweet.text,
     promotionStatus,
+    metrics: mapPostMetrics(tweet),
     ...(tweet.created_at === undefined ? {} : { createdAt: tweet.created_at }),
     ...(tweet.conversation_id === undefined
       ? {}
@@ -723,6 +779,36 @@ function normalizeRequiredInput(
   return ensureRequired(value, fieldName).trim();
 }
 
+function validateSearchOperatorToken(
+  value: string,
+  fieldName: string,
+  createValidationError: (message: string) => XGatewayError,
+): string {
+  if (/\s/.test(value)) {
+    throw createValidationError(
+      `${fieldName} must be a single token without whitespace.`,
+    );
+  }
+  if (!/^[A-Za-z0-9_:-]+$/.test(value)) {
+    throw createValidationError(
+      `${fieldName} contains unsupported characters for reply lookup search.`,
+    );
+  }
+  return value;
+}
+
+function buildPostRepliesSearchQuery(
+  options: XGatewayPostRepliesOptions,
+  dependencies: CapabilityAdapterDependencies,
+): string {
+  const postId = validateSearchOperatorToken(
+    normalizeRequiredInput(options.postId, "postId", dependencies.ensureRequired),
+    "postId",
+    dependencies.createValidationError,
+  );
+  return `in_reply_to_tweet_id:${postId}`;
+}
+
 function validateOptionalMaxResults(
   value: number | undefined,
   fieldName: string,
@@ -825,6 +911,15 @@ export function createCapabilityAdapterFactories(
 
   function readUsageInteger(value: unknown, fieldName: string): number {
     if (
+      typeof value === "string" &&
+      /^(0|[1-9][0-9]*)$/.test(value.trim())
+    ) {
+      const parsed = Number.parseInt(value, 10);
+      if (Number.isSafeInteger(parsed) && parsed >= 0) {
+        return parsed;
+      }
+    }
+    if (
       typeof value === "number" &&
       Number.isInteger(value) &&
       Number.isFinite(value) &&
@@ -844,6 +939,13 @@ export function createCapabilityAdapterFactories(
     throw createUsagePayloadError(
       `Field '${fieldName}' must be a non-empty string in the usage response.`,
     );
+  }
+
+  function readUsageIdentifier(value: unknown, fieldName: string): string {
+    if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) {
+      return String(value);
+    }
+    return readUsageString(value, fieldName);
   }
 
   function readUsageEntry(value: unknown, fieldName: string): XGatewayUsageDay {
@@ -884,15 +986,21 @@ export function createCapabilityAdapterFactories(
     }
     const clientApp = value as UsageApiClientAppPayload;
     return {
-      clientAppId: readUsageString(
+      clientAppId: readUsageIdentifier(
         clientApp.client_app_id,
         `${fieldName}.client_app_id`,
       ),
-      usage: readUsageEntryArray(clientApp.usage, `${fieldName}.usage`),
-      usageResultCount: readUsageInteger(
-        clientApp.usage_result_count,
-        `${fieldName}.usage_result_count`,
-      ),
+      usage:
+        clientApp.usage === undefined
+          ? []
+          : readUsageEntryArray(clientApp.usage, `${fieldName}.usage`),
+      usageResultCount:
+        clientApp.usage_result_count === undefined
+          ? 0
+          : readUsageInteger(
+              clientApp.usage_result_count,
+              `${fieldName}.usage_result_count`,
+            ),
     };
   }
 
@@ -900,6 +1008,9 @@ export function createCapabilityAdapterFactories(
     value: unknown,
     fieldName: string,
   ): readonly XGatewayUsageClientApp[] {
+    if (value === undefined) {
+      return [];
+    }
     if (!Array.isArray(value)) {
       throw createUsagePayloadError(
         `Field '${fieldName}' must be an array in the usage response.`,
@@ -913,7 +1024,14 @@ export function createCapabilityAdapterFactories(
   function readUsageProjectTimeline(
     value: unknown,
     fieldName: string,
+    fallbackProjectId: string,
   ): XGatewayUsageProjectTimeline {
+    if (value === undefined) {
+      return {
+        projectId: fallbackProjectId,
+        usage: [],
+      };
+    }
     if (typeof value !== "object" || value === null) {
       throw createUsagePayloadError(
         `Field '${fieldName}' must be an object in the usage response.`,
@@ -921,11 +1039,14 @@ export function createCapabilityAdapterFactories(
     }
     const projectTimeline = value as UsageApiProjectPayload;
     return {
-      projectId: readUsageString(
-        projectTimeline.project_id,
-        `${fieldName}.project_id`,
-      ),
-      usage: readUsageEntryArray(projectTimeline.usage, `${fieldName}.usage`),
+      projectId:
+        projectTimeline.project_id === undefined
+          ? fallbackProjectId
+          : readUsageIdentifier(projectTimeline.project_id, `${fieldName}.project_id`),
+      usage:
+        projectTimeline.usage === undefined
+          ? []
+          : readUsageEntryArray(projectTimeline.usage, `${fieldName}.usage`),
     };
   }
 
@@ -936,6 +1057,7 @@ export function createCapabilityAdapterFactories(
       );
     }
     const data = payload as UsageApiDataPayload;
+    const projectId = readUsageIdentifier(data.project_id, "project_id");
     return {
       capResetDay: readUsageInteger(data.cap_reset_day, "cap_reset_day"),
       dailyClientAppUsage: readUsageClientAppArray(
@@ -945,9 +1067,10 @@ export function createCapabilityAdapterFactories(
       dailyProjectUsage: readUsageProjectTimeline(
         data.daily_project_usage,
         "daily_project_usage",
+        projectId,
       ),
       projectCap: readUsageInteger(data.project_cap, "project_cap"),
-      projectId: readUsageString(data.project_id, "project_id"),
+      projectId,
       projectUsage: readUsageInteger(data.project_usage, "project_usage"),
     };
   }
@@ -1022,6 +1145,9 @@ export function createCapabilityAdapterFactories(
       });
     }
 
+    // Keep this capability on the documented usage endpoint only. X surfaces
+    // billing totals such as balance and console cost in the Developer Console,
+    // not through a reviewed public billing API for this project.
     const query = new URLSearchParams();
     if (days !== undefined) {
       query.set("days", String(days));
@@ -1287,6 +1413,36 @@ export function createCapabilityAdapterFactories(
         dependencies.createError,
       );
     };
+    const postReplies = async (
+      options: XGatewayPostRepliesOptions,
+    ): Promise<XGatewayPostPage> => {
+      const postReadOptions = readPostReadOptions(options, dependencies);
+      const query = buildPostRepliesSearchQuery(options, dependencies);
+      const maxResults = validateOptionalMaxResults(
+        options.maxResults,
+        "maxResults",
+        10,
+        100,
+        dependencies.createValidationError,
+      );
+      const paginationToken = validateOptionalPaginationToken(
+        options.paginationToken,
+        "paginationToken",
+        dependencies.createValidationError,
+      );
+      const response = await client.v2.search(query, {
+        ...(maxResults === undefined ? {} : { max_results: maxResults }),
+        ...(paginationToken === undefined
+          ? {}
+          : { next_token: paginationToken }),
+        ...POST_LOOKUP_FIELDS,
+      });
+      return mapPostPage(
+        client,
+        response.data as V2TimelinePayload,
+        postReadOptions,
+      );
+    };
 
     return {
       adapterKind: "rest-oauth1",
@@ -1304,7 +1460,7 @@ export function createCapabilityAdapterFactories(
       usageTweets: async () => {
         throw dependencies.createError({
           code: "UNSUPPORTED",
-          summary: "Post usage statistics require bearer auth",
+          summary: "API usage statistics require bearer auth",
           details:
             "The reviewed usage endpoint adapter uses bearer authentication only. OAuth1 credentials are not sufficient for GET /2/usage/tweets in the current stable surface.",
           likelyCauses: [
@@ -1319,6 +1475,7 @@ export function createCapabilityAdapterFactories(
         });
       },
       postGet,
+      postReplies,
       timelineSearch,
       timelineHome,
       timelineUser,
@@ -1472,6 +1629,36 @@ export function createCapabilityAdapterFactories(
         dependencies.createError,
       );
     };
+    const postReplies = async (
+      options: XGatewayPostRepliesOptions,
+    ): Promise<XGatewayPostPage> => {
+      const postReadOptions = readPostReadOptions(options, dependencies);
+      const query = buildPostRepliesSearchQuery(options, dependencies);
+      const maxResults = validateOptionalMaxResults(
+        options.maxResults,
+        "maxResults",
+        10,
+        100,
+        dependencies.createValidationError,
+      );
+      const paginationToken = validateOptionalPaginationToken(
+        options.paginationToken,
+        "paginationToken",
+        dependencies.createValidationError,
+      );
+      const response = await client.v2.search(query, {
+        ...(maxResults === undefined ? {} : { max_results: maxResults }),
+        ...(paginationToken === undefined
+          ? {}
+          : { next_token: paginationToken }),
+        ...POST_LOOKUP_FIELDS,
+      });
+      return mapPostPage(
+        client,
+        response.data as V2TimelinePayload,
+        postReadOptions,
+      );
+    };
 
     return {
       adapterKind: "rest-bearer",
@@ -1483,6 +1670,7 @@ export function createCapabilityAdapterFactories(
       },
       usageTweets: fetchUsageTweets,
       postGet,
+      postReplies,
       timelineSearch,
       timelineHome,
       timelineUser,

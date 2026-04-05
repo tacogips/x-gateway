@@ -23,6 +23,8 @@ Provide a stable GraphQL-shaped public contract that expresses user intent witho
   - maps to capability `account.me`
 - `post(id: ID!)`
   - maps to capability `post.get`
+- `Post.replies(maxResults: Int, paginationToken: String)`
+  - maps to capability `post.replies` using the parent `Post.id`
 
 ### Mutation
 
@@ -121,7 +123,7 @@ The first implementation slice may keep the parser intentionally small:
 
 - one top-level field per request
 - string, integer, boolean, null, list, and object argument literals
-- selection sets used only for response projection
+- nested field arguments for reviewed child fields such as `Post.replies`
 - no variables, fragments, aliases, or directives yet
 
 These limits are acceptable as long as diagnostics are explicit and the contract remains project-owned.
@@ -149,8 +151,11 @@ These limits are acceptable as long as diagnostics are explicit and the contract
 
 - `accountMe` returns a projected account object.
 - `post(id)` returns a projected post object plus `referencedPosts` when requested.
+- `Post.replies(...)` reuses the stable `PostPage` payload shape and may recursively hydrate nested `replies(...)` selections.
+- Post-shaped payloads expose `metrics` as a stable nested object with nullable metric fields so missing upstream metric access surfaces as `null` rather than a failed post read.
 - Mutations return stable project-defined objects, not raw transport payloads.
 - Projection is applied after capability execution so callers receive only the requested stable fields.
+- The current contract permits bounded nested capability execution for `Post.replies(...)` before final projection.
 - Projection must also reject adapter payload drift when a field declared as scalar returns an object/list, or when a field declared as object/list returns an incompatible payload shape.
 
 ## Explicit Non-Goals For This Slice
@@ -165,3 +170,5 @@ These limits are acceptable as long as diagnostics are explicit and the contract
 - `design-docs/specs/architecture.md`
 - `design-docs/specs/command.md`
 - `design-docs/specs/design-api-inventory.md`
+- `design-docs/specs/design-recursive-post-replies.md`
+- `design-docs/specs/design-post-metrics.md`

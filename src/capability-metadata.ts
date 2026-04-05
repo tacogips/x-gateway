@@ -47,6 +47,7 @@ export const STABLE_CAPABILITY_IDS = [
   "account.me",
   "usage.tweets",
   "post.get",
+  "post.replies",
   "timeline.search",
   "timeline.home",
   "timeline.user",
@@ -102,6 +103,7 @@ type StableReadCapabilityId = Extract<
   | "account.me"
   | "usage.tweets"
   | "post.get"
+  | "post.replies"
   | "timeline.search"
   | "timeline.home"
   | "timeline.user"
@@ -268,12 +270,12 @@ export const CAPABILITY_REGISTRY: readonly CapabilityDescriptor[] = [
   },
   createStableReadCapabilityDescriptor({
     id: "usage.tweets",
-    publicOperationName: "postUsage",
+    publicOperationName: "apiUsage",
     endpointFamily: "usage",
-    operation: "fetch daily post consumption counts",
+    operation: "fetch API usage counts",
     authModes: ["bearer"],
     notes:
-      "Uses the REST v2 usage endpoint for daily post-consumption tracking. This capability returns usage counts and caps, not an exact current dollar cost.",
+      "Uses the REST v2 usage endpoint for API usage tracking. This capability intentionally avoids console-billing integration and returns usage counts and caps, not an exact current dollar cost.",
   }),
   createStableReadCapabilityDescriptor({
     id: "post.get",
@@ -282,6 +284,13 @@ export const CAPABILITY_REGISTRY: readonly CapabilityDescriptor[] = [
     operation: "fetch a post with referenced-post expansion",
     notes:
       "Stable lookup baseline uses the public post-lookup API with author and referenced-post expansion. Supports OAuth1 and bearer-token reads when the upstream token can read posts.",
+  }),
+  createStableReadCapabilityDescriptor({
+    id: "post.replies",
+    endpointFamily: "posts",
+    operation: "fetch direct replies to a post with explicit pagination tokens",
+    notes:
+      "Stable direct-reply lookup uses the REST v2 recent-search endpoint with the in_reply_to_tweet_id operator. OAuth1 and bearer-token reads are both supported in the reviewed baseline.",
   }),
   createStableReadCapabilityDescriptor({
     id: "timeline.search",
@@ -502,6 +511,15 @@ export const CAPABILITY_PLANNING_REGISTRY: readonly CapabilityPlanningDefinition
         "OAuth1 credentials are configured for the preferred stable read adapter.",
       bearerReadinessReason:
         "Bearer auth is configured for the reviewed REST-backed post lookup adapter.",
+    }),
+    createStableReadPlanningDefinition({
+      capabilityId: "post.replies",
+      missingAuthReason:
+        "Post replies lookup requires OAuth1 credentials or a bearer token.",
+      oauth1ReadinessReason:
+        "OAuth1 credentials are configured for the reviewed direct-reply search adapter.",
+      bearerReadinessReason:
+        "Bearer auth is configured for the reviewed direct-reply search adapter.",
     }),
     createStableReadPlanningDefinition({
       capabilityId: "timeline.search",

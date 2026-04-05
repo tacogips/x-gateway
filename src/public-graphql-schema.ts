@@ -12,6 +12,7 @@ const POST_SHARED_FIELDS = /* GraphQL */ `
     id: String!
     text: String!
     promotionStatus: PromotionStatus!
+    metrics: PostMetrics!
     createdAt: String
     conversationId: String
     replyToUserId: String
@@ -26,6 +27,17 @@ const MEDIA_TYPE_DEFINITION = /* GraphQL */ `
     sourceUrl: String!
     localFilePath: String
     previewImageUrl: String
+  }
+`;
+
+const POST_METRICS_TYPE_DEFINITION = /* GraphQL */ `
+  type PostMetrics {
+    likeCount: Int
+    replyCount: Int
+    repostCount: Int
+    quoteCount: Int
+    bookmarkCount: Int
+    impressionCount: Int
   }
 `;
 
@@ -44,6 +56,7 @@ export const PUBLIC_GRAPHQL_TYPE_DEFS = /* GraphQL */ `
 
   ${ACCOUNT_TYPE_DEFINITION}
   ${MEDIA_TYPE_DEFINITION}
+  ${POST_METRICS_TYPE_DEFINITION}
 
   type ReferencedPost {
 ${POST_SHARED_FIELDS}
@@ -61,6 +74,14 @@ ${POST_SHARED_FIELDS}
   type Post {
 ${POST_SHARED_FIELDS}
     referencedPosts: [ReferencedPost!]
+    replies(
+      maxResults: Int
+      paginationToken: String
+      mediaRootDir: String
+      downloadMedia: Boolean
+      forceDownload: Boolean
+      includePromoted: Boolean
+    ): PostPage!
     replyTo: ReferencedPost
     quote: ReferencedPost
     repost: ReferencedPost
@@ -90,7 +111,7 @@ ${POST_SHARED_FIELDS}
     usage: [UsageDay!]!
   }
 
-  type PostUsage {
+  type ApiUsage {
     capResetDay: Int!
     dailyClientAppUsage: [ClientAppUsage!]!
     dailyProjectUsage: ProjectUsageTimeline!
@@ -121,7 +142,7 @@ ${POST_SHARED_FIELDS}
 
   type Query {
     accountMe: Account!
-    postUsage(days: Int): PostUsage!
+    apiUsage(days: Int): ApiUsage!
     post(
       id: String!
       mediaRootDir: String
