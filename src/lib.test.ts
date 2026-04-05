@@ -60,6 +60,8 @@ vi.mock("twitter-api-v2", () => {
     }>;
     conversation_id?: string;
     in_reply_to_user_id?: string;
+    organic_metrics?: Readonly<Record<string, number>>;
+    promoted_metrics?: Readonly<Record<string, number>>;
     referenced_tweets?: readonly Readonly<{
       type: "quoted" | "replied_to" | "retweeted";
       id: string;
@@ -261,18 +263,7 @@ vi.mock("twitter-api-v2", () => {
         data: { id: string; username: string; name: string };
       }>;
       singleTweet: (postId: string) => Promise<{
-        data: {
-          id: string;
-          text: string;
-          author_id: string;
-          created_at: string;
-          conversation_id: string;
-          in_reply_to_user_id: string;
-          referenced_tweets: readonly Readonly<{
-            type: "quoted" | "replied_to" | "retweeted";
-            id: string;
-          }>[];
-        };
+        data: MockTweet;
         includes: {
           media?: readonly MockMedia[];
           tweets: readonly MockTweet[];
@@ -398,6 +389,9 @@ vi.mock("twitter-api-v2", () => {
           id: "quoted-1",
           text: "quoted text",
           author_id: "author-3",
+          organic_metrics: {
+            impression_count: 123,
+          },
           attachments: {
             media_keys: ["media-photo-quoted-1"],
           },
@@ -413,6 +407,9 @@ vi.mock("twitter-api-v2", () => {
           id: "retweet-1",
           text: "repost source",
           author_id: "author-4",
+          promoted_metrics: {
+            impression_count: 99,
+          },
           attachments: {
             media_keys: ["media-photo-retweet-1"],
           },
@@ -609,6 +606,9 @@ vi.mock("twitter-api-v2", () => {
                     author_id: "author-1",
                     created_at: "2026-03-08T01:00:00.000Z",
                     conversation_id: "user-nested-conversation-1",
+                    organic_metrics: {
+                      impression_count: 7,
+                    },
                     referenced_tweets: [
                       { type: "quoted", id: "quoted-1" },
                       { type: "retweeted", id: "retweet-1" },
@@ -631,6 +631,42 @@ vi.mock("twitter-api-v2", () => {
                   result_count: 1,
                   newest_id: "user-nested-user-1",
                   oldest_id: "user-nested-user-1",
+                },
+              },
+            };
+          }
+          if (userId === "promoted-user") {
+            return {
+              data: {
+                data: [
+                  {
+                    id: "user-promoted-user-1",
+                    text: "promoted timeline post",
+                    author_id: "author-1",
+                    created_at: "2026-03-08T01:00:00.000Z",
+                    conversation_id: "user-promoted-conversation-1",
+                    promoted_metrics: {
+                      impression_count: 42,
+                    },
+                  },
+                  {
+                    id: "user-promoted-user-2",
+                    text: "organic timeline post",
+                    author_id: "author-2",
+                    created_at: "2026-03-08T02:00:00.000Z",
+                    conversation_id: "user-promoted-conversation-2",
+                    organic_metrics: {
+                      impression_count: 21,
+                    },
+                  },
+                ],
+                includes: {
+                  users: [mockUsersById["author-1"]!, mockUsersById["author-2"]!],
+                },
+                meta: {
+                  result_count: 2,
+                  newest_id: "user-promoted-user-1",
+                  oldest_id: "user-promoted-user-2",
                 },
               },
             };
@@ -710,6 +746,9 @@ vi.mock("twitter-api-v2", () => {
                 id: postId,
                 text: `post ${postId}`,
                 author_id: "author-1",
+                organic_metrics: {
+                  impression_count: 200,
+                },
                 created_at: "2026-03-08T00:00:00.000Z",
                 conversation_id: "conversation-1",
                 in_reply_to_user_id: "author-2",
@@ -746,11 +785,34 @@ vi.mock("twitter-api-v2", () => {
               },
             };
           }
+          if (postId === "promoted-post") {
+            return {
+              data: {
+                id: postId,
+                text: `post ${postId}`,
+                author_id: "author-1",
+                promoted_metrics: {
+                  impression_count: 300,
+                },
+                created_at: "2026-03-08T00:00:00.000Z",
+                conversation_id: "conversation-promoted",
+                in_reply_to_user_id: "author-2",
+                referenced_tweets: [],
+              },
+              includes: {
+                tweets: [],
+                users: [mockUsersById["author-1"]!, mockUsersById["author-2"]!],
+              },
+            };
+          }
           return {
             data: {
               id: postId,
               text: `post ${postId}`,
               author_id: "author-1",
+              organic_metrics: {
+                impression_count: 10,
+              },
               created_at: "2026-03-08T00:00:00.000Z",
               conversation_id: "conversation-1",
               in_reply_to_user_id: "author-2",
@@ -1291,32 +1353,23 @@ describe("createXGatewayClient", () => {
     await expect(
       client.apiRequest({
         query:
-          'query { post(id: "post-42") { id text author { username } quote { id text author { username } } repost { id text repost { id text author { username } } } referencedPosts { relation id } } }',
+          'query { post(id: "post-42") { id promotionStatus text author { username } quote { id promotionStatus text author { username } } repost { id text repost { id text author { username } } } referencedPosts { relation id } } }',
       }),
     ).resolves.toEqual({
       data: {
         post: {
           id: "post-42",
+          promotionStatus: "NOT_PROMOTED",
           text: "post post-42",
           author: {
             username: "author_one",
           },
           quote: {
             id: "quoted-1",
+            promotionStatus: "NOT_PROMOTED",
             text: "quoted text",
             author: {
               username: "author_three",
-            },
-          },
-          repost: {
-            id: "retweet-1",
-            text: "repost source",
-            repost: {
-              id: "retweet-2",
-              text: "repost source nested",
-              author: {
-                username: "author_five",
-              },
             },
           },
           referencedPosts: [
@@ -1328,11 +1381,106 @@ describe("createXGatewayClient", () => {
               relation: "replied_to",
               id: "reply-1",
             },
+          ],
+        },
+      },
+    });
+  });
+
+  test("filters explicitly promoted posts from GraphQL results by default", async () => {
+    process.env["X_GW_TOKEN"] = "bearer-token";
+
+    const client = createXGatewayClient();
+
+    await expect(
+      client.apiRequest({
+        query:
+          'query { userTimeline(userId: "promoted-user", maxResults: 5) { posts { id promotionStatus text } pageInfo { resultCount newestId oldestId } } }',
+      }),
+    ).resolves.toEqual({
+      data: {
+        userTimeline: {
+          posts: [
             {
-              relation: "retweeted",
-              id: "retweet-1",
+              id: "user-promoted-user-2",
+              promotionStatus: "NOT_PROMOTED",
+              text: "organic timeline post",
             },
           ],
+          pageInfo: {
+            resultCount: 1,
+            newestId: "user-promoted-user-2",
+            oldestId: "user-promoted-user-2",
+          },
+        },
+      },
+    });
+  });
+
+  test("returns promoted posts when includePromoted is enabled", async () => {
+    process.env["X_GW_TOKEN"] = "bearer-token";
+
+    const client = createXGatewayClient();
+
+    await expect(
+      client.apiRequest({
+        query:
+          'query { userTimeline(userId: "promoted-user", maxResults: 5, includePromoted: true) { posts { id promotionStatus text } pageInfo { resultCount newestId oldestId } } }',
+      }),
+    ).resolves.toEqual({
+      data: {
+        userTimeline: {
+          posts: [
+            {
+              id: "user-promoted-user-1",
+              promotionStatus: "PROMOTED",
+              text: "promoted timeline post",
+            },
+            {
+              id: "user-promoted-user-2",
+              promotionStatus: "NOT_PROMOTED",
+              text: "organic timeline post",
+            },
+          ],
+          pageInfo: {
+            resultCount: 2,
+            newestId: "user-promoted-user-1",
+            oldestId: "user-promoted-user-2",
+          },
+        },
+      },
+    });
+  });
+
+  test("rejects top-level promoted post lookups unless includePromoted is enabled", async () => {
+    process.env["X_GW_TOKEN"] = "bearer-token";
+
+    const client = createXGatewayClient();
+
+    await expect(
+      client.apiRequest({
+        query: 'query { post(id: "promoted-post") { id promotionStatus } }',
+      }),
+    ).rejects.toMatchObject(
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          code: "PERMISSION_DENIED",
+          summary: "Promoted post filtered from the stable read surface",
+        }),
+      }),
+    );
+
+    await expect(
+      client.apiRequest({
+        query:
+          'query { post(id: "promoted-post", includePromoted: true) { id promotionStatus text } }',
+      }),
+    ).resolves.toEqual({
+      data: {
+        post: {
+          id: "promoted-post",
+          promotionStatus: "PROMOTED",
+          text: "post promoted-post",
         },
       },
     });
@@ -1361,6 +1509,7 @@ describe("createXGatewayClient", () => {
             post(
               id: "post-42"
               mediaRootDir: "${mediaRootDir}"
+              includePromoted: true
             ) {
               quote {
                 id
@@ -1459,6 +1608,7 @@ describe("createXGatewayClient", () => {
             id: "post-42"
             mediaRootDir: "/tmp/unused-media-root"
             downloadMedia: false
+            includePromoted: true
           ) {
             quote {
               media {
@@ -1534,6 +1684,7 @@ describe("createXGatewayClient", () => {
             post(
               id: "post-42"
               mediaRootDir: "${mediaRootDir}"
+              includePromoted: true
             ) {
               quote {
                 media {
@@ -1603,6 +1754,7 @@ describe("createXGatewayClient", () => {
               id: "post-42"
               mediaRootDir: "${mediaRootDir}"
               forceDownload: true
+              includePromoted: true
             ) {
               quote {
                 media {
@@ -1645,7 +1797,7 @@ describe("createXGatewayClient", () => {
     await expect(
       client.apiRequest({
         query:
-          'query { userTimeline(userId: "nested-user", maxResults: 5) { posts { id quote { id text } repost { id repost { id text } } } pageInfo { resultCount newestId oldestId } } }',
+          'query { userTimeline(userId: "nested-user", maxResults: 5, includePromoted: true) { posts { id quote { id text } repost { id repost { id text } } } pageInfo { resultCount newestId oldestId } } }',
       }),
     ).resolves.toEqual({
       data: {

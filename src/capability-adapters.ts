@@ -31,6 +31,7 @@ import type {
   XGatewayPostDeleteOptions,
   XGatewayPostGetOptions,
   XGatewayPostLookupResult,
+  XGatewayPromotionStatus,
   XGatewayPostQuoteOptions,
   XGatewayPostReferenceRelation,
   XGatewayPostReplyOptions,
@@ -77,6 +78,8 @@ const POST_LOOKUP_FIELDS: Partial<Tweetv2FieldsParams> = {
     "conversation_id",
     "created_at",
     "in_reply_to_user_id",
+    "organic_metrics",
+    "promoted_metrics",
     "referenced_tweets",
   ],
   "user.fields": ["id", "name", "username"],
@@ -196,11 +199,48 @@ type ExpandedTweetContext = Readonly<{
   includesHelper: TwitterV2IncludesHelper;
 }>;
 
-type MediaReadOptions = Readonly<{
+type PostReadOptions = Readonly<{
   mediaRootDir?: string;
   downloadMedia: boolean;
   forceDownload: boolean;
+  includePromoted: boolean;
 }>;
+
+type TweetMetricShape = Readonly<Record<string, unknown>>;
+
+function isObjectRecord(
+  value: unknown,
+): value is Readonly<Record<string, unknown>> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function hasNumericMetricValue(metrics: TweetMetricShape): boolean {
+  return Object.values(metrics).some(
+    (value) => typeof value === "number" && Number.isFinite(value) && value > 0,
+  );
+}
+
+function readTweetMetrics(
+  tweet: TweetV2,
+  fieldName: "organic_metrics" | "promoted_metrics",
+): TweetMetricShape | undefined {
+  const value = (tweet as TweetV2 & Readonly<Record<string, unknown>>)[fieldName];
+  return isObjectRecord(value) ? value : undefined;
+}
+
+function detectPromotionStatus(tweet: TweetV2): XGatewayPromotionStatus {
+  const promotedMetrics = readTweetMetrics(tweet, "promoted_metrics");
+  if (promotedMetrics && hasNumericMetricValue(promotedMetrics)) {
+    return "PROMOTED";
+  }
+
+  const organicMetrics = readTweetMetrics(tweet, "organic_metrics");
+  if (organicMetrics && hasNumericMetricValue(organicMetrics)) {
+    return "NOT_PROMOTED";
+  }
+
+  return "UNKNOWN";
+}
 
 function collectReferencedTweetIds(tweets: readonly TweetV2[]): readonly string[] {
   const referencedTweetIds = new Set<string>();
@@ -377,7 +417,7 @@ function pickMediaSource(
 async function materializeMediaAsset(
   media: MediaObjectV2,
   postId: string,
-  options: MediaReadOptions,
+  options: PostReadOptions,
 ): Promise<XGatewayMediaAsset | undefined> {
   const source = pickMediaSource(media);
   if (!source) {
@@ -433,7 +473,7 @@ async function materializeMediaAsset(
 async function mapMediaAssets(
   tweet: TweetV2,
   context: ExpandedTweetContext,
-  options: MediaReadOptions,
+  options: PostReadOptions,
 ): Promise<readonly XGatewayMediaAsset[]> {
   const mediaItems = context.includesHelper.medias(tweet);
   const assets = await Promise.all(
@@ -447,14 +487,19 @@ async function mapMediaAssets(
 async function mapPostSummary(
   tweet: TweetV2,
   context: ExpandedTweetContext,
-  mediaOptions: MediaReadOptions,
+  postReadOptions: PostReadOptions,
   maxReferenceDepth = 0,
-): Promise<XGatewayPostSummary> {
+): Promise<XGatewayPostSummary | undefined> {
+  const promotionStatus = detectPromotionStatus(tweet);
+  if (!postReadOptions.includePromoted && promotionStatus === "PROMOTED") {
+    return undefined;
+  }
+
   const author = mapOptionalAccountProfile(context.includesHelper.author(tweet));
   const [media, referencedPosts] = await Promise.all([
-    mapMediaAssets(tweet, context, mediaOptions),
+    mapMediaAssets(tweet, context, postReadOptions),
     maxReferenceDepth > 0
-      ? mapReferencedPosts(tweet, context, mediaOptions, maxReferenceDepth)
+      ? mapReferencedPosts(tweet, context, postReadOptions, maxReferenceDepth)
       : Promise.resolve([] as XGatewayReferencedPost[]),
   ]);
   const replyTo = referencedPosts.find(
@@ -469,6 +514,7 @@ async function mapPostSummary(
   return {
     id: tweet.id,
     text: tweet.text,
+    promotionStatus,
     ...(tweet.created_at === undefined ? {} : { createdAt: tweet.created_at }),
     ...(tweet.conversation_id === undefined
       ? {}
@@ -488,7 +534,7 @@ async function mapPostSummary(
 async function mapReferencedPosts(
   tweet: TweetV2,
   context: ExpandedTweetContext,
-  mediaOptions: MediaReadOptions,
+  postReadOptions: PostReadOptions,
   maxReferenceDepth: number,
 ): Promise<XGatewayReferencedPost[]> {
   const references = tweet.referenced_tweets ?? [];
@@ -501,14 +547,18 @@ async function mapReferencedPosts(
       if (!referencedTweet) {
         return undefined;
       }
+      const referencedPost = await mapPostSummary(
+        referencedTweet,
+        context,
+        postReadOptions,
+        maxReferenceDepth - 1,
+      );
+      if (!referencedPost) {
+        return undefined;
+      }
       return {
         relation: reference.type,
-        ...(await mapPostSummary(
-          referencedTweet,
-          context,
-          mediaOptions,
-          maxReferenceDepth - 1,
-        )),
+        ...referencedPost,
       };
     }),
   );
@@ -521,13 +571,31 @@ async function mapReferencedPosts(
 async function mapPostLookupResult(
   client: TwitterApi,
   response: TweetV2SingleResult,
-  mediaOptions: MediaReadOptions,
+  postReadOptions: PostReadOptions,
+  createError: (payload: XGatewayErrorPayload) => XGatewayError,
 ): Promise<XGatewayPostLookupResult> {
   const context = await createNestedReferenceIncludesHelper(client, {
     data: [response.data],
     ...(response.includes === undefined ? {} : { includes: response.includes }),
   });
-  const post = await mapPostSummary(response.data, context, mediaOptions, 2);
+  const post = await mapPostSummary(response.data, context, postReadOptions, 2);
+  if (!post) {
+    throw createError({
+      code: "PERMISSION_DENIED",
+      summary: "Promoted post filtered from the stable read surface",
+      details:
+        "The requested post was identified as promoted in the upstream payload and x-gateway excluded it because includePromoted was not enabled.",
+      likelyCauses: [
+        "The post is currently promoted for the authenticated author context",
+        "The request relied on the default includePromoted: false behavior",
+      ],
+      remediations: [
+        "Retry with includePromoted: true if you want promoted posts returned.",
+      ],
+      classification: "permission",
+      retryable: false,
+    });
+  }
 
   return {
     post,
@@ -538,7 +606,7 @@ async function mapPostLookupResult(
 async function mapPostPage(
   client: TwitterApi,
   response: V2TimelinePayload,
-  mediaOptions: MediaReadOptions,
+  postReadOptions: PostReadOptions,
 ): Promise<XGatewayPostPage> {
   const tweets = response.data ?? [];
   const context = await createNestedReferenceIncludesHelper(
@@ -546,18 +614,30 @@ async function mapPostPage(
     response,
   );
   const meta = response.meta;
+  const posts = (
+    await Promise.all(
+      tweets.map((tweet) => mapPostSummary(tweet, context, postReadOptions, 2)),
+    )
+  ).filter((post): post is XGatewayPostSummary => post !== undefined);
+  const oldestPost = posts.length === 0 ? undefined : posts[posts.length - 1];
   return {
-    posts: await Promise.all(
-      tweets.map((tweet) => mapPostSummary(tweet, context, mediaOptions, 2)),
-    ),
+    posts,
     pageInfo: {
-      resultCount: meta?.result_count ?? tweets.length,
+      resultCount: posts.length,
       ...(meta?.next_token === undefined ? {} : { nextToken: meta.next_token }),
       ...(meta?.previous_token === undefined
         ? {}
         : { previousToken: meta.previous_token }),
-      ...(meta?.newest_id === undefined ? {} : { newestId: meta.newest_id }),
-      ...(meta?.oldest_id === undefined ? {} : { oldestId: meta.oldest_id }),
+      ...(posts[0]?.id === undefined
+        ? meta?.newest_id === undefined
+          ? {}
+          : { newestId: meta.newest_id }
+        : { newestId: posts[0].id }),
+      ...(oldestPost?.id === undefined
+        ? meta?.oldest_id === undefined
+          ? {}
+          : { oldestId: meta.oldest_id }
+        : { oldestId: oldestPost.id }),
     },
   };
 }
@@ -661,14 +741,15 @@ function validateOptionalMaxResults(
   return value;
 }
 
-function readMediaReadOptions(
+function readPostReadOptions(
   options: Readonly<{
     mediaRootDir?: string;
     downloadMedia?: boolean;
     forceDownload?: boolean;
+    includePromoted?: boolean;
   }>,
   dependencies: CapabilityAdapterDependencies,
-): MediaReadOptions {
+): PostReadOptions {
   const mediaRootDir =
     options.mediaRootDir === undefined
       ? dependencies.mediaRootDir
@@ -679,6 +760,7 @@ function readMediaReadOptions(
     ...(mediaRootDir === undefined ? {} : { mediaRootDir }),
     downloadMedia: options.downloadMedia ?? true,
     forceDownload: options.forceDownload ?? false,
+    includePromoted: options.includePromoted ?? false,
   };
 }
 
@@ -1064,7 +1146,7 @@ export function createCapabilityAdapterFactories(
     const timelineHome = async (
       options: XGatewayTimelinePageOptions,
     ): Promise<XGatewayPostPage> => {
-      const mediaReadOptions = readMediaReadOptions(options, dependencies);
+      const postReadOptions = readPostReadOptions(options, dependencies);
       const maxResults = validateOptionalMaxResults(
         options.maxResults,
         "maxResults",
@@ -1087,13 +1169,13 @@ export function createCapabilityAdapterFactories(
       return mapPostPage(
         client,
         response.data as V2TimelinePayload,
-        mediaReadOptions,
+        postReadOptions,
       );
     };
     const timelineUser = async (
       options: XGatewayTimelineUserOptions,
     ): Promise<XGatewayPostPage> => {
-      const mediaReadOptions = readMediaReadOptions(options, dependencies);
+      const postReadOptions = readPostReadOptions(options, dependencies);
       const userId = normalizeRequiredInput(
         options.userId,
         "userId",
@@ -1121,13 +1203,13 @@ export function createCapabilityAdapterFactories(
       return mapPostPage(
         client,
         response.data as V2TimelinePayload,
-        mediaReadOptions,
+        postReadOptions,
       );
     };
     const timelineMentions = async (
       options: XGatewayTimelineUserOptions,
     ): Promise<XGatewayPostPage> => {
-      const mediaReadOptions = readMediaReadOptions(options, dependencies);
+      const postReadOptions = readPostReadOptions(options, dependencies);
       const userId = normalizeRequiredInput(
         options.userId,
         "userId",
@@ -1155,13 +1237,13 @@ export function createCapabilityAdapterFactories(
       return mapPostPage(
         client,
         response.data as V2TimelinePayload,
-        mediaReadOptions,
+        postReadOptions,
       );
     };
     const timelineSearch = async (
       options: XGatewayTimelineSearchOptions,
     ): Promise<XGatewayPostPage> => {
-      const mediaReadOptions = readMediaReadOptions(options, dependencies);
+      const postReadOptions = readPostReadOptions(options, dependencies);
       const query = normalizeRequiredInput(
         options.query,
         "query",
@@ -1189,16 +1271,21 @@ export function createCapabilityAdapterFactories(
       return mapPostPage(
         client,
         response.data as V2TimelinePayload,
-        mediaReadOptions,
+        postReadOptions,
       );
     };
     const postGet = async (
       options: XGatewayPostGetOptions,
     ): Promise<XGatewayPostLookupResult> => {
       const postId = dependencies.ensureRequired(options.postId, "postId");
-      const mediaReadOptions = readMediaReadOptions(options, dependencies);
+      const postReadOptions = readPostReadOptions(options, dependencies);
       const response = await client.v2.singleTweet(postId, POST_LOOKUP_FIELDS);
-      return mapPostLookupResult(client, response, mediaReadOptions);
+      return mapPostLookupResult(
+        client,
+        response,
+        postReadOptions,
+        dependencies.createError,
+      );
     };
 
     return {
@@ -1244,7 +1331,7 @@ export function createCapabilityAdapterFactories(
     const timelineHome = async (
       options: XGatewayTimelinePageOptions,
     ): Promise<XGatewayPostPage> => {
-      const mediaReadOptions = readMediaReadOptions(options, dependencies);
+      const postReadOptions = readPostReadOptions(options, dependencies);
       const maxResults = validateOptionalMaxResults(
         options.maxResults,
         "maxResults",
@@ -1267,13 +1354,13 @@ export function createCapabilityAdapterFactories(
       return mapPostPage(
         client,
         response.data as V2TimelinePayload,
-        mediaReadOptions,
+        postReadOptions,
       );
     };
     const timelineUser = async (
       options: XGatewayTimelineUserOptions,
     ): Promise<XGatewayPostPage> => {
-      const mediaReadOptions = readMediaReadOptions(options, dependencies);
+      const postReadOptions = readPostReadOptions(options, dependencies);
       const userId = normalizeRequiredInput(
         options.userId,
         "userId",
@@ -1301,13 +1388,13 @@ export function createCapabilityAdapterFactories(
       return mapPostPage(
         client,
         response.data as V2TimelinePayload,
-        mediaReadOptions,
+        postReadOptions,
       );
     };
     const timelineMentions = async (
       options: XGatewayTimelineUserOptions,
     ): Promise<XGatewayPostPage> => {
-      const mediaReadOptions = readMediaReadOptions(options, dependencies);
+      const postReadOptions = readPostReadOptions(options, dependencies);
       const userId = normalizeRequiredInput(
         options.userId,
         "userId",
@@ -1335,13 +1422,13 @@ export function createCapabilityAdapterFactories(
       return mapPostPage(
         client,
         response.data as V2TimelinePayload,
-        mediaReadOptions,
+        postReadOptions,
       );
     };
     const timelineSearch = async (
       options: XGatewayTimelineSearchOptions,
     ): Promise<XGatewayPostPage> => {
-      const mediaReadOptions = readMediaReadOptions(options, dependencies);
+      const postReadOptions = readPostReadOptions(options, dependencies);
       const query = normalizeRequiredInput(
         options.query,
         "query",
@@ -1369,16 +1456,21 @@ export function createCapabilityAdapterFactories(
       return mapPostPage(
         client,
         response.data as V2TimelinePayload,
-        mediaReadOptions,
+        postReadOptions,
       );
     };
     const postGet = async (
       options: XGatewayPostGetOptions,
     ): Promise<XGatewayPostLookupResult> => {
       const postId = dependencies.ensureRequired(options.postId, "postId");
-      const mediaReadOptions = readMediaReadOptions(options, dependencies);
+      const postReadOptions = readPostReadOptions(options, dependencies);
       const response = await client.v2.singleTweet(postId, POST_LOOKUP_FIELDS);
-      return mapPostLookupResult(client, response, mediaReadOptions);
+      return mapPostLookupResult(
+        client,
+        response,
+        postReadOptions,
+        dependencies.createError,
+      );
     };
 
     return {

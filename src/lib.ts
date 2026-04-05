@@ -812,6 +812,10 @@ export type XGatewayPostAttachmentInput = Readonly<{
 }>;
 
 export type XGatewayMediaKind = "photo" | "video" | "animated_gif";
+export type XGatewayPromotionStatus =
+  | "PROMOTED"
+  | "NOT_PROMOTED"
+  | "UNKNOWN";
 
 export type XGatewayMediaAsset = Readonly<{
   kind: XGatewayMediaKind;
@@ -831,6 +835,7 @@ export type XGatewayPostGetOptions = Readonly<{
   mediaRootDir?: string;
   downloadMedia?: boolean;
   forceDownload?: boolean;
+  includePromoted?: boolean;
 }>;
 
 export type XGatewayPostReplyOptions = Readonly<{
@@ -846,6 +851,7 @@ export type XGatewayPostDeleteOptions = Readonly<{
 export type XGatewayPostSummary = Readonly<{
   id: string;
   text: string;
+  promotionStatus: XGatewayPromotionStatus;
   author?: XGatewayAccountProfile;
   createdAt?: string;
   conversationId?: string;
@@ -892,6 +898,7 @@ export type XGatewayTimelinePageOptions = Readonly<{
   mediaRootDir?: string;
   downloadMedia?: boolean;
   forceDownload?: boolean;
+  includePromoted?: boolean;
 }>;
 
 export type XGatewayTimelineSearchOptions = Readonly<

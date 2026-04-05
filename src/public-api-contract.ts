@@ -241,13 +241,14 @@ function readOptionalTrimmedStringLiteral(
     : readTrimmedStringLiteral(args, name, createValidationError);
 }
 
-function readOptionalMediaReadArguments(
+function readOptionalPostReadArguments(
   args: Readonly<Record<string, PublicGraphqlValue>>,
   createValidationError: ValidationErrorFactory,
 ): Readonly<{
   mediaRootDir?: string;
   downloadMedia?: boolean;
   forceDownload?: boolean;
+  includePromoted?: boolean;
 }> {
   const mediaRootDir =
     args["mediaRootDir"] === undefined
@@ -263,10 +264,16 @@ function readOptionalMediaReadArguments(
     "forceDownload",
     createValidationError,
   );
+  const includePromoted = readOptionalBooleanLiteral(
+    args,
+    "includePromoted",
+    createValidationError,
+  );
   return {
     ...(mediaRootDir === undefined ? {} : { mediaRootDir }),
     ...(downloadMedia === undefined ? {} : { downloadMedia }),
     ...(forceDownload === undefined ? {} : { forceDownload }),
+    ...(includePromoted === undefined ? {} : { includePromoted }),
   };
 }
 
@@ -279,6 +286,7 @@ function readOptionalPostPageArguments(
   mediaRootDir?: string;
   downloadMedia?: boolean;
   forceDownload?: boolean;
+  includePromoted?: boolean;
 }> {
   const maxResults = readOptionalIntegerLiteral(
     args,
@@ -291,7 +299,7 @@ function readOptionalPostPageArguments(
     createValidationError,
   );
   return {
-    ...readOptionalMediaReadArguments(args, createValidationError),
+    ...readOptionalPostReadArguments(args, createValidationError),
     ...(maxResults === undefined ? {} : { maxResults }),
     ...(paginationToken === undefined ? {} : { paginationToken }),
   };
@@ -770,7 +778,7 @@ function createPublicApiFieldRegistry(
         );
         return {
           postId: readTrimmedStringLiteral(args, "id", createValidationError),
-          ...readOptionalMediaReadArguments(args, createValidationError),
+          ...readOptionalPostReadArguments(args, createValidationError),
         };
       },
       normalizeResult: (value, fieldName) =>

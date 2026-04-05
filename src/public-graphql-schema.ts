@@ -11,6 +11,7 @@ const ACCOUNT_TYPE_DEFINITION = /* GraphQL */ `
 const POST_SHARED_FIELDS = /* GraphQL */ `
     id: String!
     text: String!
+    promotionStatus: PromotionStatus!
     createdAt: String
     conversationId: String
     replyToUserId: String
@@ -33,6 +34,12 @@ export const PUBLIC_GRAPHQL_TYPE_DEFS = /* GraphQL */ `
     kind: String!
     filePath: String!
     altText: String
+  }
+
+  enum PromotionStatus {
+    PROMOTED
+    NOT_PROMOTED
+    UNKNOWN
   }
 
   ${ACCOUNT_TYPE_DEFINITION}
@@ -120,6 +127,7 @@ ${POST_SHARED_FIELDS}
       mediaRootDir: String
       downloadMedia: Boolean
       forceDownload: Boolean
+      includePromoted: Boolean
     ): Post!
     searchPosts(
       query: String!
@@ -128,6 +136,7 @@ ${POST_SHARED_FIELDS}
       mediaRootDir: String
       downloadMedia: Boolean
       forceDownload: Boolean
+      includePromoted: Boolean
     ): PostPage!
     homeTimeline(
       maxResults: Int
@@ -135,6 +144,7 @@ ${POST_SHARED_FIELDS}
       mediaRootDir: String
       downloadMedia: Boolean
       forceDownload: Boolean
+      includePromoted: Boolean
     ): PostPage!
     userTimeline(
       userId: String!
@@ -143,6 +153,7 @@ ${POST_SHARED_FIELDS}
       mediaRootDir: String
       downloadMedia: Boolean
       forceDownload: Boolean
+      includePromoted: Boolean
     ): PostPage!
     mentionsTimeline(
       userId: String!
@@ -151,6 +162,7 @@ ${POST_SHARED_FIELDS}
       mediaRootDir: String
       downloadMedia: Boolean
       forceDownload: Boolean
+      includePromoted: Boolean
     ): PostPage!
   }
 
