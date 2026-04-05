@@ -126,7 +126,9 @@ type StableCapabilityExecutorDependencies = Readonly<{
     ) => XGatewayStablePostingAdapter;
   }>;
   errors: Readonly<{
-    createCapabilityRegistryMissingError: (capabilityId: string) => XGatewayError;
+    createCapabilityRegistryMissingError: (
+      capabilityId: string,
+    ) => XGatewayError;
     createCapabilityPlanningMissingError: (
       capabilityId: string,
     ) => XGatewayError;
@@ -149,12 +151,28 @@ type StableCapabilityExecutorDependencies = Readonly<{
   }>;
 }>;
 
+function readStableCapabilityRegistryKeys(
+  registry: StableCapabilityExecutionRegistry,
+): readonly StableCapabilityId[] {
+  return Object.keys(registry).map((capabilityId) => {
+    if (!isStableCapabilityId(capabilityId)) {
+      throw new Error(
+        `Stable capability executor contains unexpected registry key '${capabilityId}'.`,
+      );
+    }
+    return capabilityId;
+  });
+}
+
 function assertStableCapabilityExecutionRegistryCoherent(
   registry: StableCapabilityExecutionRegistry,
 ): void {
   const implementedStableCapabilityIds = CAPABILITY_REGISTRY.filter(
-    (capability): capability is CapabilityDescriptor & { id: StableCapabilityId } =>
-      capability.status === "implemented" && isStableCapabilityId(capability.id),
+    (
+      capability,
+    ): capability is CapabilityDescriptor & { id: StableCapabilityId } =>
+      capability.status === "implemented" &&
+      isStableCapabilityId(capability.id),
   ).map((capability) => capability.id);
   const plannedStableCapabilityIds = CAPABILITY_PLANNING_REGISTRY.filter(
     (
@@ -163,11 +181,13 @@ function assertStableCapabilityExecutionRegistryCoherent(
       capabilityId: StableCapabilityId;
     } => isStableCapabilityId(planning.capabilityId),
   ).map((planning) => planning.capabilityId);
-  const executorCapabilityIds = Object.keys(registry) as StableCapabilityId[];
+  const executorCapabilityIds = readStableCapabilityRegistryKeys(registry);
 
   const plannedStableCapabilityIdSet = new Set(plannedStableCapabilityIds);
   const executorCapabilityIdSet = new Set(executorCapabilityIds);
-  const implementedStableCapabilityIdSet = new Set(implementedStableCapabilityIds);
+  const implementedStableCapabilityIdSet = new Set(
+    implementedStableCapabilityIds,
+  );
 
   for (const capabilityId of implementedStableCapabilityIds) {
     if (!plannedStableCapabilityIdSet.has(capabilityId)) {

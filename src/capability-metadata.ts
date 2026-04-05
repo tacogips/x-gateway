@@ -247,8 +247,7 @@ function createStableReadPlanningDefinition(
         ...(input.bearerReadinessStatus === undefined
           ? {}
           : { readinessStatus: input.bearerReadinessStatus }),
-        readinessRequirement:
-          input.bearerReadinessRequirement ?? "bearer",
+        readinessRequirement: input.bearerReadinessRequirement ?? "bearer",
         readinessReason: input.bearerReadinessReason,
       },
     ],

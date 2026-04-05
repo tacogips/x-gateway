@@ -141,7 +141,9 @@ function getCapabilityDescriptorById(
   capabilityRegistry: readonly CapabilityDescriptor[],
   createCapabilityRegistryMissingError: (capabilityId: string) => Error,
 ): CapabilityDescriptor {
-  const capability = capabilityRegistry.find((entry) => entry.id === capabilityId);
+  const capability = capabilityRegistry.find(
+    (entry) => entry.id === capabilityId,
+  );
   if (!capability) {
     throw createCapabilityRegistryMissingError(capabilityId);
   }
@@ -153,7 +155,9 @@ function getCapabilityPlanningDefinition(
   planningRegistry: readonly CapabilityPlanningDefinition[],
   createCapabilityPlanningMissingError: (capabilityId: string) => Error,
 ): CapabilityPlanningDefinition {
-  const planning = planningRegistry.find((entry) => entry.capabilityId === capabilityId);
+  const planning = planningRegistry.find(
+    (entry) => entry.capabilityId === capabilityId,
+  );
   if (!planning) {
     throw createCapabilityPlanningMissingError(capabilityId);
   }
@@ -179,9 +183,7 @@ export function planCapabilityExecution<
     traceId?: string;
   }>,
 ): CapabilityExecutionPlan<TResult> {
-  const createTransportLabel = (
-    route: CapabilityRouteDefinition,
-  ): string => {
+  const createTransportLabel = (route: CapabilityRouteDefinition): string => {
     return `${route.transport}/${route.authMode}`;
   };
   const capability = getCapabilityDescriptorById(

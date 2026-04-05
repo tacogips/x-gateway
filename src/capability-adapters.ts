@@ -413,10 +413,7 @@ export function createCapabilityAdapterFactories(
     );
   }
 
-  function readUsageEntry(
-    value: unknown,
-    fieldName: string,
-  ): XGatewayUsageDay {
+  function readUsageEntry(value: unknown, fieldName: string): XGatewayUsageDay {
     if (typeof value !== "object" || value === null) {
       throw createUsagePayloadError(
         `Field '${fieldName}' must contain usage entry objects.`,
@@ -542,20 +539,32 @@ export function createCapabilityAdapterFactories(
       return undefined;
     }
     const responsePayload = payload as UsageApiResponsePayload;
-    if (!Array.isArray(responsePayload.errors) || responsePayload.errors.length === 0) {
+    if (
+      !Array.isArray(responsePayload.errors) ||
+      responsePayload.errors.length === 0
+    ) {
       return undefined;
     }
-    const [firstError] = responsePayload.errors as readonly UsageApiErrorPayload[];
+    const [firstError] =
+      responsePayload.errors as readonly UsageApiErrorPayload[];
     if (typeof firstError !== "object" || firstError === null) {
       return undefined;
     }
     const title =
-      typeof firstError.title === "string" ? firstError.title : "Usage request failed";
+      typeof firstError.title === "string"
+        ? firstError.title
+        : "Usage request failed";
     const detail =
       typeof firstError.detail === "string" ? firstError.detail : undefined;
     const status =
-      typeof firstError.status === "number" ? String(firstError.status) : undefined;
-    return [title, detail, status === undefined ? undefined : `status=${status}`]
+      typeof firstError.status === "number"
+        ? String(firstError.status)
+        : undefined;
+    return [
+      title,
+      detail,
+      status === undefined ? undefined : `status=${status}`,
+    ]
       .filter((part): part is string => part !== undefined && part.length > 0)
       .join(": ");
   }
@@ -597,7 +606,9 @@ export function createCapabilityAdapterFactories(
     const payload = await parseResponseBody(response);
 
     if (!response.ok) {
-      const retryAfterMs = parseRetryAfterMs(response.headers.get("retry-after"));
+      const retryAfterMs = parseRetryAfterMs(
+        response.headers.get("retry-after"),
+      );
       const detail =
         readUsageApiProblemDetail(payload) ??
         (typeof payload === "object" && payload !== null

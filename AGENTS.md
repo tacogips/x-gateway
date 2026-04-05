@@ -131,6 +131,15 @@ feat: implement user authentication system
 
 This is x-gateway - a TypeScript project with Bun runtime and Nix flake development environment support.
 
+## Public Documentation Boundary
+
+Treat the following as user-facing public documentation unless explicitly marked internal:
+
+- `README.md`
+- Non-internal skill documentation under `.skills/` or `.agents/skills/`
+
+Internal-only materials must be explicitly marked as internal in their path or content. When a skill or document is not marked internal, assume it is public-facing and keep it accurate to the current CLI/API surface.
+
 ### Product Direction (Bootstrap Scope)
 
 - `x-gateway` is a command-line client that enables X (Twitter) API usage through the `x-gateway` command.
