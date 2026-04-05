@@ -1,4 +1,5 @@
 import packageJson from "../package.json";
+import { printSchema } from "graphql";
 import {
   XGatewayError,
   createXGatewayClient,
@@ -8,6 +9,7 @@ import {
   type XGatewayConfig,
   type XGatewayOperationType,
 } from "./lib";
+import { PUBLIC_GRAPHQL_SCHEMA } from "./public-graphql-schema";
 
 export type CliSurface = "full" | "reader";
 
@@ -24,6 +26,13 @@ type ParsedFlagValue = Readonly<{
 type ParsedArgs = Readonly<{
   positionals: readonly string[];
   flags: Readonly<Record<string, readonly ParsedFlagValue[]>>;
+}>;
+
+type ParsedGlobalFlags = Readonly<{
+  asJson: boolean;
+  pretty: boolean;
+  traceId?: string;
+  config: XGatewayConfig;
 }>;
 
 const GLOBAL_FLAG_NAMES = new Set([
@@ -194,6 +203,39 @@ function getRequiredFlag(args: ParsedArgs, key: string): string {
     throw createFlagValidationError(`Missing required flag --${key}.`);
   }
   return value;
+}
+
+function readGraphqlQueryDocument(parsed: ParsedArgs): string {
+  const queryPositionals = parsed.positionals.slice(2);
+  if (queryPositionals.length === 0) {
+    throw createFlagValidationError(
+      "graphql query requires a single shell-quoted GraphQL document positional argument.",
+    );
+  }
+  if (queryPositionals.length > 1) {
+    throw createFlagValidationError(
+      "graphql query accepts exactly one shell-quoted GraphQL document positional argument.",
+    );
+  }
+  const query = queryPositionals[0]?.trim();
+  if (!query) {
+    throw createFlagValidationError(
+      "graphql query requires a non-empty GraphQL document positional argument.",
+    );
+  }
+  return query;
+}
+
+function assertNoExtraPositionals(
+  parsed: ParsedArgs,
+  expectedCount: number,
+  commandLabel: string,
+): void {
+  if (parsed.positionals.length > expectedCount) {
+    throw createFlagValidationError(
+      `${commandLabel} does not accept additional positional arguments.`,
+    );
+  }
 }
 
 function createFlagValidationError(message: string): XGatewayError {
@@ -379,20 +421,35 @@ function buildConfigFromFlags(args: ParsedArgs): XGatewayConfig {
   };
 }
 
+function readParsedGlobalFlags(args: ParsedArgs): ParsedGlobalFlags {
+  const asJson = getBooleanFlag(args, "json");
+  const pretty = getBooleanFlag(args, "pretty");
+  const traceId = getOptionalStringFlag(args, "trace-id");
+  const config = buildConfigFromFlags(args);
+
+  return {
+    asJson,
+    pretty,
+    ...(traceId === undefined ? {} : { traceId }),
+    config,
+  };
+}
+
 function usage(commandName: string): string {
   return [
     `${commandName} command usage:`,
     `  ${commandName} auth verify|scopes`,
-    `  ${commandName} api request --query <graphql>`,
+    `  ${commandName} graphql query '<query>'`,
+    `  ${commandName} graphql schema`,
     `  ${commandName} capabilities list`,
     `  ${commandName} capabilities get --id <capabilityId>`,
     `  ${commandName} health`,
     `  ${commandName} version`,
     "",
     "Notes:",
-    "  - 'api request' is the primary public interface for reviewed capabilities.",
+    "  - 'graphql query' is the primary public interface for reviewed capabilities.",
+    "  - 'graphql' refers to the owned x-gateway contract, not direct upstream X GraphQL.",
     "  - Legacy convenience command groups were removed from the public CLI surface.",
-    "  - Raw upstream GraphQL is not part of the public CLI surface.",
     "  - Unimplemented high-level workflows must be added as reviewed project-owned GraphQL fields first.",
   ].join("\n");
 }
@@ -461,7 +518,7 @@ function createUnsupportedCommandSurfaceError(
       "A previous placeholder command surface remained in documentation or memory",
     ],
     remediations: [
-      `Use '${commandName} api request --query <graphql>' for reviewed project-owned GraphQL operations.`,
+      `Use '${commandName} graphql query '<query>'' for reviewed project-owned GraphQL operations.`,
       "Add a reviewed project-owned GraphQL field before reintroducing this workflow.",
     ],
     classification: "unsupported",
@@ -472,6 +529,7 @@ function createUnsupportedCommandSurfaceError(
 function createRemovedLegacyCommandError(
   commandName: string,
   attempted: string,
+  replacement: string,
 ): XGatewayError {
   return new XGatewayError({
     code: "UNSUPPORTED",
@@ -482,7 +540,7 @@ function createRemovedLegacyCommandError(
       "The repository now treats GraphQL as the only reviewed public data interface",
     ],
     remediations: [
-      `Use '${commandName} api request --query <graphql>' for reviewed project-owned operations.`,
+      `Use '${commandName} ${replacement}' instead.`,
       `Run '${commandName}' with no arguments to view the current supported command list.`,
     ],
     classification: "unsupported",
@@ -504,7 +562,7 @@ function createUnknownCommandError(
     ],
     remediations: [
       `Run '${commandName}' with no arguments to view supported commands.`,
-      `Use '${commandName} api request --query <graphql>' for the canonical public interface.`,
+      `Use '${commandName} graphql query '<query>'' for the canonical public interface.`,
     ],
     classification: "validation",
     retryable: false,
@@ -519,17 +577,35 @@ function assertSupportedCommandSurface(
   const supported = new Set([
     "health",
     "version",
-    "api",
+    "graphql",
     "auth",
     "capabilities",
   ]);
   if (supported.has(group)) {
     return;
   }
+  if (group === "api" && action === "request") {
+    throw createRemovedLegacyCommandError(
+      commandName,
+      "api request",
+      "graphql query '<query>'",
+    );
+  }
+  if (group === "schema" && action === "print") {
+    throw createRemovedLegacyCommandError(
+      commandName,
+      "schema print",
+      "graphql schema",
+    );
+  }
   const removedLegacy = new Set(["account", "usage", "post", "timeline"]);
   if (removedLegacy.has(group)) {
     const attempted = action ? `${group} ${action}` : group;
-    throw createRemovedLegacyCommandError(commandName, attempted);
+    throw createRemovedLegacyCommandError(
+      commandName,
+      attempted,
+      "graphql query '<query>'",
+    );
   }
   const deferred = new Set([
     "media",
@@ -552,24 +628,25 @@ export async function executeCli(
   argv: readonly string[],
   options: CliOptions,
 ): Promise<unknown> {
-  const parsed = parseArgs(argv);
+  return executeParsedCli(parseArgs(argv), options);
+}
+
+async function executeParsedCli(
+  parsed: ParsedArgs,
+  options: CliOptions,
+  parsedGlobalFlags?: ParsedGlobalFlags,
+): Promise<unknown> {
   const [group, action] = parsed.positionals;
 
   if (!group) {
     assertAllowedFlags(parsed, group, action);
-    getBooleanFlag(parsed, "json");
-    getBooleanFlag(parsed, "pretty");
-    getOptionalStringFlag(parsed, "trace-id");
-    buildConfigFromFlags(parsed);
+    readParsedGlobalFlags(parsed);
     return usage(options.commandName);
   }
 
   assertSupportedCommandSurface(options.commandName, group, action);
   assertAllowedFlags(parsed, group, action);
-  getBooleanFlag(parsed, "json");
-  getBooleanFlag(parsed, "pretty");
-  getOptionalStringFlag(parsed, "trace-id");
-  buildConfigFromFlags(parsed);
+  const globalFlags = parsedGlobalFlags ?? readParsedGlobalFlags(parsed);
 
   if (group === "health") {
     return {
@@ -586,8 +663,8 @@ export async function executeCli(
   }
 
   const operationType =
-    group === "api" && action === "request"
-      ? inferApiRequestOperationType(getRequiredFlag(parsed, "query"))
+    group === "graphql" && action === "query"
+      ? inferApiRequestOperationType(readGraphqlQueryDocument(parsed))
       : ("query" as XGatewayOperationType);
   ensureMutableCommand(
     options.surface,
@@ -597,7 +674,27 @@ export async function executeCli(
     operationType,
   );
 
-  const client = createXGatewayClient(buildConfigFromFlags(parsed));
+  if (group === "graphql") {
+    if (action === "schema") {
+      assertNoExtraPositionals(parsed, 2, "graphql schema");
+      return printSchema(PUBLIC_GRAPHQL_SCHEMA);
+    }
+    if (action === "query") {
+      const query = readGraphqlQueryDocument(parsed);
+      const { traceId } = globalFlags;
+      const client = createXGatewayClient(globalFlags.config);
+      return client.apiRequest({
+        query,
+        ...(traceId === undefined ? {} : { traceId }),
+      });
+    }
+    throw createUnknownCommandError(
+      options.commandName,
+      `${group} ${action ?? ""}`.trim(),
+    );
+  }
+
+  const client = createXGatewayClient(globalFlags.config);
 
   if (group === "auth") {
     if (action === "verify") {
@@ -610,16 +707,6 @@ export async function executeCli(
       options.commandName,
       `${group} ${action ?? ""}`.trim(),
     );
-  }
-
-  if (group === "api" && action === "request") {
-    const query = getRequiredFlag(parsed, "query");
-    const traceId = getOptionalStringFlag(parsed, "trace-id");
-
-    return client.apiRequest({
-      query,
-      ...(traceId === undefined ? {} : { traceId }),
-    });
   }
 
   if (group === "capabilities") {
@@ -647,11 +734,11 @@ export async function runCli(options: CliOptions): Promise<void> {
   let traceId: string | undefined;
   try {
     const parsed = parseArgs(process.argv.slice(2));
-    asJson =
-      getBooleanFlag(parsed, "json") || process.env["X_GW_OUTPUT"] === "json";
-    pretty = getBooleanFlag(parsed, "pretty");
-    traceId = getOptionalStringFlag(parsed, "trace-id");
-    const result = await executeCli(process.argv.slice(2), options);
+    const parsedGlobalFlags = readParsedGlobalFlags(parsed);
+    asJson = parsedGlobalFlags.asJson || process.env["X_GW_OUTPUT"] === "json";
+    pretty = parsedGlobalFlags.pretty;
+    traceId = parsedGlobalFlags.traceId;
+    const result = await executeParsedCli(parsed, options, parsedGlobalFlags);
     printSuccess(result, asJson, pretty);
   } catch (error) {
     const commandError = toCommandError(error, traceId);

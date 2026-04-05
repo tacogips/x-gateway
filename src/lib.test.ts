@@ -1,3 +1,4 @@
+import { printSchema } from "graphql";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { executeCli } from "./cli";
 import { STABLE_CAPABILITY_IDS } from "./capability-metadata";
@@ -6,6 +7,7 @@ import {
   projectPublicSelection,
 } from "./public-api-contract";
 import { parsePublicGraphqlDocument } from "./public-graphql-parser";
+import { PUBLIC_GRAPHQL_SCHEMA } from "./public-graphql-schema";
 import {
   computeBackoffDelayMs,
   createXGatewayClient,
@@ -1901,29 +1903,28 @@ describe("executeCli", () => {
     });
   });
 
-  test("rejects bare required string flags instead of treating them as true", async () => {
+  test("rejects missing positional GraphQL documents", async () => {
     await expect(
-      executeCli(["api", "request", "--query"], {
+      executeCli(["graphql", "query"], {
         commandName: "x-gateway",
         surface: "full",
       }),
     ).rejects.toMatchObject({
       payload: expect.objectContaining({
         code: "VALIDATION_ERROR",
-        details: expect.stringContaining("Flag --query requires a value"),
+        details: expect.stringContaining(
+          "graphql query requires a single shell-quoted GraphQL document positional argument",
+        ),
       }),
     });
   });
 
   test("rejects bare numeric flags instead of coercing them to true", async () => {
     await expect(
-      executeCli(
-        ["api", "request", "--query", "query { accountMe { id } }", "--retry"],
-        {
-          commandName: "x-gateway",
-          surface: "full",
-        },
-      ),
+      executeCli(["graphql", "query", "query { accountMe { id } }", "--retry"], {
+        commandName: "x-gateway",
+        surface: "full",
+      }),
     ).rejects.toMatchObject({
       payload: expect.objectContaining({
         code: "VALIDATION_ERROR",
@@ -1936,9 +1937,8 @@ describe("executeCli", () => {
     await expect(
       executeCli(
         [
-          "api",
-          "request",
-          "--query",
+          "graphql",
+          "query",
           'mutation { createPost(text: "hello") { id } }',
         ],
         {
@@ -1958,13 +1958,10 @@ describe("executeCli", () => {
     process.env["X_GW_TOKEN"] = "env-token";
 
     await expect(
-      executeCli(
-        ["api", "request", "--query", "query { accountMe { id } }"],
-        {
-          commandName: "x-gateway",
-          surface: "full",
-        },
-      ),
+      executeCli(["graphql", "query", "query { accountMe { id } }"], {
+        commandName: "x-gateway",
+        surface: "full",
+      }),
     ).rejects.toMatchObject({
       payload: expect.objectContaining({
         code: "AUTH_MISSING",
@@ -2053,7 +2050,7 @@ describe("executeCli", () => {
       payload: expect.objectContaining({
         code: "UNSUPPORTED",
         remediations: expect.arrayContaining([
-          expect.stringContaining("api request --query <graphql>"),
+          expect.stringContaining("graphql query '<query>'"),
         ]),
       }),
     });
@@ -2078,7 +2075,7 @@ describe("executeCli", () => {
 
     await expect(
       executeCli(
-        ["api", "request", "--query", "query { accountMe { id username } }"],
+        ["graphql", "query", "query { accountMe { id username } }"],
         {
           commandName: "x-gateway",
           surface: "full",
@@ -2141,9 +2138,8 @@ describe("executeCli", () => {
     await expect(
       executeCli(
         [
-          "api",
-          "request",
-          "--query",
+          "graphql",
+          "query",
           "query { postUsage(days: 14) { projectId projectUsage dailyProjectUsage { usage { date usage } } } }",
         ],
         {
@@ -2175,9 +2171,8 @@ describe("executeCli", () => {
     await expect(
       executeCli(
         [
-          "api",
-          "request",
-          "--query",
+          "graphql",
+          "query",
           'query { userTimeline(userId: "  user-42  ", maxResults: 5, paginationToken: "  page-2  ") { posts { id } pageInfo { resultCount previousToken } } }',
         ],
         {
@@ -2213,9 +2208,8 @@ describe("executeCli", () => {
     await expect(
       executeCli(
         [
-          "api",
-          "request",
-          "--query",
+          "graphql",
+          "query",
           'query { likes(userId: "user-1", limit: 2) { posts { id text } } }',
         ],
         {
@@ -2239,9 +2233,8 @@ describe("executeCli", () => {
     await expect(
       executeCli(
         [
-          "api",
-          "request",
-          "--query",
+          "graphql",
+          "query",
           'query { likedPosts(userId: "user-1", limit: 2) { id } }',
         ],
         {
@@ -2265,9 +2258,8 @@ describe("executeCli", () => {
     await expect(
       executeCli(
         [
-          "api",
-          "request",
-          "--query",
+          "graphql",
+          "query",
           'query { post(id: "post-7") { id text author { username } } }',
         ],
         {
@@ -2297,9 +2289,8 @@ describe("executeCli", () => {
     await expect(
       executeCli(
         [
-          "api",
-          "request",
-          "--query",
+          "graphql",
+          "query",
           'mutation { repostPost(postId: "post-3") { id reposted } }',
         ],
         {
@@ -2319,9 +2310,8 @@ describe("executeCli", () => {
     await expect(
       executeCli(
         [
-          "api",
-          "request",
-          "--query",
+          "graphql",
+          "query",
           'mutation { unrepostPost(postId: "post-3") { id reposted } }',
         ],
         {
@@ -2348,9 +2338,8 @@ describe("executeCli", () => {
     await expect(
       executeCli(
         [
-          "api",
-          "request",
-          "--query",
+          "graphql",
+          "query",
           'mutation { createPost(text: "hello", attachments: [{ kind: "image", filePath: "/tmp/a.png", altText: "example" }]) { id text } }',
         ],
         {
@@ -2370,9 +2359,8 @@ describe("executeCli", () => {
     await expect(
       executeCli(
         [
-          "api",
-          "request",
-          "--query",
+          "graphql",
+          "query",
           'mutation { replyToPost(text: "hello", replyToPostId: "123", attachments: [{ kind: "image", filePath: "/tmp/b.png" }]) { id text } }',
         ],
         {
@@ -2392,9 +2380,8 @@ describe("executeCli", () => {
     await expect(
       executeCli(
         [
-          "api",
-          "request",
-          "--query",
+          "graphql",
+          "query",
           'mutation { quotePost(text: "hello", quotedPostId: "456", attachments: [{ kind: "image", filePath: "/tmp/c.png" }]) { id text } }',
         ],
         {
@@ -2421,9 +2408,8 @@ describe("executeCli", () => {
     await expect(
       executeCli(
         [
-          "api",
-          "request",
-          "--query",
+          "graphql",
+          "query",
           'mutation { repostPost(id: "post-3") { id reposted } }',
         ],
         {
@@ -2447,9 +2433,8 @@ describe("executeCli", () => {
     await expect(
       executeCli(
         [
-          "api",
-          "request",
-          "--query",
+          "graphql",
+          "query",
           'query { accountMe(id: "user-1") { id username } }',
         ],
         {
@@ -2473,9 +2458,8 @@ describe("executeCli", () => {
     await expect(
       executeCli(
         [
-          "api",
-          "request",
-          "--query",
+          "graphql",
+          "query",
           'query { post(id: "post-1", operationName: "Viewer") { id } }',
         ],
         {
@@ -2495,9 +2479,8 @@ describe("executeCli", () => {
     await expect(
       executeCli(
         [
-          "api",
-          "request",
-          "--query",
+          "graphql",
+          "query",
           'query { likes(userId: "user-1") { posts { id features } } }',
         ],
         {
@@ -2515,13 +2498,12 @@ describe("executeCli", () => {
     });
   });
 
-  test("keeps api request mutations blocked in reader mode", async () => {
+  test("rejects removed api request aliases with migration guidance", async () => {
     await expect(
       executeCli(
         [
           "api",
           "request",
-          "--query",
           'mutation { createPost(text: "hello") { id } }',
         ],
         {
@@ -2532,6 +2514,9 @@ describe("executeCli", () => {
     ).rejects.toMatchObject({
       payload: expect.objectContaining({
         code: "UNSUPPORTED",
+        remediations: expect.arrayContaining([
+          expect.stringContaining("graphql query '<query>'"),
+        ]),
       }),
     });
   });
@@ -2614,6 +2599,38 @@ describe("executeCli", () => {
         surface: "reader",
       }),
     ).resolves.not.toContain("usage tweets");
+  });
+
+  test("lists graphql schema in usage output for both CLI surfaces", async () => {
+    await expect(
+      executeCli([], {
+        commandName: "x-gateway",
+        surface: "full",
+      }),
+    ).resolves.toContain("graphql schema");
+    await expect(
+      executeCli([], {
+        commandName: "x-gateway-reader",
+        surface: "reader",
+      }),
+    ).resolves.toContain("graphql schema");
+  });
+
+  test("prints the full public GraphQL schema through the CLI", async () => {
+    const expectedSchema = printSchema(PUBLIC_GRAPHQL_SCHEMA);
+
+    await expect(
+      executeCli(["graphql", "schema"], {
+        commandName: "x-gateway",
+        surface: "full",
+      }),
+    ).resolves.toBe(expectedSchema);
+    await expect(
+      executeCli(["graphql", "schema"], {
+        commandName: "x-gateway-reader",
+        surface: "reader",
+      }),
+    ).resolves.toBe(expectedSchema);
   });
 
   test("rejects removed write-oriented convenience commands through the CLI", async () => {
@@ -2746,7 +2763,11 @@ describe("executeCli", () => {
 
     await expect(
       executeCli(
-        ["api", "request", "--query", "query { postUsage(days: 14) { projectId } }"],
+        [
+          "graphql",
+          "query",
+          "query { postUsage(days: 14) { projectId } }",
+        ],
         {
           commandName: "x-gateway",
           surface: "full",
@@ -2766,9 +2787,8 @@ describe("executeCli", () => {
     await expect(
       executeCli(
         [
-          "api",
-          "request",
-          "--query",
+          "graphql",
+          "query",
           "query { accountMe { id } }",
           "--graphql-base-url",
           "https://cli.example/graphql",
@@ -2804,9 +2824,8 @@ describe("executeCli", () => {
     await expect(
       executeCli(
         [
-          "api",
-          "request",
-          "--query",
+          "graphql",
+          "query",
           "query { accountMe { id } }",
           "--api-base-url",
           "https://legacy.example/graphql",

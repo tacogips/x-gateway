@@ -13,19 +13,18 @@ Both CLIs must be scriptable, deterministic, and return structured diagnostics s
 
 Primary contract:
 
-- `api request` is the primary CLI contract for reviewed capabilities.
-- Stable capability-oriented commands may remain temporarily as transitional convenience commands while they dispatch through the same internal capability executor.
-- `graphql request` remains available as a low-level escape hatch for explicit GraphQL access.
-- Capability inventory output must label these surfaces distinctly so `graphql request` is not mistaken for a peer stable contract.
+- `graphql query <query>` is the primary CLI contract for reviewed capabilities.
+- `graphql schema` prints the owned public GraphQL schema.
+- The `graphql` namespace refers to the project-owned `x-gateway` contract, not direct upstream X GraphQL.
 - Unimplemented high-level commands must fail immediately with `UNSUPPORTED` and remediation that names the supported alternative.
+- Detailed namespace rationale lives in `design-docs/specs/design-graphql-command-surface.md`.
 
 ## Command Policy
 
 - `x-gateway-reader` must reject all write/mutation commands with a stable `UNSUPPORTED` error and remediation to use `x-gateway`.
 - Stable commands include implemented capability adapters, auth configuration diagnostics, capability inspection, local system introspection, and low-level GraphQL access.
-- `api request` must accept only project-owned GraphQL fields; it must not forward user input directly to raw X GraphQL.
-- Commands must not expose raw X web GraphQL details unless the user explicitly chooses the low-level `graphql request` surface.
-- The `graphql request` implementation must stay isolated from the stable capability planner so raw transport concerns do not become accidental stable-contract behavior.
+- `graphql query <query>` must accept only project-owned GraphQL fields; it must not forward user input directly to raw X GraphQL.
+- Commands must not expose raw X web GraphQL details through the public CLI surface.
 - Unimplemented command groups (`tweet`, `timeline`, `users`, `likes`, `bookmarks`, `follows`, `dm`, etc.) must still be rejected unless and until a reviewed adapter is added explicitly.
 
 ## Subcommands
@@ -43,13 +42,10 @@ Primary contract:
 
 ### Project-Owned GraphQL Contract
 
-- `x-gateway api request --query <graphql>`
-- `x-gateway-reader api request --query <graphql>` (query-only)
-
-### Raw GraphQL
-
-- `x-gateway graphql request`
-- `x-gateway-reader graphql request` (query-only)
+- `x-gateway graphql query '<query>'`
+- `x-gateway-reader graphql query '<query>'` (query-only)
+- `x-gateway graphql schema`
+- `x-gateway-reader graphql schema`
 
 ### Auth and Session
 
@@ -80,14 +76,6 @@ Primary contract:
 | `--trace-id` | string | none | Optional request correlation id for logs and errors |
 | `--config-mode` | enum(`env`,`params`,`mixed`) | `mixed` | Credential resolution mode |
 | `--auth-mode` | enum(`env`,`params`,`mixed`) | deprecated alias | Deprecated alias for `--config-mode` |
-| `--operation-type` | enum(`query`,`mutation`) | `query` | GraphQL operation kind for policy/validation |
-| `--operation-name` | string | none | GraphQL operation name |
-| `--document-id` | string | none | Persisted GraphQL document id |
-| `--query` | string | none | Inline GraphQL document when no persisted id is used |
-| `--variables-json` | JSON object | none | GraphQL variables payload |
-| `--features-json` | JSON object | none | GraphQL features payload |
-| `--field-toggles-json` | JSON object | none | GraphQL field toggles payload |
-| `--graphql-base-url` | string | provider default | Override the GraphQL base endpoint only |
 | `--timeout-ms` | number | `30000` | Per-request timeout |
 | `--retry` | number | `2` | Retry count for retryable errors |
 | `--retry-backoff` | enum(`exponential-jitter`,`fixed`,`none`) | `exponential-jitter` | Retry delay strategy |
@@ -107,7 +95,6 @@ Naming convention: all environment variables owned by this project must use the 
 | `X_GW_ACCESS_TOKEN_SECRET` | Conditional | none | OAuth 1.0a access token secret |
 | `X_GW_CLIENT_ID` | Conditional | none | OAuth 2.0 client id |
 | `X_GW_CLIENT_SECRET` | Conditional | none | OAuth 2.0 client secret |
-| `X_GW_GRAPHQL_BASE_URL` | No | provider default | Override GraphQL endpoint |
 | `X_GW_OUTPUT` | No | `text` | Output mode (`text` or `json`) |
 | `X_GW_CONFIG_MODE` | No | `mixed` | Canonical config resolution mode |
 | `X_GW_AUTH_MODE` | No | none | Legacy auth-type shell variable (`oauth1` or `bearer`); tolerated for compatibility but not used as the canonical config-mode name |
@@ -121,7 +108,7 @@ Note: Library consumers must be able to pass equivalent credentials/config via f
 
 Operational guidance rule:
 
-- Repository-provided env examples must describe the current hybrid baseline accurately: OAuth1 credentials power the stable posting baseline, while bearer auth remains required for raw `graphql request`.
+- Repository-provided env examples must describe the current hybrid baseline accurately.
 
 ## Exit Codes
 
@@ -154,27 +141,17 @@ Auth diagnostic rules:
 - Mixed-auth output must make it explicit that raw GraphQL remains bearer-backed while stable posting helpers remain OAuth1-backed.
 - Bearer-only output must not overclaim that `account me` is definitely live-ready unless the token is a user-context bearer; readiness for that capability should be reported as conditional with an explicit reason.
 
-GraphQL request rules:
-
-- Every live GraphQL request must include `operationName`.
-- A live GraphQL request must include exactly one request source: persisted `documentId` or inline `query`.
-- `variables-json`, `features-json`, and `field-toggles-json` must be JSON objects when provided.
-- `--graphql-base-url` and `X_GW_GRAPHQL_BASE_URL` target the GraphQL transport only; the stable surface no longer exposes a generic API-base override.
-- Deprecated alias inputs such as `--api-base-url` must fail validation; they must not be accepted as hidden compatibility shims.
-- Only boolean flags may use bare `--flag` form; string/number/JSON flags must provide an explicit value.
-- `x-gateway-reader` must reject `graphql request --operation-type mutation`.
-- Unknown commands, unknown flags, and invalid global flag values must fail with `VALIDATION_ERROR`; they must not be ignored or silently fall back to defaults.
-
 Project-owned GraphQL rules:
 
-- `api request --query` accepts the stable project-owned `x-gateway` GraphQL contract only.
+- `graphql query <query>` accepts the stable project-owned `x-gateway` GraphQL contract only.
+- `graphql schema` prints the stable project-owned `x-gateway` GraphQL contract.
 - The initial parser may support only one top-level field per request.
 - Variables, fragments, aliases, and directives may remain unsupported in the first slice if diagnostics are explicit.
 - Supported initial top-level fields are `accountMe`, `post`, `createPost`, `deletePost`, `replyToPost`, `quotePost`, `repostPost`, and `unrepostPost`.
 - Canonical mutation arguments are `deletePost(postId: ID!)`, `repostPost(postId: ID!)`, and `unrepostPost(postId: ID!)`.
 - Canonical attachment arguments are supported on `createPost`, `replyToPost`, and `quotePost` with `attachments: [{ kind: "image", filePath: "...", altText: "..." }]`.
 - The current public GraphQL parser supports string/integer/boolean/null/list/object literals only.
-- `x-gateway-reader` must reject `api request` mutations.
+- `x-gateway-reader` must reject `graphql query` mutations.
 
 Capability adapter rules:
 
@@ -234,7 +211,7 @@ When `--json` is enabled, all failures use a stable envelope:
 Current implementation note:
 
 - The current implementation restores a modest hybrid baseline: local auth diagnostics, `account me`, `post get`, and core posting flows (`post create`, `post delete`, `post reply`, `post quote`, `post repost`, `post unrepost`) remain available as transitional convenience commands, while likes, article, and broader timeline/social-graph patterns remain deferred.
-- The canonical path is the project-owned GraphQL public request surface, which resolves onto the same reviewed capabilities instead of leaking raw X web GraphQL as the main contract.
+- The canonical path is the project-owned GraphQL public request surface, which resolves onto the same reviewed capabilities instead of leaking raw X transport details as the main contract.
 - `likes list` is intentionally withheld from the stable CLI, SDK, and public GraphQL contract until a reviewed live adapter route is verified.
 - `account me` can use OAuth1 or a user-context bearer token; the stable posting helpers currently require OAuth1.
 - `post get` can use OAuth1 or bearer-token reads through the public lookup API, and it prefers OAuth1 when both are configured.

@@ -16,9 +16,8 @@ Policy decision:
 
 - Write operations are enforced as unavailable in `x-gateway-reader` at command-dispatch time.
 - Rejected write operations return deterministic `UNSUPPORTED` errors with explicit remediation (`use x-gateway`).
-- The primary public interface is the project-owned GraphQL request path (`api request` in CLI, matching SDK helper in code).
+- The primary public interface is the project-owned GraphQL request path (`graphql query <query>` in CLI, matching SDK helper in code).
 - Stable high-level CLI commands and SDK helpers may remain as transitional convenience surfaces when they dispatch through the same reviewed capability executor.
-- Raw GraphQL operation input remains available as a low-level escape hatch for gaps, diagnostics, and intentionally unmapped operations.
 - Transport choice is internal: use REST where it is stable and compatible with configured auth, and use X web GraphQL only where a capability requires it.
 - Unsupported capabilities must be rejected at the boundary with explicit guidance instead of being advertised as generally available.
 - Capability docs must not overclaim bearer support when the repository does not yet provide a reviewed user-context flow for that operation.
@@ -76,19 +75,17 @@ Policy decision:
 ### Stable Contract with Internal Adapters
 
 - The stable product contract is capability-oriented: the canonical public interface describes user intent, not X internal transport details.
-- The canonical public interface is a project-owned GraphQL schema rather than a passthrough of raw X web GraphQL.
+- The canonical public interface is a project-owned GraphQL schema rather than a passthrough of raw X web GraphQL, and the CLI namespace should expose that contract directly as `graphql`.
 - Each exposed capability must declare its supported auth modes, transport strategy, and known limitations in the capability registry.
 - Each capability/inventory entry must also declare its surface category so stable contract operations, deferred capabilities, and the raw GraphQL escape hatch are distinguishable in one place.
 - The capability planner is the authoritative layer that maps public operations such as `accountMe` or `createPost` to capability ids such as `account.me` and `post.create`.
 - Planner logic should be explicit in code: a project-owned public-operation registry maps request fields to capabilities, and a separate reviewed route registry selects auth family plus transport per capability.
-- Inventory output must not present `graphql.request` as equivalent to the canonical public contract; registry metadata should mark it as an `escape-hatch` surface while reviewed capability operations remain `stable-contract`.
 - Registry coherence is part of the architecture, not just a test convenience: project-owned public field names must stay in sync with capability metadata, and implemented stable capabilities must stay aligned across metadata, route planning, and executor dispatch.
 - Stable capability execution should also be registry-driven: once a capability id is selected, CLI helpers, SDK methods, and the public GraphQL contract should dispatch through the same internal execution registry instead of maintaining per-entrypoint switch statements.
 - Route order matters and must be data-driven rather than hidden in helper branching. Example: `post.get` may prefer OAuth1 REST while still declaring bearer REST as a reviewed fallback.
 - When both bearer and OAuth1 credentials are available, each capability should choose its reviewed auth path independently instead of letting one credential family shadow the other globally.
 - A reviewed adapter path counts as implemented only when the corresponding auth/transport contract is enforced in code, not merely mentioned in capability docs or left behind as unused methods.
 - Error diagnostics should identify the reviewed route that actually ran, including both transport family and auth family, so operators can distinguish `rest-v1/oauth1`, `rest-v2/bearer`, and `graphql-web/bearer` failures.
-- Raw GraphQL request input is supported, but it is treated as a low-level interface for escape-hatch access and for capabilities that do not yet have a reviewed adapter.
 - A convenience command or SDK helper is considered implemented only when it is backed by a reviewed adapter contract and tests.
 - The CLI may expose local/non-network diagnostics (`health`, `version`, capability inspection, auth configuration diagnostics) even when no live transport is configured.
 
@@ -104,7 +101,7 @@ This enables library embedding in multi-tenant systems without global environmen
 ### Environment Variable Namespace
 
 - All project-defined environment keys must use `X_GW_` prefix.
-- Example keys: `X_GW_TOKEN`, `X_GW_ACCESS_TOKEN`, `X_GW_GRAPHQL_BASE_URL`.
+- Example keys: `X_GW_TOKEN`, `X_GW_ACCESS_TOKEN`.
 - Legacy `X_` keys are out of design scope unless an explicit compatibility shim is approved.
 - The stable configuration surface does not accept generic API-base aliases such as `apiBaseUrl`, `--api-base-url`, or `X_GW_API_BASE_URL`.
 - `X_GW_CONFIG_MODE` is the canonical config-resolution variable.
@@ -202,9 +199,8 @@ Each category provides:
 - Current implementation note: planner metadata, public-contract parsing, and the public request mapper now have dedicated modules.
 - Current implementation note: capability runtime planning now lives in `src/capability-runtime.ts`, so `src/lib.ts` no longer owns route selection and auth-readiness assembly directly.
 - Current implementation note: stable capability execution now lives in a dedicated module so `src/lib.ts` no longer owns the registry-driven dispatch layer directly.
-- Current implementation note: reviewed REST capability adapters now live in `src/capability-adapters.ts`, and raw GraphQL request execution now lives in `src/raw-graphql-client.ts`.
+- Current implementation note: reviewed REST capability adapters now live in `src/capability-adapters.ts`.
 - Current implementation note: the public GraphQL parser now accepts list and object literals for project-owned input objects such as post attachments while still rejecting variables, fragments, aliases, directives, and multi-field documents.
-- Current implementation note: raw GraphQL request execution now lives in `src/raw-graphql-client.ts`, which keeps the low-level escape hatch separate from the stable capability planner and the project-owned GraphQL contract.
 - Future extractions when complexity warrants:
   - `src/public-contract/` for project-owned GraphQL parsing and projection
   - `src/planner/` for capability planning and transport/auth routing
