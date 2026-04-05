@@ -11,9 +11,9 @@ Provide a stable GraphQL-shaped public contract that expresses user intent witho
 - This contract is owned by `x-gateway`, not by X web GraphQL.
 - Top-level fields map to stable project capabilities.
 - Transport selection is internal and decided by the capability planner.
-- Raw `graphql request` remains a separate low-level escape hatch.
-- Unsupported project fields must fail with `UNSUPPORTED` or `VALIDATION_ERROR` without silently falling through to raw upstream GraphQL.
-- Capability inventory and diagnostics must continue to mark raw `graphql.request` as an escape hatch rather than part of this stable public contract.
+- The canonical entrypoints are `graphql query '<query>'` in CLI and `createXGatewayClient().graphqlQuery({ query, traceId? })` in the SDK.
+- The current public CLI and SDK do not expose a separate raw upstream GraphQL escape hatch.
+- Unsupported project fields must fail with `UNSUPPORTED` or `VALIDATION_ERROR` without silently falling through to any upstream GraphQL transport.
 
 ## Initial Public Fields
 
@@ -113,8 +113,7 @@ Planner implementation rule:
 - Alignment is bidirectional: every public field must reference an implemented stable capability, and every implemented stable capability with a `publicOperationName` must have a matching public field registration.
 - After planning resolves to a stable capability id, execution must reuse the same internal capability executor used by direct SDK/CLI helpers so the public GraphQL surface cannot drift from the stable capability surface.
 - Reviewed routes must be declared in explicit planner metadata so mixed-auth behavior is visible in one place rather than hidden in per-capability branching.
-- The raw GraphQL transport path must not be reused implicitly by the public contract planner.
-- The low-level raw GraphQL requester should live in a separate module from the public-contract planner so escape-hatch transport logic cannot silently leak into stable request planning.
+- The public-contract planner must remain transport-agnostic and must not silently reintroduce an upstream GraphQL passthrough path as fallback behavior.
 
 ## Initial Parsing Scope
 

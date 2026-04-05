@@ -12,9 +12,9 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { executeCli } from "./cli";
 import { STABLE_CAPABILITY_IDS } from "./capability-metadata";
 import {
-  createPublicApiRequestPlan,
+  createPublicGraphqlQueryPlan,
   projectPublicSelection,
-} from "./public-api-contract";
+} from "./public-graphql-contract";
 import { parsePublicGraphqlDocument } from "./public-graphql-parser";
 import { PUBLIC_GRAPHQL_SCHEMA } from "./public-graphql-schema";
 import {
@@ -1134,9 +1134,17 @@ describe("createXGatewayClient", () => {
   test("allows capability inspection without configured auth", () => {
     const client = createXGatewayClient();
 
-    expect(client.capabilitiesGet("graphql.request")).toMatchObject({
-      id: "graphql.request",
-      status: "implemented",
+    expect(() => client.capabilitiesGet("graphql.request")).toThrowError(
+      XGatewayError,
+    );
+  });
+
+  test("trims surrounding whitespace for capability inspection ids", () => {
+    const client = createXGatewayClient();
+
+    expect(client.capabilitiesGet(" post.delete ")).toMatchObject({
+      id: "post.delete",
+      publicOperationName: "deletePost",
     });
   });
 
@@ -1148,11 +1156,6 @@ describe("createXGatewayClient", () => {
       authMode: "unconfigured",
       transport: "hybrid",
       capabilities: expect.arrayContaining([
-        expect.objectContaining({
-          capabilityId: "graphql.request",
-          status: "blocked",
-          requirement: "bearer",
-        }),
         expect.objectContaining({
           capabilityId: "post.create",
           status: "blocked",
@@ -1182,11 +1185,6 @@ describe("createXGatewayClient", () => {
           selectedAuthMode: "oauth1",
         }),
         expect.objectContaining({
-          capabilityId: "graphql.request",
-          status: "blocked",
-          requirement: "bearer",
-        }),
-        expect.objectContaining({
           capabilityId: "post.repost",
           status: "ready",
           selectedAuthMode: "oauth1",
@@ -1205,11 +1203,6 @@ describe("createXGatewayClient", () => {
       authMode: "bearer",
       transport: "hybrid",
       capabilities: expect.arrayContaining([
-        expect.objectContaining({
-          capabilityId: "graphql.request",
-          status: "ready",
-          selectedAuthMode: "bearer",
-        }),
         expect.objectContaining({
           capabilityId: "account.me",
           status: "conditional",
@@ -1244,11 +1237,6 @@ describe("createXGatewayClient", () => {
       availableAuthModes: ["oauth1", "bearer"],
       transport: "hybrid",
       capabilities: expect.arrayContaining([
-        expect.objectContaining({
-          capabilityId: "graphql.request",
-          status: "ready",
-          selectedAuthMode: "bearer",
-        }),
         expect.objectContaining({
           capabilityId: "account.me",
           status: "ready",
@@ -1297,7 +1285,7 @@ describe("createXGatewayClient", () => {
     });
 
     await expect(
-      client.apiRequest({
+      client.graphqlQuery({
         query: "query { postUsage(days: 14) { projectId } }",
       }),
     ).rejects.toMatchObject({
@@ -1313,8 +1301,8 @@ describe("createXGatewayClient", () => {
   test("exposes the stable SDK surface through the owned GraphQL contract", () => {
     const client = createXGatewayClient();
 
-    expect("request" in client).toBe(false);
-    expect("apiRequest" in client).toBe(true);
+    expect("apiRequest" in client).toBe(false);
+    expect("graphqlQuery" in client).toBe(true);
     expect("capabilitiesList" in client).toBe(true);
     expect("authVerify" in client).toBe(true);
     expect("authScopes" in client).toBe(true);
@@ -1332,7 +1320,7 @@ describe("createXGatewayClient", () => {
     const client = createXGatewayClient();
 
     await expect(
-      client.apiRequest({
+      client.graphqlQuery({
         query: "query { accountMe { id username } }",
       }),
     ).resolves.toEqual({
@@ -1351,7 +1339,7 @@ describe("createXGatewayClient", () => {
     const client = createXGatewayClient();
 
     await expect(
-      client.apiRequest({
+      client.graphqlQuery({
         query:
           'query { post(id: "post-42") { id promotionStatus text author { username } quote { id promotionStatus text author { username } } repost { id text repost { id text author { username } } } referencedPosts { relation id } } }',
       }),
@@ -1393,7 +1381,7 @@ describe("createXGatewayClient", () => {
     const client = createXGatewayClient();
 
     await expect(
-      client.apiRequest({
+      client.graphqlQuery({
         query:
           'query { userTimeline(userId: "promoted-user", maxResults: 5) { posts { id promotionStatus text } pageInfo { resultCount newestId oldestId } } }',
       }),
@@ -1423,7 +1411,7 @@ describe("createXGatewayClient", () => {
     const client = createXGatewayClient();
 
     await expect(
-      client.apiRequest({
+      client.graphqlQuery({
         query:
           'query { userTimeline(userId: "promoted-user", maxResults: 5, includePromoted: true) { posts { id promotionStatus text } pageInfo { resultCount newestId oldestId } } }',
       }),
@@ -1458,7 +1446,7 @@ describe("createXGatewayClient", () => {
     const client = createXGatewayClient();
 
     await expect(
-      client.apiRequest({
+      client.graphqlQuery({
         query: 'query { post(id: "promoted-post") { id promotionStatus } }',
       }),
     ).rejects.toMatchObject(
@@ -1471,7 +1459,7 @@ describe("createXGatewayClient", () => {
     );
 
     await expect(
-      client.apiRequest({
+      client.graphqlQuery({
         query:
           'query { post(id: "promoted-post", includePromoted: true) { id promotionStatus text } }',
       }),
@@ -1504,7 +1492,7 @@ describe("createXGatewayClient", () => {
       const client = createXGatewayClient();
 
       await expect(
-        client.apiRequest({
+        client.graphqlQuery({
           query: `query {
             post(
               id: "post-42"
@@ -1602,7 +1590,7 @@ describe("createXGatewayClient", () => {
     const client = createXGatewayClient();
 
     await expect(
-      client.apiRequest({
+      client.graphqlQuery({
         query: `query {
           post(
             id: "post-42"
@@ -1679,7 +1667,7 @@ describe("createXGatewayClient", () => {
       const client = createXGatewayClient();
 
       await expect(
-        client.apiRequest({
+        client.graphqlQuery({
           query: `query {
             post(
               id: "post-42"
@@ -1748,7 +1736,7 @@ describe("createXGatewayClient", () => {
       const client = createXGatewayClient();
 
       await expect(
-        client.apiRequest({
+        client.graphqlQuery({
           query: `query {
             post(
               id: "post-42"
@@ -1795,7 +1783,7 @@ describe("createXGatewayClient", () => {
     const client = createXGatewayClient();
 
     await expect(
-      client.apiRequest({
+      client.graphqlQuery({
         query:
           'query { userTimeline(userId: "nested-user", maxResults: 5, includePromoted: true) { posts { id quote { id text } repost { id repost { id text } } } pageInfo { resultCount newestId oldestId } } }',
       }),
@@ -1834,7 +1822,7 @@ describe("createXGatewayClient", () => {
     const client = createXGatewayClient();
 
     await expect(
-      client.apiRequest({
+      client.graphqlQuery({
         query:
           'query { searchPosts(query: "  bun  ", maxResults: 10, paginationToken: "  page-2  ") { posts { id author { username } } pageInfo { resultCount previousToken oldestId } } }',
       }),
@@ -1872,7 +1860,7 @@ describe("createXGatewayClient", () => {
     const client = createXGatewayClient();
 
     await expect(
-      client.apiRequest({
+      client.graphqlQuery({
         query: 'mutation { createPost(text: "hello") { id text } }',
       }),
     ).resolves.toEqual({
@@ -1895,7 +1883,7 @@ describe("createXGatewayClient", () => {
     const client = createXGatewayClient();
 
     await expect(
-      client.apiRequest({
+      client.graphqlQuery({
         query: "query { accountMe { id username } }",
       }),
     ).resolves.toEqual({
@@ -1908,7 +1896,7 @@ describe("createXGatewayClient", () => {
     });
 
     await expect(
-      client.apiRequest({
+      client.graphqlQuery({
         query: 'mutation { createPost(text: "hello") { id text } }',
       }),
     ).resolves.toEqual({
@@ -1930,7 +1918,7 @@ describe("createXGatewayClient", () => {
     const client = createXGatewayClient();
 
     await expect(
-      client.apiRequest({
+      client.graphqlQuery({
         query:
           'query { likes(userId: "user-1", limit: 20) { posts { id author { username } } } }',
       }),
@@ -1953,7 +1941,7 @@ describe("createXGatewayClient", () => {
     const client = createXGatewayClient();
 
     await expect(
-      client.apiRequest({
+      client.graphqlQuery({
         query: 'mutation { deletePost(postId: "tweet-1") { id deleted } }',
       }),
     ).resolves.toEqual({
@@ -1972,7 +1960,7 @@ describe("createXGatewayClient", () => {
     const client = createXGatewayClient();
 
     await expect(
-      client.apiRequest({
+      client.graphqlQuery({
         query:
           'query { post(id: "  post-7  ") { id text author { username } conversationId } }',
       }),
@@ -1999,7 +1987,7 @@ describe("createXGatewayClient", () => {
     const client = createXGatewayClient();
 
     await expect(
-      client.apiRequest({
+      client.graphqlQuery({
         query:
           'mutation { replyToPost(text: "hello", replyToPostId: "post-1") { id text } }',
       }),
@@ -2013,7 +2001,7 @@ describe("createXGatewayClient", () => {
     });
 
     await expect(
-      client.apiRequest({
+      client.graphqlQuery({
         query:
           'mutation { quotePost(text: "hello", quotedPostId: "post-2") { id text } }',
       }),
@@ -2027,7 +2015,7 @@ describe("createXGatewayClient", () => {
     });
 
     await expect(
-      client.apiRequest({
+      client.graphqlQuery({
         query: 'mutation { repostPost(postId: "post-3") { id reposted } }',
       }),
     ).resolves.toEqual({
@@ -2040,7 +2028,7 @@ describe("createXGatewayClient", () => {
     });
 
     await expect(
-      client.apiRequest({
+      client.graphqlQuery({
         query: 'mutation { unrepostPost(postId: "post-3") { id reposted } }',
       }),
     ).resolves.toEqual({
@@ -2062,7 +2050,7 @@ describe("createXGatewayClient", () => {
     const client = createXGatewayClient();
 
     await expect(
-      client.apiRequest({
+      client.graphqlQuery({
         query:
           'mutation { createPost(text: "hello", attachments: [{ kind: "image", filePath: "/tmp/a.png", altText: "example" }]) { id text } }',
       }),
@@ -2076,7 +2064,7 @@ describe("createXGatewayClient", () => {
     });
 
     await expect(
-      client.apiRequest({
+      client.graphqlQuery({
         query:
           'mutation { replyToPost(text: "hello", replyToPostId: "123", attachments: [{ kind: "image", filePath: "/tmp/b.png" }]) { id text } }',
       }),
@@ -2090,7 +2078,7 @@ describe("createXGatewayClient", () => {
     });
 
     await expect(
-      client.apiRequest({
+      client.graphqlQuery({
         query:
           'mutation { quotePost(text: "hello", quotedPostId: "456", attachments: [{ kind: "image", filePath: "/tmp/c.png" }]) { id text } }',
       }),
@@ -2124,7 +2112,7 @@ describe("createXGatewayClient", () => {
     const client = createXGatewayClient();
 
     await expect(
-      client.apiRequest({
+      client.graphqlQuery({
         query: 'query { likedPosts(userId: "user-1", limit: 5) { id } }',
       }),
     ).rejects.toMatchObject({
@@ -2146,7 +2134,7 @@ describe("createXGatewayClient", () => {
     const client = createXGatewayClient();
 
     await expect(
-      client.apiRequest({
+      client.graphqlQuery({
         query: 'mutation { deletePost(id: "tweet-1") { id deleted } }',
       }),
     ).rejects.toMatchObject({
@@ -2168,7 +2156,7 @@ describe("createXGatewayClient", () => {
     const client = createXGatewayClient();
 
     await expect(
-      client.apiRequest({
+      client.graphqlQuery({
         query: 'mutation { repostPost(id: "tweet-1") { id reposted } }',
       }),
     ).rejects.toMatchObject({
@@ -2181,7 +2169,7 @@ describe("createXGatewayClient", () => {
     });
 
     await expect(
-      client.apiRequest({
+      client.graphqlQuery({
         query: 'mutation { unrepostPost(id: "tweet-1") { id reposted } }',
       }),
     ).rejects.toMatchObject({
@@ -2200,7 +2188,7 @@ describe("createXGatewayClient", () => {
     const client = createXGatewayClient();
 
     await expect(
-      client.apiRequest({
+      client.graphqlQuery({
         query: "query { UserByScreenName { id } }",
       }),
     ).rejects.toMatchObject({
@@ -2219,7 +2207,7 @@ describe("createXGatewayClient", () => {
     const client = createXGatewayClient();
 
     await expect(
-      client.apiRequest({
+      client.graphqlQuery({
         query:
           'query { post(id: "post-1", operationName: "Viewer") { id text } }',
       }),
@@ -2239,7 +2227,7 @@ describe("createXGatewayClient", () => {
     const client = createXGatewayClient();
 
     await expect(
-      client.apiRequest({
+      client.graphqlQuery({
         query: 'query { accountMe(id: "user-1") { id username } }',
       }),
     ).rejects.toMatchObject({
@@ -2258,7 +2246,7 @@ describe("createXGatewayClient", () => {
     const client = createXGatewayClient();
 
     await expect(
-      client.apiRequest({
+      client.graphqlQuery({
         query: 'query { post(id: "post-1") { id documentId } }',
       }),
     ).rejects.toMatchObject({
@@ -2272,7 +2260,7 @@ describe("createXGatewayClient", () => {
   });
 
   test("rejects missing projected stable payload fields instead of silently dropping them", () => {
-    const plan = createPublicApiRequestPlan(
+    const plan = createPublicGraphqlQueryPlan(
       {
         query: 'query { post(id: "post-1") { id text } }',
       },
@@ -2294,7 +2282,7 @@ describe("createXGatewayClient", () => {
   });
 
   test("allows omitted optional public payload fields during projection", () => {
-    const plan = createPublicApiRequestPlan(
+    const plan = createPublicGraphqlQueryPlan(
       {
         query:
           'query { post(id: "post-1") { id conversationId author { username } } }',
@@ -2319,7 +2307,7 @@ describe("createXGatewayClient", () => {
   });
 
   test("rejects null projected values for required public payload fields", () => {
-    const plan = createPublicApiRequestPlan(
+    const plan = createPublicGraphqlQueryPlan(
       {
         query: 'query { post(id: "post-1") { id text } }',
       },
@@ -2344,7 +2332,7 @@ describe("createXGatewayClient", () => {
   });
 
   test("rejects object payloads for scalar projected public selections", () => {
-    const plan = createPublicApiRequestPlan(
+    const plan = createPublicGraphqlQueryPlan(
       {
         query: 'query { post(id: "post-1") { id } }',
       },
@@ -2366,7 +2354,7 @@ describe("createXGatewayClient", () => {
   });
 
   test("rejects scalar payloads for nested projected public selections", () => {
-    const plan = createPublicApiRequestPlan(
+    const plan = createPublicGraphqlQueryPlan(
       {
         query: 'query { post(id: "post-1") { author { username } } }',
       },
@@ -2395,7 +2383,7 @@ describe("createXGatewayClient", () => {
     const client = createXGatewayClient();
 
     await expect(
-      client.apiRequest({
+      client.graphqlQuery({
         query: 'query { post(id: "post-1") { author } }',
       }),
     ).rejects.toMatchObject({
@@ -2408,7 +2396,7 @@ describe("createXGatewayClient", () => {
     });
 
     await expect(
-      client.apiRequest({
+      client.graphqlQuery({
         query: 'mutation { createPost(text: "hello") { id { raw } } }',
       }),
     ).rejects.toMatchObject({
@@ -2427,7 +2415,7 @@ describe("createXGatewayClient", () => {
     const client = createXGatewayClient();
 
     await expect(
-      client.apiRequest({
+      client.graphqlQuery({
         query: 'query GetPost { post(id: "post-1") { id } }',
       }),
     ).rejects.toMatchObject({
@@ -2446,7 +2434,7 @@ describe("createXGatewayClient", () => {
     const client = createXGatewayClient();
 
     await expect(
-      client.apiRequest({
+      client.graphqlQuery({
         query: "query { me: accountMe { id username } }",
       }),
     ).rejects.toMatchObject({
@@ -2465,7 +2453,7 @@ describe("createXGatewayClient", () => {
     const client = createXGatewayClient();
 
     await expect(
-      client.apiRequest({
+      client.graphqlQuery({
         query: "query { post(id: $postId) { id } }",
       }),
     ).rejects.toMatchObject({
@@ -2478,7 +2466,7 @@ describe("createXGatewayClient", () => {
     });
 
     await expect(
-      client.apiRequest({
+      client.graphqlQuery({
         query: 'query { post(id: "post-1") @skip(if: true) { id } }',
       }),
     ).rejects.toMatchObject({
@@ -2491,7 +2479,7 @@ describe("createXGatewayClient", () => {
     });
 
     await expect(
-      client.apiRequest({
+      client.graphqlQuery({
         query: 'query { post(id: "post-1") { ...PostFields } }',
       }),
     ).rejects.toMatchObject({
@@ -2541,7 +2529,7 @@ describe("createXGatewayClient", () => {
     const client = createXGatewayClient();
 
     await expect(
-      client.apiRequest({
+      client.graphqlQuery({
         query:
           'mutation { createPost(text: "hello", attachments: [{ kind: "video", filePath: "/tmp/a.mp4" }]) { id } }',
       }),
@@ -2553,7 +2541,7 @@ describe("createXGatewayClient", () => {
     });
 
     await expect(
-      client.apiRequest({
+      client.graphqlQuery({
         query:
           'mutation { createPost(text: "hello", attachments: [{ kind: "image", filePath: "" }]) { id } }',
       }),
@@ -2565,7 +2553,7 @@ describe("createXGatewayClient", () => {
     });
 
     await expect(
-      client.apiRequest({
+      client.graphqlQuery({
         query:
           'mutation { createPost(text: "hello", attachments: [{ kind: "image", filePath: "/tmp/a.png", upstreamId: "1" }]) { id } }',
       }),
@@ -2577,7 +2565,7 @@ describe("createXGatewayClient", () => {
     });
 
     await expect(
-      client.apiRequest({
+      client.graphqlQuery({
         query: 'mutation { createPost(text: "hello", attachments: []) { id } }',
       }),
     ).rejects.toMatchObject({
@@ -2588,7 +2576,7 @@ describe("createXGatewayClient", () => {
     });
 
     await expect(
-      client.apiRequest({
+      client.graphqlQuery({
         query:
           'mutation { createPost(text: "hello", attachments: [{ kind: "image", filePath: "/tmp/a.png", altText: null }]) { id } }',
       }),
@@ -2600,7 +2588,7 @@ describe("createXGatewayClient", () => {
     });
 
     await expect(
-      client.apiRequest({
+      client.graphqlQuery({
         query: `mutation { createPost(text: "hello", attachments: [{ kind: "image", filePath: "/tmp/a.png", altText: "${"x".repeat(1001)}" }]) { id } }`,
       }),
     ).rejects.toMatchObject({
@@ -3430,7 +3418,6 @@ describe("executeCli", () => {
     const timelineHome = client.capabilitiesGet("timeline.home");
     const deferredSocial = client.capabilitiesGet("social.follows");
     const stableLikes = client.capabilitiesGet("likes.list");
-    const rawGraphql = client.capabilitiesGet("graphql.request");
 
     expect(capability.transportStrategy).toBe("rest-v2");
     expect(capability.publicOperationName).toBe("deletePost");
@@ -3447,7 +3434,6 @@ describe("executeCli", () => {
     expect(stableLikes.surfaceCategory).toBe("deferred");
     expect(stableLikes.transportStrategy).toBe("rest-v2");
     expect(stableLikes.authModes).toEqual(["oauth1"]);
-    expect(rawGraphql.surfaceCategory).toBe("escape-hatch");
     expect(timelineSearch.publicOperationName).toBe("searchPosts");
     expect(timelineSearch.surfaceCategory).toBe("stable-contract");
     expect(timelineSearch.status).toBe("implemented");
@@ -3458,6 +3444,23 @@ describe("executeCli", () => {
       "GraphQL-only transport is enforced",
     );
     expect(deferredSocial.surfaceCategory).toBe("deferred");
+    expect(
+      client
+        .capabilitiesList()
+        .some((listedCapability) => listedCapability.id === "graphql.request"),
+    ).toBe(false);
+  });
+
+  test("trims capability ids passed through the CLI capability inspector", async () => {
+    await expect(
+      executeCli(["capabilities", "get", "--id", " post.delete "], {
+        commandName: "x-gateway",
+        surface: "full",
+      }),
+    ).resolves.toMatchObject({
+      id: "post.delete",
+      publicOperationName: "deletePost",
+    });
   });
 
   test("keeps public GraphQL field names aligned with stable capability metadata", () => {
@@ -3629,6 +3632,20 @@ describe("executeCli", () => {
       payload: expect.objectContaining({
         code: "VALIDATION_ERROR",
         details: expect.stringContaining("Unknown flag --mystery-flag"),
+      }),
+    });
+  });
+
+  test("rejects removed legacy flags on supported commands instead of accepting them silently", async () => {
+    await expect(
+      executeCli(["health", "--days", "14"], {
+        commandName: "x-gateway",
+        surface: "full",
+      }),
+    ).rejects.toMatchObject({
+      payload: expect.objectContaining({
+        code: "VALIDATION_ERROR",
+        details: expect.stringContaining("Unknown flag --days"),
       }),
     });
   });

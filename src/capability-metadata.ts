@@ -13,7 +13,6 @@ export type CapabilityTransportStrategy =
 
 export type CapabilitySurfaceCategory =
   | "stable-contract"
-  | "escape-hatch"
   | "deferred";
 
 export type XGatewayCapabilityAccessType = "read" | "write" | "read-write";
@@ -62,10 +61,7 @@ export const STABLE_CAPABILITY_IDS = [
 
 export type StableCapabilityId = (typeof STABLE_CAPABILITY_IDS)[number];
 
-export type CapabilityRouteAdapterKind =
-  | "graphql-request"
-  | "read-capability"
-  | "stable-posting";
+export type CapabilityRouteAdapterKind = "read-capability" | "stable-posting";
 
 export type CapabilityRouteDefinition = Readonly<{
   authMode: "oauth1" | "bearer";
@@ -77,7 +73,7 @@ export type CapabilityRouteDefinition = Readonly<{
 }>;
 
 export type CapabilityPlanningDefinition = Readonly<{
-  capabilityId: "graphql.request" | StableCapabilityId;
+  capabilityId: StableCapabilityId;
   missingAuthRequirement: XGatewayCapabilityRequirement;
   missingAuthReason: string;
   unsupportedConfiguredAuthReason?: string;
@@ -175,7 +171,7 @@ function createStableReadCapabilityDescriptor(
 const STABLE_POSTING_UNSUPPORTED_REMEDIATIONS = [
   "Configure OAuth1 credentials to use the stable posting capability.",
   "No reviewed bearer-mode stable fallback exists for this capability in the current release.",
-  "Use 'graphql request' only if you are intentionally invoking a separate low-level upstream GraphQL workflow.",
+  "Use 'graphql query' only for reviewed project-owned GraphQL fields backed by stable capabilities.",
 ] as const;
 
 type StableReadPlanningDefinitionInput = Readonly<{
@@ -255,19 +251,6 @@ function createStableReadPlanningDefinition(
 }
 
 export const CAPABILITY_REGISTRY: readonly CapabilityDescriptor[] = [
-  {
-    id: "graphql.request",
-    surfaceCategory: "escape-hatch",
-    endpointFamily: "graphql",
-    operation: "raw GraphQL query or mutation execution",
-    status: "implemented",
-    accessType: "read-write",
-    transportStrategy: "graphql-web",
-    preferredTransport: "graphql-web",
-    authModes: ["bearer"],
-    notes:
-      "Low-level escape hatch for explicit GraphQL execution. Requires operationName plus documentId or inline query, and bearer auth.",
-  },
   {
     id: "account.me",
     publicOperationName: "accountMe",
@@ -452,7 +435,7 @@ export const CAPABILITY_REGISTRY: readonly CapabilityDescriptor[] = [
     fallbackTransport: "graphql-web",
     authModes: ["bearer", "oauth1"],
     notes:
-      "Deferred until reviewed follow-graph adapters are implemented. Raw GraphQL remains available as a low-level fallback for explicitly mapped operations.",
+      "Deferred until reviewed follow-graph adapters are implemented and exposed through the stable public contract.",
   },
   {
     id: "dm.core",
@@ -470,21 +453,6 @@ export const CAPABILITY_REGISTRY: readonly CapabilityDescriptor[] = [
 
 export const CAPABILITY_PLANNING_REGISTRY: readonly CapabilityPlanningDefinition[] =
   [
-    {
-      capabilityId: "graphql.request",
-      missingAuthRequirement: "bearer",
-      missingAuthReason: "Raw GraphQL requests require a bearer token.",
-      routes: [
-        {
-          authMode: "bearer",
-          transport: "graphql-web",
-          adapterKind: "graphql-request",
-          readinessRequirement: "bearer",
-          readinessReason:
-            "Bearer auth is configured for low-level GraphQL requests.",
-        },
-      ],
-    },
     {
       capabilityId: "account.me",
       missingAuthRequirement: "configured-auth",

@@ -15,9 +15,9 @@ import {
 import { createCapabilityAdapterFactories } from "./capability-adapters";
 import { inferPublicGraphqlOperationType } from "./public-graphql-parser";
 import {
-  createPublicApiRequestPlan,
+  createPublicGraphqlQueryPlan,
   projectPublicSelection,
-} from "./public-api-contract";
+} from "./public-graphql-contract";
 import {
   createStableCapabilityExecutor,
   type StableCapabilityInputById,
@@ -962,15 +962,15 @@ export type XGatewayAuthVerifyResult = Readonly<{
   capabilities: readonly XGatewayCapabilityReadiness[];
 }>;
 
-export type XGatewayApiRequestOptions = Readonly<{
+export type XGatewayGraphqlQueryOptions = Readonly<{
   query: string;
   traceId?: string;
 }>;
 
 export type XGatewayClient = Readonly<{
   getResolvedConfig: () => XGatewayResolvedConfig;
-  apiRequest: (
-    options: XGatewayApiRequestOptions,
+  graphqlQuery: (
+    options: XGatewayGraphqlQueryOptions,
   ) => Promise<Readonly<{ data: Readonly<Record<string, unknown>> }>>;
   authVerify: () => Promise<XGatewayAuthVerifyResult>;
   authScopes: () => Promise<
@@ -1028,7 +1028,7 @@ function ensureRequired(value: string | undefined, fieldName: string): string {
   return value;
 }
 
-export function inferApiRequestOperationType(
+export function inferGraphqlQueryOperationType(
   query: string,
 ): XGatewayOperationType {
   return inferPublicGraphqlOperationType(query, createValidationError);
@@ -1253,17 +1253,17 @@ export function createXGatewayClient(
         }),
       createUnsupportedAdapterKindError: (
         invalidCapabilityId: StableCapabilityId,
-        adapterKind: "graphql-request" | "read-capability" | "stable-posting",
+        adapterKind: "read-capability" | "stable-posting",
       ) =>
         createError({
           code: "INTERNAL_ERROR",
           summary: "Unsupported capability route adapter kind",
           details: `Capability '${invalidCapabilityId}' selected adapter kind '${adapterKind}', which is not valid for the stable capability planner.`,
           likelyCauses: [
-            "A raw GraphQL-only route was incorrectly wired into the stable capability planner",
+            "The planning metadata selected an adapter kind that the stable capability executor does not support",
           ],
           remediations: [
-            "Restrict the stable capability planner to reviewed read/stable-posting adapter kinds.",
+            "Restrict the stable capability planner to reviewed read and stable-posting adapter kinds.",
           ],
           classification: "internal",
           retryable: false,
@@ -1337,10 +1337,10 @@ export function createXGatewayClient(
     );
   }
 
-  async function apiRequest(
-    options: XGatewayApiRequestOptions,
+  async function graphqlQuery(
+    options: XGatewayGraphqlQueryOptions,
   ): Promise<Readonly<{ data: Readonly<Record<string, unknown>> }>> {
-    const publicRequest = createPublicApiRequestPlan(
+    const publicRequest = createPublicGraphqlQueryPlan(
       options,
       createValidationError,
       createStablePayloadShapeError,
@@ -1397,7 +1397,7 @@ export function createXGatewayClient(
   }
 
   function capabilitiesGet(id: string): CapabilityDescriptor {
-    const safeId = ensureRequired(id, "id");
+    const safeId = ensureRequired(id, "id").trim();
     const found = CAPABILITY_REGISTRY.find((entry) => entry.id === safeId);
     if (!found) {
       throw createError({
@@ -1435,11 +1435,11 @@ export function createXGatewayClient(
       capabilities,
       message:
         availableAuthModes.length === 2
-          ? "Bearer and OAuth1 credentials are both configured. Raw GraphQL requests use bearer auth, while stable posting helpers prefer OAuth1 and stable read helpers can use either reviewed path."
+          ? "Bearer and OAuth1 credentials are both configured. Stable posting helpers prefer OAuth1, while reviewed stable read capabilities can choose either reviewed route per capability."
           : configuredAuthMode === "bearer"
-            ? "Bearer token is configured. GraphQL requests can run directly, stable post lookup can use the public read API, and account/profile reads may work if the token has user context. Stable posting mutations currently require OAuth1 credentials."
+            ? "Bearer token is configured. Reviewed bearer-backed read capabilities can run, and account/profile reads may work if the token has user context. Stable posting mutations currently require OAuth1 credentials."
             : configuredAuthMode === "oauth1"
-              ? "OAuth1 credentials are configured. REST compatibility commands such as account/profile reads, post lookup, and stable posting mutations can run, but raw GraphQL requests still require bearer auth."
+              ? "OAuth1 credentials are configured. Reviewed OAuth1-backed read capabilities and stable posting mutations can run."
               : "No supported credentials are configured.",
     };
   }
@@ -1468,7 +1468,7 @@ export function createXGatewayClient(
 
   return {
     getResolvedConfig: () => resolved,
-    apiRequest,
+    graphqlQuery,
     authVerify,
     authScopes,
     capabilitiesList,

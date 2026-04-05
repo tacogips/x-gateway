@@ -146,7 +146,7 @@ type StableCapabilityExecutorDependencies = Readonly<{
     ) => XGatewayError;
     createUnsupportedAdapterKindError: (
       capabilityId: StableCapabilityId,
-      adapterKind: "graphql-request" | "read-capability" | "stable-posting",
+      adapterKind: "read-capability" | "stable-posting",
     ) => XGatewayError;
   }>;
 }>;

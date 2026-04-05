@@ -6,8 +6,8 @@ This document defines the architecture for `x-gateway` as both CLI and library.
 
 `x-gateway` is a dual-surface TypeScript system with two CLI binaries:
 
-- Surface A1: AI-first full CLI (`x-gateway ...`) for stable capability commands plus low-level GraphQL access
-- Surface A2: AI-first read-only CLI (`x-gateway-reader ...`) for read-safe capability commands plus query-only GraphQL access
+- Surface A1: AI-first full CLI (`x-gateway ...`) for the project-owned GraphQL contract plus local diagnostics and capability inspection
+- Surface A2: AI-first read-only CLI (`x-gateway-reader ...`) for query-only access to that same project-owned contract plus local diagnostics and capability inspection
 - Surface B: programmatic SDK/library API
 
 Both surfaces share one core service layer so behavior is consistent for auth, retries, rate handling, and error semantics.
@@ -16,8 +16,8 @@ Policy decision:
 
 - Write operations are enforced as unavailable in `x-gateway-reader` at command-dispatch time.
 - Rejected write operations return deterministic `UNSUPPORTED` errors with explicit remediation (`use x-gateway`).
-- The primary public interface is the project-owned GraphQL request path (`graphql query <query>` in CLI, matching SDK helper in code).
-- Stable high-level CLI commands and SDK helpers may remain as transitional convenience surfaces when they dispatch through the same reviewed capability executor.
+- The primary public interface is the project-owned GraphQL request path (`graphql query <query>` in CLI and `createXGatewayClient().graphqlQuery({ query })` in the SDK).
+- Stable SDK helpers may remain when they dispatch through the same reviewed capability executor, but the public CLI no longer exposes transitional convenience command groups as peer surfaces.
 - Transport choice is internal: use REST where it is stable and compatible with configured auth, and use X web GraphQL only where a capability requires it.
 - Unsupported capabilities must be rejected at the boundary with explicit guidance instead of being advertised as generally available.
 - Capability docs must not overclaim bearer support when the repository does not yet provide a reviewed user-context flow for that operation.
@@ -77,7 +77,7 @@ Policy decision:
 - The stable product contract is capability-oriented: the canonical public interface describes user intent, not X internal transport details.
 - The canonical public interface is a project-owned GraphQL schema rather than a passthrough of raw X web GraphQL, and the CLI namespace should expose that contract directly as `graphql`.
 - Each exposed capability must declare its supported auth modes, transport strategy, and known limitations in the capability registry.
-- Each capability/inventory entry must also declare its surface category so stable contract operations, deferred capabilities, and the raw GraphQL escape hatch are distinguishable in one place.
+- Each capability/inventory entry must also declare its surface category so stable contract operations and deferred capabilities are distinguishable in one place.
 - The capability planner is the authoritative layer that maps public operations such as `accountMe` or `createPost` to capability ids such as `account.me` and `post.create`.
 - Planner logic should be explicit in code: a project-owned public-operation registry maps request fields to capabilities, and a separate reviewed route registry selects auth family plus transport per capability.
 - Registry coherence is part of the architecture, not just a test convenience: project-owned public field names must stay in sync with capability metadata, and implemented stable capabilities must stay aligned across metadata, route planning, and executor dispatch.
@@ -129,7 +129,7 @@ The long-term implementation target remains broad coverage of X API capabilities
 - Phase 1 canonical mutation baseline includes inline image attachments for `createPost`, `replyToPost`, and `quotePost` through project-owned attachment input that maps onto internal OAuth1 media upload plus stable REST posting
 - `likes.list` remains deferred until a reviewed live route is verified; it is intentionally not part of the canonical public GraphQL contract in the current repository state
 - Phase 2: add GraphQL-backed adapters where public REST does not cover the required behavior
-- Phase 3: keep raw GraphQL available for explicit low-level usage and troubleshooting without making it the primary product surface
+- Phase 3: expand additional capability families through the same project-owned contract without reintroducing raw upstream GraphQL as a peer public surface unless a new design decision explicitly approves it
 
 Target capability families:
 
@@ -189,12 +189,11 @@ Each category provides:
 - `src/lib.ts` public SDK exports, config resolution, diagnostics, shared stable-capability execution, and temporary adapter composition
 - `src/capability-metadata.ts` capability registry rows plus reviewed route-planning metadata
 - `src/public-graphql-parser.ts` project-owned GraphQL document parsing for the stable public contract
-- `src/public-api-contract.ts` project-owned GraphQL field registry, request-to-capability mapping, and response projection helpers
+- `src/public-graphql-contract.ts` project-owned GraphQL field registry, request-to-capability mapping, and response projection helpers
 - `src/capability-runtime.ts` reviewed route selection, auth-readiness derivation, and planner-to-adapter execution wiring
 - `src/stable-capability-executor.ts` stable capability execution registry plus shared dispatch used by direct SDK helpers and the project-owned GraphQL surface
 - `src/capability-adapters.ts` reviewed REST capability adapters plus transport-specific response-mapping helpers for the stable baseline
-- `src/raw-graphql-client.ts` low-level raw GraphQL escape-hatch requester; this module is intentionally separate from the stable public-contract planner
-- Current implementation note: the public contract, planner/runtime, stable execution, reviewed REST adapter layer, and low-level raw GraphQL escape hatch now have dedicated modules. `src/lib.ts` still composes them and owns shared retry/config/error helpers.
+- Current implementation note: the public contract, planner/runtime, stable execution, and reviewed REST adapter layer now have dedicated modules. `src/lib.ts` still composes them and owns shared retry/config/error helpers.
 - Current implementation note: the first hardening step kept one shared execution registry inside `src/lib.ts` so capability dispatch is not duplicated across CLI, SDK, and public GraphQL entrypoints.
 - Current implementation note: planner metadata, public-contract parsing, and the public request mapper now have dedicated modules.
 - Current implementation note: capability runtime planning now lives in `src/capability-runtime.ts`, so `src/lib.ts` no longer owns route selection and auth-readiness assembly directly.

@@ -8,8 +8,7 @@ Provide an explicit, auditable inventory for API support so "full coverage" is m
 
 The inventory must distinguish between:
 
-- raw GraphQL transport support
-- reviewed GraphQL operation mappings
+- reviewed project-owned GraphQL field coverage
 - reviewed REST-backed capability adapters
 - high-level convenience helpers built on top of those mappings
 - intentionally deferred helper surfaces that must remain rejected at the boundary
@@ -31,7 +30,7 @@ Current repository-state rule:
 - A capability may be treated as implemented when it has a reviewed adapter contract, matching tests, and documented auth/transport constraints.
 - Implemented capabilities may use REST, GraphQL, or a hybrid composition internally.
 - Unreachable placeholder methods inside an adapter for the wrong auth family do not count toward implementation status; the adapter boundary itself must enforce the reviewed auth contract.
-- Non-raw capability families must remain `planned` or `blocked_by_plan` until their concrete adapter contract is committed and reviewed.
+- Capability families must remain `planned` or `blocked_by_plan` until their concrete adapter contract is committed and reviewed.
 - Auth metadata must reflect the reviewed path actually implemented in the repository, not hypothetical upstream support.
 
 ## Capability Registry Schema
@@ -60,7 +59,6 @@ Each capability entry must track:
 
 ## Endpoint Families (Design Baseline)
 
-- raw GraphQL request transport
 - authentication and identity
 - users and profiles
 - tweets/posts lifecycle

@@ -3,11 +3,11 @@
 **Status**: In Progress
 **Design Reference**: `design-docs/specs/architecture.md#stable-contract-with-internal-adapters`, `design-docs/specs/command.md#project-owned-graphql-contract`, `design-docs/specs/design-public-graphql-contract.md`
 **Created**: 2026-03-08
-**Last Updated**: 2026-03-08
+**Last Updated**: 2026-04-05
 
 ## Summary
 
-Make `x-gateway api request --query '<simplified-graphql>'` the canonical public interface for reviewed capabilities, while keeping `graphql request` as an explicit low-level escape hatch for raw X upstream GraphQL workflows.
+Keep the project-owned `graphql` surface canonical across CLI and SDK: `x-gateway graphql query '<query>'` in the CLI and `createXGatewayClient().graphqlQuery({ query })` in the SDK.
 
 This plan covers contract normalization, routing preservation, and messaging/documentation cleanup for the current baseline:
 
@@ -27,7 +27,7 @@ Included:
 - Canonical project-owned GraphQL field and argument names
 - Canonical project-owned response shapes for approved fields
 - Capability metadata alignment with canonical public names
-- CLI/docs positioning so `api request` is clearly primary
+- CLI/docs positioning so `graphql query` / `graphqlQuery(...)` are clearly primary
 - Tests for request parsing, execution, and route preservation
 
 Not included in this iteration:
@@ -47,7 +47,7 @@ Not included in this iteration:
 type CapabilityDescriptor = Readonly<{
   id: string;
   publicOperationName?: string;
-  surfaceCategory: "stable-contract" | "escape-hatch" | "deferred";
+  surfaceCategory: "stable-contract" | "deferred";
 }>;
 ```
 
@@ -58,10 +58,10 @@ Checklist:
 
 ### 2. Public GraphQL Planner
 
-#### `src/public-api-contract.ts`
+#### `src/public-graphql-contract.ts`
 
 ```typescript
-type PlannedPublicApiRequest = Readonly<{
+type PlannedPublicGraphqlQuery = Readonly<{
   capabilityId: StableCapabilityId;
   fieldName: string;
   buildCapabilityInput: (
@@ -91,9 +91,9 @@ type CliSurface = "full" | "reader";
 
 Checklist:
 
-- [x] Usage text states `api request` is the primary public interface
-- [x] Stable convenience commands are described as transitional
-- [x] Raw `graphql request` is described as advanced/escape-hatch only
+- [x] Usage text states `graphql query` is the primary public interface
+- [x] SDK naming matches the canonical `graphql` terminology
+- [x] Removed CLI convenience commands remain outside the supported public surface
 - [x] Canonical schema names in docs match implementation
 
 ### 4. Verification
@@ -102,7 +102,7 @@ Checklist:
 #### `src/capability-adapters.test.ts`
 
 ```typescript
-type XGatewayApiRequestOptions = Readonly<{
+type XGatewayGraphqlQueryOptions = Readonly<{
   query: string;
   traceId?: string | undefined;
 }>;
@@ -276,3 +276,10 @@ Checklist:
 **Tasks In Progress**: Live upstream verification only for the supported account/post baseline
 **Blockers**: Live upstream verification is still blocked by missing reviewed credentials and network access in this environment
 **Notes**: Continued review did not reveal an architecture mismatch, but it did find one remaining stale public-SDK artifact: `src/lib.ts` still exported liked-post option/result types even though `likes.list` is intentionally deferred from the reviewed stable contract. Removed those exports so the TypeScript surface no longer suggests a supported stable liked-post workflow, then re-ran `bun run typecheck`, `bun test`, and `bun run build`.
+
+### Session: 2026-04-05 18:35 JST
+
+**Tasks Completed**: Active-plan terminology refresh, capability-inspection hardening
+**Tasks In Progress**: Live upstream verification only for the supported account/post baseline
+**Blockers**: Live upstream verification is still blocked by missing reviewed credentials and network access in this environment
+**Notes**: Re-reviewed the current repository state against the intended product direction and confirmed that the architecture remains aligned: the project-owned `graphql` contract is the supported public surface, stable capability routing remains the shared execution boundary, and unsupported workflows are rejected instead of falling through to a raw GraphQL peer surface. This session updates the still-active plan wording to match the current CLI/SDK terminology and adds a small SDK/CLI hardening fix so capability inspection trims surrounding whitespace instead of failing on an exact-string mismatch.

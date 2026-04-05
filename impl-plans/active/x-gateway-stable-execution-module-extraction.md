@@ -3,7 +3,7 @@
 **Status**: Completed
 **Design Reference**: `design-docs/specs/architecture.md#module-boundaries-planned`
 **Created**: 2026-03-08
-**Last Updated**: 2026-03-08
+**Last Updated**: 2026-04-05
 
 ---
 
@@ -51,7 +51,7 @@ The current repository behavior already matches the intended stable public-contr
 
 **Completion Criteria**:
 - [x] Stable capability registry-driven dispatch is no longer implemented directly inside `src/lib.ts`
-- [x] Stable SDK helpers and `apiRequest` still share the same executor path
+- [x] Stable SDK helpers and `graphqlQuery(...)` still share the same executor path
 - [x] Transport adapter selection remains driven by reviewed planner metadata
 
 ### TASK-003: Verification
@@ -104,3 +104,10 @@ The current repository behavior already matches the intended stable public-contr
 - Extracted the stable capability execution registry and shared planner-to-adapter dispatch into `src/stable-capability-executor.ts`.
 - Kept concrete REST adapter creation in `src/lib.ts` for this slice so the external contract and reviewed routing behavior remain unchanged.
 - Revalidated the extraction with `bun run typecheck`, `bun test`, and `bun run build`.
+
+### Session: 2026-04-05 18:35 JST
+**Tasks Completed**: Terminology refresh
+**Tasks In Progress**: None
+**Blockers**: None
+**Notes**:
+- Updated the still-active extraction plan wording so it refers to the current `graphqlQuery(...)` SDK surface instead of the removed `apiRequest(...)` name.

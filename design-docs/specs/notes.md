@@ -8,8 +8,9 @@ This document records additional design constraints and implementation notes.
 - PoC artifacts are imported to accelerate implementation, then refined into production architecture.
 - Sensitive local environment files may exist only for developer setup and must not be committed unintentionally.
 - Environment variable naming is standardized to `X_GW_` prefix for all gateway-specific keys.
-- The current delivery baseline is a hybrid capability-adapter model: expose stable intent-level operations first, and keep raw GraphQL as a low-level fallback.
+- The current delivery baseline is a stable capability-adapter model: expose reviewed intent-level operations through the project-owned GraphQL contract first, and reject unsupported workflows explicitly instead of advertising a separate raw GraphQL public fallback.
 - CLI and SDK surfaces should prefer reviewed adapters over exposing raw X internal GraphQL details as the default product interface.
+- Public terminology should stay consistent across CLI and SDK; stale `api request` naming on the SDK side is design drift once the CLI surface has standardized on `graphql`.
 - Deprecated config aliases should be removed instead of kept as silent compatibility fallbacks when they weaken the stable configuration contract.
 - `X_GW_CONFIG_MODE` is the canonical config-resolution variable; `X_GW_AUTH_MODE` must no longer be overloaded with that meaning.
 - Capability inventory entries must be conservative about bearer-token support until a reviewed user-context flow exists in code and tests.

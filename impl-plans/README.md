@@ -79,18 +79,20 @@ Large features are split into multiple related plans with cross-references.
 
 | Plan | Status | Design Reference | Last Updated |
 |------|--------|------------------|--------------|
-| `active/x-gateway-capability-execution-registry.md` | Completed | `design-docs/specs/architecture.md#stable-contract-with-internal-adapters` | 2026-03-08 |
+| `active/x-gateway-capability-execution-registry.md` | Completed | `design-docs/specs/architecture.md#stable-contract-with-internal-adapters` | 2026-04-05 |
 | `active/x-gateway-capability-runtime-extraction.md` | Completed | `design-docs/specs/architecture.md#module-boundaries-planned` | 2026-03-08 |
 | `active/x-gateway-layered-module-extraction.md` | Completed | `design-docs/specs/architecture.md#module-boundaries-planned` | 2026-03-08 |
 | `active/x-gateway-registry-driven-routing.md` | Completed | `design-docs/specs/architecture.md#stable-contract-with-internal-adapters` | 2026-03-08 |
 | `active/x-gateway-raw-graphql-isolation.md` | Completed | `design-docs/specs/architecture.md#module-boundaries-planned` | 2026-03-08 |
-| `active/x-gateway-stable-execution-module-extraction.md` | Completed | `design-docs/specs/architecture.md#module-boundaries-planned` | 2026-03-08 |
+| `active/x-gateway-stable-execution-module-extraction.md` | Completed | `design-docs/specs/architecture.md#module-boundaries-planned` | 2026-04-05 |
 | `active/x-gateway-transport-adapter-extraction.md` | Completed | `design-docs/specs/architecture.md#module-boundaries-planned` | 2026-03-08 |
 | `active/x-gateway-likes-list-baseline.md` | Blocked | `design-docs/specs/architecture.md#capability-matrix-implementation-target` | 2026-03-08 |
 | `active/x-gateway-contract-coherence-hardening.md` | Completed | `design-docs/specs/architecture.md#stable-contract-with-internal-adapters` | 2026-03-08 |
 | `active/x-gateway-stable-capability-coherence.md` | Completed | `design-docs/specs/architecture.md#stable-contract-with-internal-adapters` | 2026-03-08 |
 | `active/x-gateway-surface-category-clarification.md` | Completed | `design-docs/specs/architecture.md#stable-contract-with-internal-adapters` | 2026-03-08 |
-| `active/x-gateway-canonical-public-graphql-interface.md` | In Progress | `design-docs/specs/architecture.md#stable-contract-with-internal-adapters`, `design-docs/specs/command.md#project-owned-graphql-contract`, `design-docs/specs/design-public-graphql-contract.md` | 2026-03-08 |
+| `active/x-gateway-canonical-public-graphql-interface.md` | In Progress | `design-docs/specs/architecture.md#stable-contract-with-internal-adapters`, `design-docs/specs/command.md#project-owned-graphql-contract`, `design-docs/specs/design-public-graphql-contract.md` | 2026-04-05 |
+| `active/x-gateway-graphql-cli-namespace.md` | Completed | `design-docs/specs/design-graphql-command-surface.md`, `design-docs/specs/command.md#project-owned-graphql-contract` | 2026-04-05 |
+| `active/x-gateway-sdk-graphql-surface-alignment.md` | Completed | `design-docs/specs/architecture.md#overview`, `design-docs/specs/design-public-graphql-contract.md#contract-rules`, `design-docs/specs/design-graphql-command-surface.md` | 2026-04-05 |
 
 ## Completed Plans
 
@@ -138,7 +140,9 @@ PHASE_TO_PLANS = {
     "active/x-gateway-contract-coherence-hardening.md",
     "active/x-gateway-stable-capability-coherence.md",
     "active/x-gateway-surface-category-clarification.md",
-    "active/x-gateway-canonical-public-graphql-interface.md"
+    "active/x-gateway-canonical-public-graphql-interface.md",
+    "active/x-gateway-graphql-cli-namespace.md",
+    "active/x-gateway-sdk-graphql-surface-alignment.md"
   ],
   2: [
     # Add Phase 2 plan files here

@@ -28,6 +28,7 @@ x-gateway-reader graphql schema
 - `graphql schema` prints the project-owned GraphQL schema exposed by this repository.
 - The positional `<query>` argument is required and should be passed as a single shell-quoted argument.
 - The public `graphql` namespace does not expose upstream GraphQL transport parameters or persisted-query concepts.
+- The SDK should use matching terminology via `createXGatewayClient().graphqlQuery({ query })`.
 
 ## Migration
 

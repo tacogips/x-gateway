@@ -3,7 +3,7 @@ import { printSchema } from "graphql";
 import {
   XGatewayError,
   createXGatewayClient,
-  inferApiRequestOperationType,
+  inferGraphqlQueryOperationType,
   toCommandError,
   type XGatewayConfigMode,
   type XGatewayConfig,
@@ -47,7 +47,6 @@ const GLOBAL_FLAG_NAMES = new Set([
   "retry-base-ms",
   "retry-max-ms",
   "strict-capability-checks",
-  "days",
   "token",
   "consumer-key",
   "consumer-secret",
@@ -263,11 +262,6 @@ function allowedCommandFlagNames(
   const allowed = new Set(GLOBAL_FLAG_NAMES);
 
   if (group === undefined) {
-    return allowed;
-  }
-
-  if (group === "api" && action === "request") {
-    allowed.add("query");
     return allowed;
   }
 
@@ -487,19 +481,11 @@ function ensureMutableCommand(
     return;
   }
 
-  const blocked =
-    (group === "api" && action === "request" && operationType === "mutation") ||
-    (group === "post" && action !== undefined && action !== "get") ||
-    (group === "media" && (action === "upload" || action === "alt-text")) ||
-    (group === "follows" && (action === "add" || action === "remove")) ||
-    (group === "likes" && (action === "add" || action === "remove")) ||
-    (group === "bookmarks" && (action === "add" || action === "remove")) ||
-    (group === "dm" && action === "send") ||
-    (group === "graphql" &&
-      action === "query" &&
-      operationType === "mutation");
-
-  if (blocked) {
+  if (
+    group === "graphql" &&
+    action === "query" &&
+    operationType === "mutation"
+  ) {
     const attempted = action ? `${group} ${action}` : group;
     throw createReadOnlyCommandError(commandName, attempted);
   }
@@ -664,7 +650,7 @@ async function executeParsedCli(
 
   const operationType =
     group === "graphql" && action === "query"
-      ? inferApiRequestOperationType(readGraphqlQueryDocument(parsed))
+      ? inferGraphqlQueryOperationType(readGraphqlQueryDocument(parsed))
       : ("query" as XGatewayOperationType);
   ensureMutableCommand(
     options.surface,
@@ -683,7 +669,7 @@ async function executeParsedCli(
       const query = readGraphqlQueryDocument(parsed);
       const { traceId } = globalFlags;
       const client = createXGatewayClient(globalFlags.config);
-      return client.apiRequest({
+      return client.graphqlQuery({
         query,
         ...(traceId === undefined ? {} : { traceId }),
       });

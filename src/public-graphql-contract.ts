@@ -24,16 +24,16 @@ import { validatePostAttachments } from "./post-attachments";
 type ValidationErrorFactory = (message: string) => Error;
 type PayloadErrorFactory = (fieldName: string, detail: string) => Error;
 
-type PublicApiOperationType = "query" | "mutation";
+type PublicGraphqlOperationType = "query" | "mutation";
 
-type PublicApiRequestInput = Readonly<{
+type PublicGraphqlQueryInput = Readonly<{
   query: string;
   traceId?: string;
 }>;
 
-export type PlannedPublicApiRequest = Readonly<{
+export type PlannedPublicGraphqlQuery = Readonly<{
   capabilityId: StableCapabilityId;
-  operationType: PublicApiOperationType;
+  operationType: PublicGraphqlOperationType;
   fieldName: string;
   arguments: Readonly<Record<string, PublicGraphqlValue>>;
   selections: readonly PublicGraphqlSelection[];
@@ -45,10 +45,10 @@ export type PlannedPublicApiRequest = Readonly<{
   traceId?: string;
 }>;
 
-type PublicApiFieldDefinition = Readonly<{
+type PublicGraphqlFieldDefinition = Readonly<{
   fieldName: string;
   capabilityId: StableCapabilityId;
-  operationType: PublicApiOperationType;
+  operationType: PublicGraphqlOperationType;
   allowedArgumentNames: readonly string[];
   selectionSchema: PublicSelectionSchema;
   buildCapabilityInput: (
@@ -57,7 +57,7 @@ type PublicApiFieldDefinition = Readonly<{
   normalizeResult: (value: unknown, fieldName: string) => unknown;
 }>;
 
-let publicApiFieldRegistryValidated = false;
+let publicGraphqlFieldRegistryValidated = false;
 
 type PublicSelectionSchema =
   | Readonly<{ kind: "scalar"; optional?: boolean }>
@@ -114,7 +114,7 @@ function buildSelectionSchemaFromOutputType(
   );
 }
 
-function getPublicRootType(operationType: PublicApiOperationType) {
+function getPublicRootType(operationType: PublicGraphqlOperationType) {
   const rootType =
     operationType === "query"
       ? PUBLIC_GRAPHQL_SCHEMA.getQueryType()
@@ -129,7 +129,7 @@ function getPublicRootType(operationType: PublicApiOperationType) {
 
 function readSchemaFieldArgumentNames(
   fieldName: string,
-  operationType: PublicApiOperationType,
+  operationType: PublicGraphqlOperationType,
 ): readonly string[] {
   const fieldDefinition =
     getPublicRootType(operationType).getFields()[fieldName];
@@ -143,7 +143,7 @@ function readSchemaFieldArgumentNames(
 
 function readSchemaFieldSelectionSchema(
   fieldName: string,
-  operationType: PublicApiOperationType,
+  operationType: PublicGraphqlOperationType,
 ): PublicSelectionSchema {
   const fieldDefinition =
     getPublicRootType(operationType).getFields()[fieldName];
@@ -614,10 +614,10 @@ function validateSelectionsAgainstSchema(
   }
 }
 
-function createPublicApiFieldRegistry(
+function createPublicGraphqlFieldRegistry(
   createValidationError: ValidationErrorFactory,
   createPayloadError: PayloadErrorFactory,
-): readonly PublicApiFieldDefinition[] {
+): readonly PublicGraphqlFieldDefinition[] {
   const accountMeAllowedArgumentNames = readSchemaFieldArgumentNames(
     "accountMe",
     "query",
@@ -1095,10 +1095,10 @@ function createPublicApiFieldRegistry(
   ];
 }
 
-function ensurePublicApiFieldRegistryCoherent(
-  fieldRegistry: readonly PublicApiFieldDefinition[],
+function ensurePublicGraphqlFieldRegistryCoherent(
+  fieldRegistry: readonly PublicGraphqlFieldDefinition[],
 ): void {
-  if (publicApiFieldRegistryValidated) {
+  if (publicGraphqlFieldRegistryValidated) {
     return;
   }
 
@@ -1184,19 +1184,19 @@ function ensurePublicApiFieldRegistryCoherent(
     }
   }
 
-  publicApiFieldRegistryValidated = true;
+  publicGraphqlFieldRegistryValidated = true;
 }
 
-export function createPublicApiRequestPlan(
-  input: PublicApiRequestInput,
+export function createPublicGraphqlQueryPlan(
+  input: PublicGraphqlQueryInput,
   createValidationError: ValidationErrorFactory,
   createPayloadError: PayloadErrorFactory,
-): PlannedPublicApiRequest {
-  const fieldRegistry = createPublicApiFieldRegistry(
+): PlannedPublicGraphqlQuery {
+  const fieldRegistry = createPublicGraphqlFieldRegistry(
     createValidationError,
     createPayloadError,
   );
-  ensurePublicApiFieldRegistryCoherent(fieldRegistry);
+  ensurePublicGraphqlFieldRegistryCoherent(fieldRegistry);
   const document = parsePublicGraphqlDocument(
     input.query,
     createValidationError,

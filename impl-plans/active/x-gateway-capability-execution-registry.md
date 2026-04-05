@@ -3,7 +3,7 @@
 **Status**: Completed
 **Design Reference**: `design-docs/specs/architecture.md#stable-contract-with-internal-adapters`
 **Created**: 2026-03-08
-**Last Updated**: 2026-03-08
+**Last Updated**: 2026-04-05
 
 ---
 
@@ -14,12 +14,12 @@
 - `design-docs/specs/design-public-graphql-contract.md`
 
 ### Summary
-The repository already has a project-owned public GraphQL field registry and a reviewed route-planning registry, but stable capability execution is still duplicated between direct SDK helpers and `apiRequest`. This plan introduces one internal execution registry so capability selection remains the single source of truth after planning.
+The repository already has a project-owned public GraphQL field registry and a reviewed route-planning registry, but stable capability execution was duplicated between direct SDK helpers and the public GraphQL query path. This plan introduces one internal execution registry so capability selection remains the single source of truth after planning.
 
 ### Scope
 **Included**:
 - one shared stable-capability execution registry in `src/lib.ts`
-- refactor of stable SDK helpers and `apiRequest` to dispatch through that registry
+- refactor of stable SDK helpers and `graphqlQuery(...)` to dispatch through that registry
 - regression verification for the refactor
 
 **Excluded**:
@@ -45,10 +45,10 @@ The repository already has a project-owned public GraphQL field registry and a r
 **Status**: Completed
 **Parallelizable**: No (depends on TASK-001)
 **Deliverables**:
-- `src/lib.ts` shared executor used by direct SDK helpers and `apiRequest`
+- `src/lib.ts` shared executor used by direct SDK helpers and `graphqlQuery(...)`
 
 **Completion Criteria**:
-- [x] `apiRequest` no longer needs a per-capability execution switch
+- [x] `graphqlQuery(...)` no longer needs a per-capability execution switch
 - [x] Stable SDK helpers dispatch through the same executor path
 - [x] Public GraphQL execution remains isolated from raw GraphQL passthrough
 
