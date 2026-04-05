@@ -496,7 +496,7 @@ function ensureMutableCommand(
     (group === "bookmarks" && (action === "add" || action === "remove")) ||
     (group === "dm" && action === "send") ||
     (group === "graphql" &&
-      action === "request" &&
+      action === "query" &&
       operationType === "mutation");
 
   if (blocked) {

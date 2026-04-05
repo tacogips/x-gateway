@@ -1,5 +1,33 @@
 import { buildSchema } from "graphql";
 
+const ACCOUNT_TYPE_DEFINITION = /* GraphQL */ `
+  type Account {
+    id: String!
+    username: String!
+    name: String!
+  }
+`;
+
+const POST_SHARED_FIELDS = /* GraphQL */ `
+    id: String!
+    text: String!
+    createdAt: String
+    conversationId: String
+    replyToUserId: String
+    author: Account
+    media: [MediaAsset!]
+`;
+
+const MEDIA_TYPE_DEFINITION = /* GraphQL */ `
+  type MediaAsset {
+    kind: String!
+    contentType: String!
+    sourceUrl: String!
+    localFilePath: String
+    previewImageUrl: String
+  }
+`;
+
 export const PUBLIC_GRAPHQL_TYPE_DEFS = /* GraphQL */ `
   input PostAttachmentInput {
     kind: String!
@@ -7,30 +35,28 @@ export const PUBLIC_GRAPHQL_TYPE_DEFS = /* GraphQL */ `
     altText: String
   }
 
-  type Account {
-    id: String!
-    username: String!
-    name: String!
-  }
+  ${ACCOUNT_TYPE_DEFINITION}
+  ${MEDIA_TYPE_DEFINITION}
 
   type ReferencedPost {
-    id: String!
-    text: String!
-    createdAt: String
-    conversationId: String
-    replyToUserId: String
-    author: Account
+${POST_SHARED_FIELDS}
+    relation: String!
+    replyTo: ReferencedPostLevel2
+    quote: ReferencedPostLevel2
+    repost: ReferencedPostLevel2
+  }
+
+  type ReferencedPostLevel2 {
+${POST_SHARED_FIELDS}
     relation: String!
   }
 
   type Post {
-    id: String!
-    text: String!
-    createdAt: String
-    conversationId: String
-    replyToUserId: String
-    author: Account
+${POST_SHARED_FIELDS}
     referencedPosts: [ReferencedPost!]
+    replyTo: ReferencedPost
+    quote: ReferencedPost
+    repost: ReferencedPost
   }
 
   type PageInfo {
@@ -89,22 +115,42 @@ export const PUBLIC_GRAPHQL_TYPE_DEFS = /* GraphQL */ `
   type Query {
     accountMe: Account!
     postUsage(days: Int): PostUsage!
-    post(id: String!): Post!
+    post(
+      id: String!
+      mediaRootDir: String
+      downloadMedia: Boolean
+      forceDownload: Boolean
+    ): Post!
     searchPosts(
       query: String!
       maxResults: Int
       paginationToken: String
+      mediaRootDir: String
+      downloadMedia: Boolean
+      forceDownload: Boolean
     ): PostPage!
-    homeTimeline(maxResults: Int, paginationToken: String): PostPage!
+    homeTimeline(
+      maxResults: Int
+      paginationToken: String
+      mediaRootDir: String
+      downloadMedia: Boolean
+      forceDownload: Boolean
+    ): PostPage!
     userTimeline(
       userId: String!
       maxResults: Int
       paginationToken: String
+      mediaRootDir: String
+      downloadMedia: Boolean
+      forceDownload: Boolean
     ): PostPage!
     mentionsTimeline(
       userId: String!
       maxResults: Int
       paginationToken: String
+      mediaRootDir: String
+      downloadMedia: Boolean
+      forceDownload: Boolean
     ): PostPage!
   }
 

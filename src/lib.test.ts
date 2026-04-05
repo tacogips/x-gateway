@@ -1,3 +1,12 @@
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { printSchema } from "graphql";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { executeCli } from "./cli";
@@ -46,10 +55,13 @@ vi.mock("twitter-api-v2", () => {
     text: string;
     author_id: string;
     created_at?: string;
+    attachments?: Readonly<{
+      media_keys?: readonly string[];
+    }>;
     conversation_id?: string;
     in_reply_to_user_id?: string;
     referenced_tweets?: readonly Readonly<{
-      type: "quoted" | "replied_to";
+      type: "quoted" | "replied_to" | "retweeted";
       id: string;
     }>[];
   }>;
@@ -60,10 +72,24 @@ vi.mock("twitter-api-v2", () => {
     name: string;
   }>;
 
+  type MockMedia = Readonly<{
+    media_key: string;
+    type: "photo" | "video" | "animated_gif";
+    url?: string;
+    preview_image_url?: string;
+    variants?: readonly Readonly<{
+      bit_rate?: number;
+      content_type: string;
+      url: string;
+    }>[];
+  }>;
+
   type MockTimelinePayload = Readonly<{
     data: readonly MockTweet[];
     includes: {
+      media?: readonly MockMedia[];
       users: readonly MockUser[];
+      tweets?: readonly MockTweet[];
     };
     meta: {
       result_count: number;
@@ -94,6 +120,7 @@ vi.mock("twitter-api-v2", () => {
   class TwitterV2IncludesHelper {
     readonly result: {
       includes?: {
+        media?: readonly MockMedia[];
         tweets?: readonly MockTweet[];
         users?: readonly MockUser[];
       };
@@ -101,6 +128,7 @@ vi.mock("twitter-api-v2", () => {
 
     constructor(result: {
       includes?: {
+        media?: readonly MockMedia[];
         tweets?: readonly MockTweet[];
         users?: readonly MockUser[];
       };
@@ -116,6 +144,13 @@ vi.mock("twitter-api-v2", () => {
 
     tweetById(id: string): MockTweet | undefined {
       return this.result.includes?.tweets?.find((tweet) => tweet.id === id);
+    }
+
+    medias(tweet: MockTweet): readonly MockMedia[] {
+      const mediaKeys = tweet.attachments?.media_keys ?? [];
+      return (this.result.includes?.media ?? []).filter((media) =>
+        mediaKeys.includes(media.media_key),
+      );
     }
   }
 
@@ -212,6 +247,16 @@ vi.mock("twitter-api-v2", () => {
         userId: string,
         options?: { max_results?: number; pagination_token?: string },
       ) => Promise<{ data: MockTimelinePayload }>;
+      tweets: (
+        ids: readonly string[] | string,
+      ) => Promise<{
+        data: readonly MockTweet[];
+        includes: {
+          media?: readonly MockMedia[];
+          users: readonly MockUser[];
+          tweets?: readonly MockTweet[];
+        };
+      }>;
       me: () => Promise<{
         data: { id: string; username: string; name: string };
       }>;
@@ -223,31 +268,15 @@ vi.mock("twitter-api-v2", () => {
           created_at: string;
           conversation_id: string;
           in_reply_to_user_id: string;
-          referenced_tweets: readonly [
-            { type: "quoted"; id: string },
-            { type: "replied_to"; id: string },
-          ];
+          referenced_tweets: readonly Readonly<{
+            type: "quoted" | "replied_to" | "retweeted";
+            id: string;
+          }>[];
         };
         includes: {
-          tweets: readonly [
-            {
-              id: string;
-              text: string;
-              author_id: string;
-              conversation_id: string;
-            },
-            {
-              id: string;
-              text: string;
-              author_id: string;
-              conversation_id: string;
-            },
-          ];
-          users: readonly [
-            { id: string; username: string; name: string },
-            { id: string; username: string; name: string },
-            { id: string; username: string; name: string },
-          ];
+          media?: readonly MockMedia[];
+          tweets: readonly MockTweet[];
+          users: readonly MockUser[];
         };
       }>;
       userLikedTweets: (
@@ -308,6 +337,153 @@ vi.mock("twitter-api-v2", () => {
         data: { retweeted: boolean; userId: string; postId: string };
       }>;
     } {
+      const mockUsersById: Readonly<Record<string, MockUser>> = {
+        "author-1": {
+          id: "author-1",
+          username: "author_one",
+          name: "Author One",
+        },
+        "author-2": {
+          id: "author-2",
+          username: "author_two",
+          name: "Author Two",
+        },
+        "author-3": {
+          id: "author-3",
+          username: "author_three",
+          name: "Author Three",
+        },
+        "author-4": {
+          id: "author-4",
+          username: "author_four",
+          name: "Author Four",
+        },
+        "author-5": {
+          id: "author-5",
+          username: "author_five",
+          name: "Author Five",
+        },
+      };
+      const mockMediaByKey: Readonly<Record<string, MockMedia>> = {
+        "media-photo-quoted-1": {
+          media_key: "media-photo-quoted-1",
+          type: "photo",
+          url: "https://example.test/media/quoted-1.jpg",
+        },
+        "media-photo-retweet-1": {
+          media_key: "media-photo-retweet-1",
+          type: "photo",
+          url: "https://example.test/media/retweet-1.jpg",
+        },
+        "media-video-retweet-2": {
+          media_key: "media-video-retweet-2",
+          type: "video",
+          preview_image_url: "https://example.test/media/retweet-2-preview.jpg",
+          variants: [
+            {
+              bit_rate: 256000,
+              content_type: "video/mp4",
+              url: "https://example.test/media/retweet-2-low.mp4",
+            },
+            {
+              bit_rate: 1024000,
+              content_type: "video/mp4",
+              url: "https://example.test/media/retweet-2-high.mp4",
+            },
+          ],
+        },
+      };
+      const mockTweetsById: Readonly<Record<string, MockTweet>> = {
+        "quoted-1": {
+          id: "quoted-1",
+          text: "quoted text",
+          author_id: "author-3",
+          attachments: {
+            media_keys: ["media-photo-quoted-1"],
+          },
+          conversation_id: "conversation-quoted",
+        },
+        "reply-1": {
+          id: "reply-1",
+          text: "reply source",
+          author_id: "author-2",
+          conversation_id: "conversation-reply",
+        },
+        "retweet-1": {
+          id: "retweet-1",
+          text: "repost source",
+          author_id: "author-4",
+          attachments: {
+            media_keys: ["media-photo-retweet-1"],
+          },
+          conversation_id: "conversation-repost-1",
+          referenced_tweets: [{ type: "retweeted", id: "retweet-2" }],
+        },
+        "retweet-2": {
+          id: "retweet-2",
+          text: "repost source nested",
+          author_id: "author-5",
+          attachments: {
+            media_keys: ["media-video-retweet-2"],
+          },
+          conversation_id: "conversation-repost-2",
+        },
+      };
+      const buildTweetsLookupPayload = (
+        idsInput: readonly string[] | string,
+      ): {
+        data: readonly MockTweet[];
+        includes: {
+          media?: readonly MockMedia[];
+          users: readonly MockUser[];
+          tweets?: readonly MockTweet[];
+        };
+      } => {
+        const ids =
+          typeof idsInput === "string"
+            ? idsInput.split(",").map((value: string) => value.trim())
+            : [...idsInput];
+        const data = ids.flatMap((id) => {
+          const tweet = mockTweetsById[id];
+          return tweet === undefined ? [] : [tweet];
+        });
+        const includedTweetIds = new Set<string>();
+        for (const tweet of data) {
+          for (const reference of tweet.referenced_tweets ?? []) {
+            includedTweetIds.add(reference.id);
+          }
+        }
+        const includedTweets = [...includedTweetIds].flatMap((id) => {
+          const tweet = mockTweetsById[id];
+          return tweet === undefined ? [] : [tweet];
+        });
+        const includedUserIds = new Set<string>();
+        for (const tweet of [...data, ...includedTweets]) {
+          includedUserIds.add(tweet.author_id);
+        }
+        const users = [...includedUserIds].flatMap((id) => {
+          const user = mockUsersById[id];
+          return user === undefined ? [] : [user];
+        });
+        const includedMediaKeys = new Set<string>();
+        for (const tweet of [...data, ...includedTweets]) {
+          for (const mediaKey of tweet.attachments?.media_keys ?? []) {
+            includedMediaKeys.add(mediaKey);
+          }
+        }
+        const media = [...includedMediaKeys].flatMap((mediaKey) => {
+          const mediaObject = mockMediaByKey[mediaKey];
+          return mediaObject === undefined ? [] : [mediaObject];
+        });
+        return {
+          data,
+          includes: {
+            ...(media.length === 0 ? {} : { media }),
+            users,
+            ...(includedTweets.length === 0 ? {} : { tweets: includedTweets }),
+          },
+        };
+      };
       const buildTimelinePayload = (
         prefix: string,
         count: number,
@@ -423,9 +599,54 @@ vi.mock("twitter-api-v2", () => {
           });
           const count = options?.max_results ?? 5;
           const page = options?.pagination_token === "page-2" ? 2 : 1;
+          if (userId === "nested-user") {
+            return {
+              data: {
+                data: [
+                  {
+                    id: "user-nested-user-1",
+                    text: "user nested post 1",
+                    author_id: "author-1",
+                    created_at: "2026-03-08T01:00:00.000Z",
+                    conversation_id: "user-nested-conversation-1",
+                    referenced_tweets: [
+                      { type: "quoted", id: "quoted-1" },
+                      { type: "retweeted", id: "retweet-1" },
+                    ],
+                  },
+                ],
+                includes: {
+                  media: [
+                    mockMediaByKey["media-photo-quoted-1"]!,
+                    mockMediaByKey["media-photo-retweet-1"]!,
+                  ],
+                  tweets: [mockTweetsById["quoted-1"]!, mockTweetsById["retweet-1"]!],
+                  users: [
+                    mockUsersById["author-1"]!,
+                    mockUsersById["author-3"]!,
+                    mockUsersById["author-4"]!,
+                  ],
+                },
+                meta: {
+                  result_count: 1,
+                  newest_id: "user-nested-user-1",
+                  oldest_id: "user-nested-user-1",
+                },
+              },
+            };
+          }
           return {
             data: buildTimelinePayload(`user-${userId}`, count, page),
           };
+        },
+        tweets: async (ids: readonly string[] | string) => {
+          if (this.auth === "bad-token") {
+            throw new ApiResponseError("Unauthorized", {
+              code: 401,
+              data: { title: "Unauthorized", detail: "Token expired" },
+            });
+          }
+          return buildTweetsLookupPayload(ids);
         },
         userMentionTimeline: async (
           userId: string,
@@ -483,6 +704,48 @@ vi.mock("twitter-api-v2", () => {
               data: { title: "Unauthorized", detail: "Token expired" },
             });
           }
+          if (postId === "post-42") {
+            return {
+              data: {
+                id: postId,
+                text: `post ${postId}`,
+                author_id: "author-1",
+                created_at: "2026-03-08T00:00:00.000Z",
+                conversation_id: "conversation-1",
+                in_reply_to_user_id: "author-2",
+                referenced_tweets: [
+                  { type: "quoted", id: "quoted-1" },
+                  { type: "replied_to", id: "reply-1" },
+                  { type: "retweeted", id: "retweet-1" },
+                ],
+              },
+              includes: {
+                media: [
+                  mockMediaByKey["media-photo-quoted-1"]!,
+                  mockMediaByKey["media-photo-retweet-1"]!,
+                ],
+                tweets: [
+                  mockTweetsById["quoted-1"]!,
+                  mockTweetsById["reply-1"]!,
+                  {
+                    id: "retweet-1",
+                    text: "repost source",
+                    author_id: "author-4",
+                    attachments: {
+                      media_keys: ["media-photo-retweet-1"],
+                    },
+                    conversation_id: "conversation-repost-1",
+                  },
+                ],
+                users: [
+                  mockUsersById["author-1"]!,
+                  mockUsersById["author-2"]!,
+                  mockUsersById["author-3"]!,
+                  mockUsersById["author-4"]!,
+                ],
+              },
+            };
+          }
           return {
             data: {
               id: postId,
@@ -497,28 +760,12 @@ vi.mock("twitter-api-v2", () => {
               ],
             },
             includes: {
-              tweets: [
-                {
-                  id: "quoted-1",
-                  text: "quoted text",
-                  author_id: "author-3",
-                  conversation_id: "conversation-quoted",
-                },
-                {
-                  id: "reply-1",
-                  text: "reply source",
-                  author_id: "author-2",
-                  conversation_id: "conversation-reply",
-                },
-              ],
+              media: [mockMediaByKey["media-photo-quoted-1"]!],
+              tweets: [mockTweetsById["quoted-1"]!, mockTweetsById["reply-1"]!],
               users: [
-                { id: "author-1", username: "author_one", name: "Author One" },
-                { id: "author-2", username: "author_two", name: "Author Two" },
-                {
-                  id: "author-3",
-                  username: "author_three",
-                  name: "Author Three",
-                },
+                mockUsersById["author-1"]!,
+                mockUsersById["author-2"]!,
+                mockUsersById["author-3"]!,
               ],
             },
           };
@@ -637,6 +884,7 @@ const ENV_KEYS = [
   "X_GW_CONSUMER_SECRET",
   "X_GW_ACCESS_TOKEN",
   "X_GW_ACCESS_TOKEN_SECRET",
+  "X_GW_MEDIA_ROOT_DIR",
   "X_GW_TIMEOUT_MS",
   "X_GW_RETRY",
   "X_GW_RETRY_BACKOFF",
@@ -665,6 +913,7 @@ describe("resolveConfig", () => {
   test("uses X_GW_ env vars when parameters are omitted", () => {
     process.env["X_GW_TOKEN"] = "env-token";
     process.env["X_GW_TIMEOUT_MS"] = "45000";
+    process.env["X_GW_MEDIA_ROOT_DIR"] = "/tmp/x-media-env";
     process.env["X_GW_RETRY"] = "3";
     process.env["X_GW_RETRY_BACKOFF"] = "fixed";
     process.env["X_GW_RETRY_BASE_MS"] = "200";
@@ -673,6 +922,7 @@ describe("resolveConfig", () => {
     const resolved = resolveConfig();
 
     expect(resolved.auth.token).toBe("env-token");
+    expect(resolved.mediaRootDir).toBe("/tmp/x-media-env");
     expect(resolved.timeoutMs).toBe(45000);
     expect(resolved.retry.retries).toBe(3);
     expect(resolved.retry.backoff).toBe("fixed");
@@ -1041,7 +1291,7 @@ describe("createXGatewayClient", () => {
     await expect(
       client.apiRequest({
         query:
-          'query { post(id: "post-42") { id text author { username } referencedPosts { relation id } } }',
+          'query { post(id: "post-42") { id text author { username } quote { id text author { username } } repost { id text repost { id text author { username } } } referencedPosts { relation id } } }',
       }),
     ).resolves.toEqual({
       data: {
@@ -1050,6 +1300,24 @@ describe("createXGatewayClient", () => {
           text: "post post-42",
           author: {
             username: "author_one",
+          },
+          quote: {
+            id: "quoted-1",
+            text: "quoted text",
+            author: {
+              username: "author_three",
+            },
+          },
+          repost: {
+            id: "retweet-1",
+            text: "repost source",
+            repost: {
+              id: "retweet-2",
+              text: "repost source nested",
+              author: {
+                username: "author_five",
+              },
+            },
           },
           referencedPosts: [
             {
@@ -1060,7 +1328,349 @@ describe("createXGatewayClient", () => {
               relation: "replied_to",
               id: "reply-1",
             },
+            {
+              relation: "retweeted",
+              id: "retweet-1",
+            },
           ],
+        },
+      },
+    });
+  });
+
+  test("downloads media through the project-owned GraphQL post contract and returns local file paths", async () => {
+    process.env["X_GW_TOKEN"] = "bearer-token";
+    const mediaRootDir = mkdtempSync(join(tmpdir(), "x-gateway-media-"));
+    const fetchMock = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      return new Response(`downloaded:${url}`, {
+        status: 200,
+        headers: {
+          "content-type": url.endsWith(".mp4") ? "video/mp4" : "image/jpeg",
+        },
+      });
+    });
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    try {
+      const client = createXGatewayClient();
+
+      await expect(
+        client.apiRequest({
+          query: `query {
+            post(
+              id: "post-42"
+              mediaRootDir: "${mediaRootDir}"
+            ) {
+              quote {
+                id
+                media {
+                  kind
+                  sourceUrl
+                  localFilePath
+                }
+              }
+              repost {
+                id
+                media {
+                  kind
+                  sourceUrl
+                  localFilePath
+                }
+                repost {
+                  id
+                  media {
+                    kind
+                    contentType
+                    sourceUrl
+                    localFilePath
+                    previewImageUrl
+                  }
+                }
+              }
+            }
+          }`,
+        }),
+      ).resolves.toEqual({
+        data: {
+          post: {
+            quote: {
+              id: "quoted-1",
+              media: [
+                {
+                  kind: "photo",
+                  sourceUrl: "https://example.test/media/quoted-1.jpg",
+                  localFilePath: `${mediaRootDir}/quoted-1/quoted-1.jpg`,
+                },
+              ],
+            },
+            repost: {
+              id: "retweet-1",
+              media: [
+                {
+                  kind: "photo",
+                  sourceUrl: "https://example.test/media/retweet-1.jpg",
+                  localFilePath: `${mediaRootDir}/retweet-1/retweet-1.jpg`,
+                },
+              ],
+              repost: {
+                id: "retweet-2",
+                media: [
+                  {
+                    kind: "video",
+                    contentType: "video/mp4",
+                    sourceUrl: "https://example.test/media/retweet-2-high.mp4",
+                    localFilePath: `${mediaRootDir}/retweet-2/retweet-2-high.mp4`,
+                    previewImageUrl:
+                      "https://example.test/media/retweet-2-preview.jpg",
+                  },
+                ],
+              },
+            },
+          },
+        },
+      });
+
+      expect(readFileSync(`${mediaRootDir}/quoted-1/quoted-1.jpg`, "utf8")).toBe(
+        "downloaded:https://example.test/media/quoted-1.jpg",
+      );
+      expect(
+        readFileSync(`${mediaRootDir}/retweet-1/retweet-1.jpg`, "utf8"),
+      ).toBe("downloaded:https://example.test/media/retweet-1.jpg");
+      expect(
+        readFileSync(`${mediaRootDir}/retweet-2/retweet-2-high.mp4`, "utf8"),
+      ).toBe("downloaded:https://example.test/media/retweet-2-high.mp4");
+    } finally {
+      rmSync(mediaRootDir, { force: true, recursive: true });
+    }
+  });
+
+  test("supports disabling GraphQL media downloads while still returning source urls", async () => {
+    process.env["X_GW_TOKEN"] = "bearer-token";
+    const fetchMock = vi.fn();
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const client = createXGatewayClient();
+
+    await expect(
+      client.apiRequest({
+        query: `query {
+          post(
+            id: "post-42"
+            mediaRootDir: "/tmp/unused-media-root"
+            downloadMedia: false
+          ) {
+            quote {
+              media {
+                kind
+                sourceUrl
+                localFilePath
+              }
+            }
+            repost {
+              repost {
+                media {
+                  kind
+                  sourceUrl
+                  localFilePath
+                }
+              }
+            }
+          }
+        }`,
+      }),
+    ).resolves.toEqual({
+      data: {
+        post: {
+          quote: {
+            media: [
+              {
+                kind: "photo",
+                sourceUrl: "https://example.test/media/quoted-1.jpg",
+              },
+            ],
+          },
+          repost: {
+            repost: {
+              media: [
+                {
+                  kind: "video",
+                  sourceUrl: "https://example.test/media/retweet-2-high.mp4",
+                },
+              ],
+            },
+          },
+        },
+      },
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("reuses existing downloaded media by default instead of overwriting files", async () => {
+    process.env["X_GW_TOKEN"] = "bearer-token";
+    const mediaRootDir = mkdtempSync(join(tmpdir(), "x-gateway-media-"));
+    const existingFilePath = `${mediaRootDir}/quoted-1/quoted-1.jpg`;
+    mkdirSync(`${mediaRootDir}/quoted-1`, { recursive: true });
+    mkdirSync(`${mediaRootDir}/retweet-1`, { recursive: true });
+    mkdirSync(`${mediaRootDir}/retweet-2`, { recursive: true });
+    writeFileSync(existingFilePath, "already-downloaded", { encoding: "utf8" });
+    writeFileSync(`${mediaRootDir}/retweet-1/retweet-1.jpg`, "already-downloaded", {
+      encoding: "utf8",
+    });
+    writeFileSync(
+      `${mediaRootDir}/retweet-2/retweet-2-high.mp4`,
+      "already-downloaded",
+      { encoding: "utf8" },
+    );
+    const fetchMock = vi.fn();
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    try {
+      const client = createXGatewayClient();
+
+      await expect(
+        client.apiRequest({
+          query: `query {
+            post(
+              id: "post-42"
+              mediaRootDir: "${mediaRootDir}"
+            ) {
+              quote {
+                media {
+                  sourceUrl
+                  localFilePath
+                }
+              }
+            }
+          }`,
+        }),
+      ).resolves.toEqual({
+        data: {
+          post: {
+            quote: {
+              media: [
+                {
+                  sourceUrl: "https://example.test/media/quoted-1.jpg",
+                  localFilePath: existingFilePath,
+                },
+              ],
+            },
+          },
+        },
+      });
+
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(readFileSync(existingFilePath, "utf8")).toBe("already-downloaded");
+    } finally {
+      rmSync(mediaRootDir, { force: true, recursive: true });
+    }
+  });
+
+  test("forceDownload overwrites existing downloaded media when requested", async () => {
+    process.env["X_GW_TOKEN"] = "bearer-token";
+    const mediaRootDir = mkdtempSync(join(tmpdir(), "x-gateway-media-"));
+    const existingFilePath = `${mediaRootDir}/quoted-1/quoted-1.jpg`;
+    mkdirSync(`${mediaRootDir}/quoted-1`, { recursive: true });
+    mkdirSync(`${mediaRootDir}/retweet-1`, { recursive: true });
+    mkdirSync(`${mediaRootDir}/retweet-2`, { recursive: true });
+    writeFileSync(existingFilePath, "already-downloaded", { encoding: "utf8" });
+    writeFileSync(`${mediaRootDir}/retweet-1/retweet-1.jpg`, "already-downloaded", {
+      encoding: "utf8",
+    });
+    writeFileSync(
+      `${mediaRootDir}/retweet-2/retweet-2-high.mp4`,
+      "already-downloaded",
+      { encoding: "utf8" },
+    );
+    const fetchMock = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      return new Response(`refetched:${url}`, {
+        status: 200,
+        headers: {
+          "content-type": "image/jpeg",
+        },
+      });
+    });
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    try {
+      const client = createXGatewayClient();
+
+      await expect(
+        client.apiRequest({
+          query: `query {
+            post(
+              id: "post-42"
+              mediaRootDir: "${mediaRootDir}"
+              forceDownload: true
+            ) {
+              quote {
+                media {
+                  sourceUrl
+                  localFilePath
+                }
+              }
+            }
+          }`,
+        }),
+      ).resolves.toEqual({
+        data: {
+          post: {
+            quote: {
+              media: [
+                {
+                  sourceUrl: "https://example.test/media/quoted-1.jpg",
+                  localFilePath: existingFilePath,
+                },
+              ],
+            },
+          },
+        },
+      });
+
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+      expect(readFileSync(existingFilePath, "utf8")).toBe(
+        "refetched:https://example.test/media/quoted-1.jpg",
+      );
+    } finally {
+      rmSync(mediaRootDir, { force: true, recursive: true });
+    }
+  });
+
+  test("supports nested repost selections through paginated timeline fields", async () => {
+    process.env["X_GW_TOKEN"] = "bearer-token";
+
+    const client = createXGatewayClient();
+
+    await expect(
+      client.apiRequest({
+        query:
+          'query { userTimeline(userId: "nested-user", maxResults: 5) { posts { id quote { id text } repost { id repost { id text } } } pageInfo { resultCount newestId oldestId } } }',
+      }),
+    ).resolves.toEqual({
+      data: {
+        userTimeline: {
+          posts: [
+            {
+              id: "user-nested-user-1",
+              quote: {
+                id: "quoted-1",
+                text: "quoted text",
+              },
+              repost: {
+                id: "retweet-1",
+                repost: {
+                  id: "retweet-2",
+                  text: "repost source nested",
+                },
+              },
+            },
+          ],
+          pageInfo: {
+            resultCount: 1,
+            newestId: "user-nested-user-1",
+            oldestId: "user-nested-user-1",
+          },
         },
       },
     });
@@ -1212,7 +1822,7 @@ describe("createXGatewayClient", () => {
     await expect(
       client.apiRequest({
         query:
-          'query { post(id: "post-7") { id text author { username } conversationId } }',
+          'query { post(id: "  post-7  ") { id text author { username } conversationId } }',
       }),
     ).resolves.toEqual({
       data: {
@@ -2260,7 +2870,7 @@ describe("executeCli", () => {
         [
           "graphql",
           "query",
-          'query { post(id: "post-7") { id text author { username } } }',
+          'query { post(id: "  post-7  ") { id text author { username } } }',
         ],
         {
           commandName: "x-gateway",

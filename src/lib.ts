@@ -86,6 +86,7 @@ export type XGatewayConfig = Readonly<{
   configMode?: XGatewayConfigMode | undefined;
   authMode?: XGatewayAuthMode | undefined;
   auth?: XGatewayAuthConfig | undefined;
+  mediaRootDir?: string | undefined;
   timeoutMs?: number | undefined;
   retry?: XGatewayRetryConfig | undefined;
   strictCapabilityChecks?: boolean | undefined;
@@ -94,6 +95,7 @@ export type XGatewayConfig = Readonly<{
 export type XGatewayResolvedConfig = Readonly<{
   configMode: XGatewayConfigMode;
   auth: XGatewayAuthConfig;
+  mediaRootDir?: string;
   timeoutMs: number;
   retry: Readonly<{
     retries: number;
@@ -294,6 +296,12 @@ export function resolveConfig(
             clientId: paramAuth.clientId ?? envAuth.clientId,
             clientSecret: paramAuth.clientSecret ?? envAuth.clientSecret,
           };
+  const mediaRootDirRaw =
+    config.mediaRootDir ?? readEnv("X_GW_MEDIA_ROOT_DIR");
+  const mediaRootDir =
+    mediaRootDirRaw === undefined || mediaRootDirRaw.trim().length === 0
+      ? undefined
+      : mediaRootDirRaw.trim();
 
   const timeoutMs =
     validateOptionalInteger(config.timeoutMs, "config.timeoutMs", 1) ??
@@ -346,6 +354,7 @@ export function resolveConfig(
   return {
     configMode,
     auth: mergedAuth,
+    ...(mediaRootDir === undefined ? {} : { mediaRootDir }),
     timeoutMs,
     retry: {
       retries,
@@ -802,6 +811,16 @@ export type XGatewayPostAttachmentInput = Readonly<{
   altText?: string;
 }>;
 
+export type XGatewayMediaKind = "photo" | "video" | "animated_gif";
+
+export type XGatewayMediaAsset = Readonly<{
+  kind: XGatewayMediaKind;
+  contentType: string;
+  sourceUrl: string;
+  localFilePath?: string;
+  previewImageUrl?: string;
+}>;
+
 export type XGatewayPostCreateOptions = Readonly<{
   text: string;
   attachments?: readonly XGatewayPostAttachmentInput[];
@@ -809,6 +828,9 @@ export type XGatewayPostCreateOptions = Readonly<{
 
 export type XGatewayPostGetOptions = Readonly<{
   postId: string;
+  mediaRootDir?: string;
+  downloadMedia?: boolean;
+  forceDownload?: boolean;
 }>;
 
 export type XGatewayPostReplyOptions = Readonly<{
@@ -828,6 +850,11 @@ export type XGatewayPostSummary = Readonly<{
   createdAt?: string;
   conversationId?: string;
   replyToUserId?: string;
+  media?: readonly XGatewayMediaAsset[];
+  replyTo?: XGatewayReferencedPost;
+  quote?: XGatewayReferencedPost;
+  repost?: XGatewayReferencedPost;
+  referencedPosts?: readonly XGatewayReferencedPost[];
 }>;
 
 export type XGatewayPostReferenceRelation =
@@ -862,6 +889,9 @@ export type XGatewayPostPage = Readonly<{
 export type XGatewayTimelinePageOptions = Readonly<{
   maxResults?: number;
   paginationToken?: string;
+  mediaRootDir?: string;
+  downloadMedia?: boolean;
+  forceDownload?: boolean;
 }>;
 
 export type XGatewayTimelineSearchOptions = Readonly<
@@ -1008,6 +1038,9 @@ export function createXGatewayClient(
   const resolvedCapabilityAuth = createResolvedCapabilityAuth(resolved.auth);
   const capabilityAdapterFactories = createCapabilityAdapterFactories({
     auth: resolved.auth,
+    ...(resolved.mediaRootDir === undefined
+      ? {}
+      : { mediaRootDir: resolved.mediaRootDir }),
     createError,
     createValidationError,
     ensureRequired,

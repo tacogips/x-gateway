@@ -214,6 +214,89 @@ function readOptionalIntegerLiteral(
   return value;
 }
 
+function readOptionalBooleanLiteral(
+  args: Readonly<Record<string, PublicGraphqlValue>>,
+  name: string,
+  createValidationError: ValidationErrorFactory,
+): boolean | undefined {
+  const value = args[name];
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value !== "boolean") {
+    throw createValidationError(
+      `Public GraphQL argument '${name}' must be a boolean when provided.`,
+    );
+  }
+  return value;
+}
+
+function readOptionalTrimmedStringLiteral(
+  args: Readonly<Record<string, PublicGraphqlValue>>,
+  name: string,
+  createValidationError: ValidationErrorFactory,
+): string | undefined {
+  return args[name] === undefined
+    ? undefined
+    : readTrimmedStringLiteral(args, name, createValidationError);
+}
+
+function readOptionalMediaReadArguments(
+  args: Readonly<Record<string, PublicGraphqlValue>>,
+  createValidationError: ValidationErrorFactory,
+): Readonly<{
+  mediaRootDir?: string;
+  downloadMedia?: boolean;
+  forceDownload?: boolean;
+}> {
+  const mediaRootDir =
+    args["mediaRootDir"] === undefined
+      ? undefined
+      : readTrimmedStringLiteral(args, "mediaRootDir", createValidationError);
+  const downloadMedia = readOptionalBooleanLiteral(
+    args,
+    "downloadMedia",
+    createValidationError,
+  );
+  const forceDownload = readOptionalBooleanLiteral(
+    args,
+    "forceDownload",
+    createValidationError,
+  );
+  return {
+    ...(mediaRootDir === undefined ? {} : { mediaRootDir }),
+    ...(downloadMedia === undefined ? {} : { downloadMedia }),
+    ...(forceDownload === undefined ? {} : { forceDownload }),
+  };
+}
+
+function readOptionalPostPageArguments(
+  args: Readonly<Record<string, PublicGraphqlValue>>,
+  createValidationError: ValidationErrorFactory,
+): Readonly<{
+  maxResults?: number;
+  paginationToken?: string;
+  mediaRootDir?: string;
+  downloadMedia?: boolean;
+  forceDownload?: boolean;
+}> {
+  const maxResults = readOptionalIntegerLiteral(
+    args,
+    "maxResults",
+    createValidationError,
+  );
+  const paginationToken = readOptionalTrimmedStringLiteral(
+    args,
+    "paginationToken",
+    createValidationError,
+  );
+  return {
+    ...readOptionalMediaReadArguments(args, createValidationError),
+    ...(maxResults === undefined ? {} : { maxResults }),
+    ...(paginationToken === undefined ? {} : { paginationToken }),
+  };
+}
+
 function rejectUnexpectedArguments(
   fieldName: string,
   args: Readonly<Record<string, PublicGraphqlValue>>,
@@ -686,7 +769,8 @@ function createPublicApiFieldRegistry(
           createValidationError,
         );
         return {
-          postId: readStringLiteral(args, "id", createValidationError),
+          postId: readTrimmedStringLiteral(args, "id", createValidationError),
+          ...readOptionalMediaReadArguments(args, createValidationError),
         };
       },
       normalizeResult: (value, fieldName) =>
@@ -707,28 +791,7 @@ function createPublicApiFieldRegistry(
         );
         return {
           query: readTrimmedStringLiteral(args, "query", createValidationError),
-          ...(readOptionalIntegerLiteral(
-            args,
-            "maxResults",
-            createValidationError,
-          ) === undefined
-            ? {}
-            : {
-                maxResults: readOptionalIntegerLiteral(
-                  args,
-                  "maxResults",
-                  createValidationError,
-                ),
-              }),
-          ...(args["paginationToken"] === undefined
-            ? {}
-            : {
-                paginationToken: readTrimmedStringLiteral(
-                  args,
-                  "paginationToken",
-                  createValidationError,
-                ),
-              }),
+          ...readOptionalPostPageArguments(args, createValidationError),
         };
       },
       normalizeResult: (value, fieldName) =>
@@ -748,28 +811,7 @@ function createPublicApiFieldRegistry(
           createValidationError,
         );
         return {
-          ...(readOptionalIntegerLiteral(
-            args,
-            "maxResults",
-            createValidationError,
-          ) === undefined
-            ? {}
-            : {
-                maxResults: readOptionalIntegerLiteral(
-                  args,
-                  "maxResults",
-                  createValidationError,
-                ),
-              }),
-          ...(args["paginationToken"] === undefined
-            ? {}
-            : {
-                paginationToken: readTrimmedStringLiteral(
-                  args,
-                  "paginationToken",
-                  createValidationError,
-                ),
-              }),
+          ...readOptionalPostPageArguments(args, createValidationError),
         };
       },
       normalizeResult: (value, fieldName) =>
@@ -794,28 +836,7 @@ function createPublicApiFieldRegistry(
             "userId",
             createValidationError,
           ),
-          ...(readOptionalIntegerLiteral(
-            args,
-            "maxResults",
-            createValidationError,
-          ) === undefined
-            ? {}
-            : {
-                maxResults: readOptionalIntegerLiteral(
-                  args,
-                  "maxResults",
-                  createValidationError,
-                ),
-              }),
-          ...(args["paginationToken"] === undefined
-            ? {}
-            : {
-                paginationToken: readTrimmedStringLiteral(
-                  args,
-                  "paginationToken",
-                  createValidationError,
-                ),
-              }),
+          ...readOptionalPostPageArguments(args, createValidationError),
         };
       },
       normalizeResult: (value, fieldName) =>
@@ -840,28 +861,7 @@ function createPublicApiFieldRegistry(
             "userId",
             createValidationError,
           ),
-          ...(readOptionalIntegerLiteral(
-            args,
-            "maxResults",
-            createValidationError,
-          ) === undefined
-            ? {}
-            : {
-                maxResults: readOptionalIntegerLiteral(
-                  args,
-                  "maxResults",
-                  createValidationError,
-                ),
-              }),
-          ...(args["paginationToken"] === undefined
-            ? {}
-            : {
-                paginationToken: readTrimmedStringLiteral(
-                  args,
-                  "paginationToken",
-                  createValidationError,
-                ),
-              }),
+          ...readOptionalPostPageArguments(args, createValidationError),
         };
       },
       normalizeResult: (value, fieldName) =>

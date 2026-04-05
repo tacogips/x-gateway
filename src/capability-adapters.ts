@@ -1,6 +1,18 @@
 import {
+  mkdir,
+  stat,
+  writeFile,
+} from "node:fs/promises";
+import {
+  basename,
+  extname,
+  join,
+  resolve,
+} from "node:path";
+import {
   TwitterApi,
   TwitterV2IncludesHelper,
+  type MediaObjectV2,
   type SendTweetV2Params,
   type TweetV2,
   type TweetV2SingleResult,
@@ -12,6 +24,7 @@ import type {
   XGatewayAuthConfig,
   XGatewayError,
   XGatewayErrorPayload,
+  XGatewayMediaAsset,
   XGatewayPostAttachmentInput,
   XGatewayPostPage,
   XGatewayPostCreateOptions,
@@ -42,10 +55,24 @@ import { validatePostAttachments } from "./post-attachments";
 const POST_LOOKUP_FIELDS: Partial<Tweetv2FieldsParams> = {
   expansions: [
     "author_id",
+    "attachments.media_keys",
     "referenced_tweets.id",
     "referenced_tweets.id.author_id",
+    "referenced_tweets.id.attachments.media_keys",
+  ],
+  "media.fields": [
+    "alt_text",
+    "duration_ms",
+    "height",
+    "media_key",
+    "preview_image_url",
+    "type",
+    "url",
+    "variants",
+    "width",
   ],
   "tweet.fields": [
+    "attachments",
     "author_id",
     "conversation_id",
     "created_at",
@@ -54,12 +81,23 @@ const POST_LOOKUP_FIELDS: Partial<Tweetv2FieldsParams> = {
   ],
   "user.fields": ["id", "name", "username"],
 } as const;
+const MAX_TWEET_LOOKUP_IDS = 100;
 
 type CapabilityAdapterDependencies = Readonly<{
   auth: XGatewayAuthConfig;
+  mediaRootDir?: string;
   createError: (payload: XGatewayErrorPayload) => XGatewayError;
   createValidationError: (message: string) => XGatewayError;
   ensureRequired: (value: string | undefined, fieldName: string) => string;
+}>;
+
+type V2TweetLookupPayload = Readonly<{
+  data?: readonly TweetV2[];
+  includes?: Readonly<{
+    media?: readonly MediaObjectV2[];
+    tweets?: readonly TweetV2[];
+    users?: readonly UserV2[];
+  }>;
 }>;
 
 type V2TimelineMeta = Readonly<{
@@ -73,6 +111,7 @@ type V2TimelineMeta = Readonly<{
 type V2TimelinePayload = Readonly<{
   data?: readonly TweetV2[];
   includes?: Readonly<{
+    media?: readonly MediaObjectV2[];
     tweets?: readonly TweetV2[];
     users?: readonly UserV2[];
   }>;
@@ -153,11 +192,280 @@ function mapOptionalAccountProfile(
   };
 }
 
-function mapPostSummary(
+type ExpandedTweetContext = Readonly<{
+  includesHelper: TwitterV2IncludesHelper;
+}>;
+
+type MediaReadOptions = Readonly<{
+  mediaRootDir?: string;
+  downloadMedia: boolean;
+  forceDownload: boolean;
+}>;
+
+function collectReferencedTweetIds(tweets: readonly TweetV2[]): readonly string[] {
+  const referencedTweetIds = new Set<string>();
+
+  for (const tweet of tweets) {
+    for (const reference of tweet.referenced_tweets ?? []) {
+      if (isSupportedPostReferenceRelation(reference.type)) {
+        referencedTweetIds.add(reference.id);
+      }
+    }
+  }
+
+  return [...referencedTweetIds];
+}
+
+async function fetchReferencedTweetPayloads(
+  client: TwitterApi,
+  tweets: readonly TweetV2[],
+): Promise<readonly V2TweetLookupPayload[]> {
+  const referencedTweetIds = collectReferencedTweetIds(tweets);
+  if (referencedTweetIds.length === 0) {
+    return [];
+  }
+
+  const payloads: V2TweetLookupPayload[] = [];
+  for (
+    let startIndex = 0;
+    startIndex < referencedTweetIds.length;
+    startIndex += MAX_TWEET_LOOKUP_IDS
+  ) {
+    const tweetIds = referencedTweetIds.slice(
+      startIndex,
+      startIndex + MAX_TWEET_LOOKUP_IDS,
+    );
+    const payload = await client.v2.tweets(tweetIds, POST_LOOKUP_FIELDS);
+    payloads.push(payload as V2TweetLookupPayload);
+  }
+  return payloads;
+}
+
+function buildIncludesHelper(
+  payloads: readonly V2TweetLookupPayload[],
+): ExpandedTweetContext {
+  const tweetsById = new Map<string, TweetV2>();
+  const mediaByKey = new Map<string, MediaObjectV2>();
+  const usersById = new Map<string, UserV2>();
+
+  for (const payload of payloads) {
+    for (const tweet of payload.data ?? []) {
+      tweetsById.set(tweet.id, tweet);
+    }
+    for (const tweet of payload.includes?.tweets ?? []) {
+      tweetsById.set(tweet.id, tweet);
+    }
+    for (const media of payload.includes?.media ?? []) {
+      mediaByKey.set(media.media_key, media);
+    }
+    for (const user of payload.includes?.users ?? []) {
+      usersById.set(user.id, user);
+    }
+  }
+
+  return {
+    includesHelper: new TwitterV2IncludesHelper({
+      includes: {
+        ...(mediaByKey.size === 0 ? {} : { media: [...mediaByKey.values()] }),
+        ...(tweetsById.size === 0 ? {} : { tweets: [...tweetsById.values()] }),
+        ...(usersById.size === 0 ? {} : { users: [...usersById.values()] }),
+      },
+    }),
+  };
+}
+
+async function createNestedReferenceIncludesHelper(
+  client: TwitterApi,
+  payload: V2TweetLookupPayload,
+): Promise<ExpandedTweetContext> {
+  const nestedReferencePayloads = await fetchReferencedTweetPayloads(
+    client,
+    payload.data ?? [],
+  );
+  return buildIncludesHelper([payload, ...nestedReferencePayloads]);
+}
+
+function sanitizePathComponent(input: string): string {
+  const sanitized = input.replace(/[^A-Za-z0-9._-]+/g, "_");
+  return sanitized.length === 0 ? "media" : sanitized;
+}
+
+function inferExtensionFromContentType(contentType: string): string {
+  if (contentType === "image/jpeg") {
+    return ".jpg";
+  }
+  if (contentType === "image/png") {
+    return ".png";
+  }
+  if (contentType === "image/gif") {
+    return ".gif";
+  }
+  if (contentType === "video/mp4") {
+    return ".mp4";
+  }
+  if (contentType === "application/x-mpegURL") {
+    return ".m3u8";
+  }
+  return "";
+}
+
+function buildMediaFileName(
+  mediaKey: string,
+  sourceUrl: string,
+  contentType: string,
+): string {
+  const sourcePath = new URL(sourceUrl).pathname;
+  const originalBaseName = basename(sourcePath);
+  const sanitizedBaseName =
+    originalBaseName.length > 0
+      ? sanitizePathComponent(originalBaseName)
+      : sanitizePathComponent(mediaKey);
+
+  if (extname(sanitizedBaseName).length > 0) {
+    return sanitizedBaseName;
+  }
+
+  const inferredExtension = inferExtensionFromContentType(contentType);
+  return inferredExtension.length === 0
+    ? sanitizedBaseName
+    : `${sanitizedBaseName}${inferredExtension}`;
+}
+
+async function fileExists(filePath: string): Promise<boolean> {
+  try {
+    await stat(filePath);
+    return true;
+  } catch (error) {
+    const code =
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      typeof error.code === "string"
+        ? error.code
+        : undefined;
+    if (code === "ENOENT") {
+      return false;
+    }
+    throw error;
+  }
+}
+
+function pickMediaSource(
+  media: MediaObjectV2,
+): Readonly<{ contentType: string; sourceUrl: string }> | undefined {
+  if (media.type === "photo" && isNonEmpty(media.url)) {
+    const extension = extname(new URL(media.url).pathname).toLowerCase();
+    return {
+      contentType: extension === ".png" ? "image/png" : "image/jpeg",
+      sourceUrl: media.url,
+    };
+  }
+
+  const mp4Variant = [...(media.variants ?? [])]
+    .filter((variant) => variant.content_type === "video/mp4")
+    .sort((left, right) => (right.bit_rate ?? 0) - (left.bit_rate ?? 0))[0];
+  if (mp4Variant && isNonEmpty(mp4Variant.url)) {
+    return {
+      contentType: mp4Variant.content_type,
+      sourceUrl: mp4Variant.url,
+    };
+  }
+
+  return undefined;
+}
+
+async function materializeMediaAsset(
+  media: MediaObjectV2,
+  postId: string,
+  options: MediaReadOptions,
+): Promise<XGatewayMediaAsset | undefined> {
+  const source = pickMediaSource(media);
+  if (!source) {
+    return undefined;
+  }
+
+  const previewImageUrl = isNonEmpty(media.preview_image_url)
+    ? media.preview_image_url
+    : undefined;
+  const asset: XGatewayMediaAsset = {
+    kind:
+      media.type === "photo" ||
+      media.type === "video" ||
+      media.type === "animated_gif"
+        ? media.type
+        : "photo",
+    contentType: source.contentType,
+    sourceUrl: source.sourceUrl,
+    ...(previewImageUrl === undefined ? {} : { previewImageUrl }),
+  };
+
+  if (!options.downloadMedia || options.mediaRootDir === undefined) {
+    return asset;
+  }
+
+  const fileName = buildMediaFileName(
+    media.media_key,
+    source.sourceUrl,
+    source.contentType,
+  );
+  const postDir = resolve(options.mediaRootDir, sanitizePathComponent(postId));
+  const localFilePath = join(postDir, fileName);
+  if (!options.forceDownload && (await fileExists(localFilePath))) {
+    return {
+      ...asset,
+      localFilePath,
+    };
+  }
+  const response = await fetch(source.sourceUrl);
+  if (!response.ok) {
+    throw new Error(
+      `Media download failed for ${source.sourceUrl} with HTTP ${response.status}.`,
+    );
+  }
+  await mkdir(postDir, { recursive: true });
+  await writeFile(localFilePath, new Uint8Array(await response.arrayBuffer()));
+  return {
+    ...asset,
+    localFilePath,
+  };
+}
+
+async function mapMediaAssets(
   tweet: TweetV2,
-  includesHelper: TwitterV2IncludesHelper,
-): XGatewayPostSummary {
-  const author = mapOptionalAccountProfile(includesHelper.author(tweet));
+  context: ExpandedTweetContext,
+  options: MediaReadOptions,
+): Promise<readonly XGatewayMediaAsset[]> {
+  const mediaItems = context.includesHelper.medias(tweet);
+  const assets = await Promise.all(
+    mediaItems.map((media) => materializeMediaAsset(media, tweet.id, options)),
+  );
+  return assets.filter(
+    (asset): asset is XGatewayMediaAsset => asset !== undefined,
+  );
+}
+
+async function mapPostSummary(
+  tweet: TweetV2,
+  context: ExpandedTweetContext,
+  mediaOptions: MediaReadOptions,
+  maxReferenceDepth = 0,
+): Promise<XGatewayPostSummary> {
+  const author = mapOptionalAccountProfile(context.includesHelper.author(tweet));
+  const [media, referencedPosts] = await Promise.all([
+    mapMediaAssets(tweet, context, mediaOptions),
+    maxReferenceDepth > 0
+      ? mapReferencedPosts(tweet, context, mediaOptions, maxReferenceDepth)
+      : Promise.resolve([] as XGatewayReferencedPost[]),
+  ]);
+  const replyTo = referencedPosts.find(
+    (referencedPost) => referencedPost.relation === "replied_to",
+  );
+  const quote = referencedPosts.find(
+    (referencedPost) => referencedPost.relation === "quoted",
+  );
+  const repost = referencedPosts.find(
+    (referencedPost) => referencedPost.relation === "retweeted",
+  );
   return {
     id: tweet.id,
     text: tweet.text,
@@ -169,57 +477,79 @@ function mapPostSummary(
       ? {}
       : { replyToUserId: tweet.in_reply_to_user_id }),
     ...(author === undefined ? {} : { author }),
+    ...(media.length === 0 ? {} : { media }),
+    ...(replyTo === undefined ? {} : { replyTo }),
+    ...(quote === undefined ? {} : { quote }),
+    ...(repost === undefined ? {} : { repost }),
+    ...(referencedPosts.length === 0 ? {} : { referencedPosts }),
   };
 }
 
-function mapPostLookupResult(
+async function mapReferencedPosts(
+  tweet: TweetV2,
+  context: ExpandedTweetContext,
+  mediaOptions: MediaReadOptions,
+  maxReferenceDepth: number,
+): Promise<XGatewayReferencedPost[]> {
+  const references = tweet.referenced_tweets ?? [];
+  const referencedPosts = await Promise.all(
+    references.map(async (reference) => {
+      if (!isSupportedPostReferenceRelation(reference.type)) {
+        return undefined;
+      }
+      const referencedTweet = context.includesHelper.tweetById(reference.id);
+      if (!referencedTweet) {
+        return undefined;
+      }
+      return {
+        relation: reference.type,
+        ...(await mapPostSummary(
+          referencedTweet,
+          context,
+          mediaOptions,
+          maxReferenceDepth - 1,
+        )),
+      };
+    }),
+  );
+  return referencedPosts.filter(
+    (referencedPost): referencedPost is XGatewayReferencedPost =>
+      referencedPost !== undefined,
+  );
+}
+
+async function mapPostLookupResult(
+  client: TwitterApi,
   response: TweetV2SingleResult,
-): XGatewayPostLookupResult {
-  const includesHelper = new TwitterV2IncludesHelper(response);
-  const referencedPosts: XGatewayReferencedPost[] = [];
-
-  for (const reference of response.data.referenced_tweets ?? []) {
-    if (!isSupportedPostReferenceRelation(reference.type)) {
-      continue;
-    }
-
-    const referencedTweet = includesHelper.tweetById(reference.id);
-    if (!referencedTweet) {
-      continue;
-    }
-
-    referencedPosts.push({
-      relation: reference.type,
-      ...mapPostSummary(referencedTweet, includesHelper),
-    });
-  }
+  mediaOptions: MediaReadOptions,
+): Promise<XGatewayPostLookupResult> {
+  const context = await createNestedReferenceIncludesHelper(client, {
+    data: [response.data],
+    ...(response.includes === undefined ? {} : { includes: response.includes }),
+  });
+  const post = await mapPostSummary(response.data, context, mediaOptions, 2);
 
   return {
-    post: mapPostSummary(response.data, includesHelper),
-    referencedPosts,
+    post,
+    referencedPosts: post.referencedPosts ?? [],
   };
 }
 
-function mapPostPage(response: V2TimelinePayload): XGatewayPostPage {
+async function mapPostPage(
+  client: TwitterApi,
+  response: V2TimelinePayload,
+  mediaOptions: MediaReadOptions,
+): Promise<XGatewayPostPage> {
   const tweets = response.data ?? [];
-  const includesHelper = new TwitterV2IncludesHelper({
-    ...(response.data === undefined ? {} : { data: [...response.data] }),
-    ...(response.includes === undefined
-      ? {}
-      : {
-          includes: {
-            ...(response.includes.tweets === undefined
-              ? {}
-              : { tweets: [...response.includes.tweets] }),
-            ...(response.includes.users === undefined
-              ? {}
-              : { users: [...response.includes.users] }),
-          },
-        }),
-  });
+  const context = await createNestedReferenceIncludesHelper(
+    client,
+    response,
+  );
   const meta = response.meta;
   return {
-    posts: tweets.map((tweet) => mapPostSummary(tweet, includesHelper)),
+    posts: await Promise.all(
+      tweets.map((tweet) => mapPostSummary(tweet, context, mediaOptions, 2)),
+    ),
     pageInfo: {
       resultCount: meta?.result_count ?? tweets.length,
       ...(meta?.next_token === undefined ? {} : { nextToken: meta.next_token }),
@@ -329,6 +659,27 @@ function validateOptionalMaxResults(
     );
   }
   return value;
+}
+
+function readMediaReadOptions(
+  options: Readonly<{
+    mediaRootDir?: string;
+    downloadMedia?: boolean;
+    forceDownload?: boolean;
+  }>,
+  dependencies: CapabilityAdapterDependencies,
+): MediaReadOptions {
+  const mediaRootDir =
+    options.mediaRootDir === undefined
+      ? dependencies.mediaRootDir
+      : options.mediaRootDir.trim().length === 0
+        ? undefined
+        : options.mediaRootDir.trim();
+  return {
+    ...(mediaRootDir === undefined ? {} : { mediaRootDir }),
+    downloadMedia: options.downloadMedia ?? true,
+    forceDownload: options.forceDownload ?? false,
+  };
 }
 
 function parseRetryAfterMs(headerValue: string | null): number | undefined {
@@ -713,6 +1064,7 @@ export function createCapabilityAdapterFactories(
     const timelineHome = async (
       options: XGatewayTimelinePageOptions,
     ): Promise<XGatewayPostPage> => {
+      const mediaReadOptions = readMediaReadOptions(options, dependencies);
       const maxResults = validateOptionalMaxResults(
         options.maxResults,
         "maxResults",
@@ -732,11 +1084,16 @@ export function createCapabilityAdapterFactories(
           : { pagination_token: paginationToken }),
         ...POST_LOOKUP_FIELDS,
       });
-      return mapPostPage(response.data as V2TimelinePayload);
+      return mapPostPage(
+        client,
+        response.data as V2TimelinePayload,
+        mediaReadOptions,
+      );
     };
     const timelineUser = async (
       options: XGatewayTimelineUserOptions,
     ): Promise<XGatewayPostPage> => {
+      const mediaReadOptions = readMediaReadOptions(options, dependencies);
       const userId = normalizeRequiredInput(
         options.userId,
         "userId",
@@ -761,11 +1118,16 @@ export function createCapabilityAdapterFactories(
           : { pagination_token: paginationToken }),
         ...POST_LOOKUP_FIELDS,
       });
-      return mapPostPage(response.data as V2TimelinePayload);
+      return mapPostPage(
+        client,
+        response.data as V2TimelinePayload,
+        mediaReadOptions,
+      );
     };
     const timelineMentions = async (
       options: XGatewayTimelineUserOptions,
     ): Promise<XGatewayPostPage> => {
+      const mediaReadOptions = readMediaReadOptions(options, dependencies);
       const userId = normalizeRequiredInput(
         options.userId,
         "userId",
@@ -790,11 +1152,16 @@ export function createCapabilityAdapterFactories(
           : { pagination_token: paginationToken }),
         ...POST_LOOKUP_FIELDS,
       });
-      return mapPostPage(response.data as V2TimelinePayload);
+      return mapPostPage(
+        client,
+        response.data as V2TimelinePayload,
+        mediaReadOptions,
+      );
     };
     const timelineSearch = async (
       options: XGatewayTimelineSearchOptions,
     ): Promise<XGatewayPostPage> => {
+      const mediaReadOptions = readMediaReadOptions(options, dependencies);
       const query = normalizeRequiredInput(
         options.query,
         "query",
@@ -819,14 +1186,19 @@ export function createCapabilityAdapterFactories(
           : { next_token: paginationToken }),
         ...POST_LOOKUP_FIELDS,
       });
-      return mapPostPage(response.data as V2TimelinePayload);
+      return mapPostPage(
+        client,
+        response.data as V2TimelinePayload,
+        mediaReadOptions,
+      );
     };
     const postGet = async (
       options: XGatewayPostGetOptions,
     ): Promise<XGatewayPostLookupResult> => {
       const postId = dependencies.ensureRequired(options.postId, "postId");
+      const mediaReadOptions = readMediaReadOptions(options, dependencies);
       const response = await client.v2.singleTweet(postId, POST_LOOKUP_FIELDS);
-      return mapPostLookupResult(response);
+      return mapPostLookupResult(client, response, mediaReadOptions);
     };
 
     return {
@@ -872,6 +1244,7 @@ export function createCapabilityAdapterFactories(
     const timelineHome = async (
       options: XGatewayTimelinePageOptions,
     ): Promise<XGatewayPostPage> => {
+      const mediaReadOptions = readMediaReadOptions(options, dependencies);
       const maxResults = validateOptionalMaxResults(
         options.maxResults,
         "maxResults",
@@ -891,11 +1264,16 @@ export function createCapabilityAdapterFactories(
           : { pagination_token: paginationToken }),
         ...POST_LOOKUP_FIELDS,
       });
-      return mapPostPage(response.data as V2TimelinePayload);
+      return mapPostPage(
+        client,
+        response.data as V2TimelinePayload,
+        mediaReadOptions,
+      );
     };
     const timelineUser = async (
       options: XGatewayTimelineUserOptions,
     ): Promise<XGatewayPostPage> => {
+      const mediaReadOptions = readMediaReadOptions(options, dependencies);
       const userId = normalizeRequiredInput(
         options.userId,
         "userId",
@@ -920,11 +1298,16 @@ export function createCapabilityAdapterFactories(
           : { pagination_token: paginationToken }),
         ...POST_LOOKUP_FIELDS,
       });
-      return mapPostPage(response.data as V2TimelinePayload);
+      return mapPostPage(
+        client,
+        response.data as V2TimelinePayload,
+        mediaReadOptions,
+      );
     };
     const timelineMentions = async (
       options: XGatewayTimelineUserOptions,
     ): Promise<XGatewayPostPage> => {
+      const mediaReadOptions = readMediaReadOptions(options, dependencies);
       const userId = normalizeRequiredInput(
         options.userId,
         "userId",
@@ -949,11 +1332,16 @@ export function createCapabilityAdapterFactories(
           : { pagination_token: paginationToken }),
         ...POST_LOOKUP_FIELDS,
       });
-      return mapPostPage(response.data as V2TimelinePayload);
+      return mapPostPage(
+        client,
+        response.data as V2TimelinePayload,
+        mediaReadOptions,
+      );
     };
     const timelineSearch = async (
       options: XGatewayTimelineSearchOptions,
     ): Promise<XGatewayPostPage> => {
+      const mediaReadOptions = readMediaReadOptions(options, dependencies);
       const query = normalizeRequiredInput(
         options.query,
         "query",
@@ -978,14 +1366,19 @@ export function createCapabilityAdapterFactories(
           : { next_token: paginationToken }),
         ...POST_LOOKUP_FIELDS,
       });
-      return mapPostPage(response.data as V2TimelinePayload);
+      return mapPostPage(
+        client,
+        response.data as V2TimelinePayload,
+        mediaReadOptions,
+      );
     };
     const postGet = async (
       options: XGatewayPostGetOptions,
     ): Promise<XGatewayPostLookupResult> => {
       const postId = dependencies.ensureRequired(options.postId, "postId");
+      const mediaReadOptions = readMediaReadOptions(options, dependencies);
       const response = await client.v2.singleTweet(postId, POST_LOOKUP_FIELDS);
-      return mapPostLookupResult(response);
+      return mapPostLookupResult(client, response, mediaReadOptions);
     };
 
     return {
