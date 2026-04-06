@@ -678,6 +678,42 @@ vi.mock("twitter-api-v2", () => {
               },
             };
           }
+          if (userId === "promoted-zero-user") {
+            return {
+              data: {
+                data: [
+                  {
+                    id: "user-promoted-zero-user-1",
+                    text: "zero-metric promoted timeline post",
+                    author_id: "author-1",
+                    created_at: "2026-03-08T01:00:00.000Z",
+                    conversation_id: "user-promoted-zero-conversation-1",
+                    promoted_metrics: {
+                      impression_count: 0,
+                    },
+                  },
+                  {
+                    id: "user-promoted-zero-user-2",
+                    text: "zero-metric organic timeline post",
+                    author_id: "author-2",
+                    created_at: "2026-03-08T02:00:00.000Z",
+                    conversation_id: "user-promoted-zero-conversation-2",
+                    organic_metrics: {
+                      impression_count: 0,
+                    },
+                  },
+                ],
+                includes: {
+                  users: [mockUsersById["author-1"]!, mockUsersById["author-2"]!],
+                },
+                meta: {
+                  result_count: 2,
+                  newest_id: "user-promoted-zero-user-1",
+                  oldest_id: "user-promoted-zero-user-2",
+                },
+              },
+            };
+          }
           return {
             data: buildTimelinePayload(`user-${userId}`, count, page),
           };
@@ -810,6 +846,26 @@ vi.mock("twitter-api-v2", () => {
                 },
                 created_at: "2026-03-08T00:00:00.000Z",
                 conversation_id: "conversation-promoted",
+                in_reply_to_user_id: "author-2",
+                referenced_tweets: [],
+              },
+              includes: {
+                tweets: [],
+                users: [mockUsersById["author-1"]!, mockUsersById["author-2"]!],
+              },
+            };
+          }
+          if (postId === "promoted-zero-post") {
+            return {
+              data: {
+                id: postId,
+                text: `post ${postId}`,
+                author_id: "author-1",
+                promoted_metrics: {
+                  impression_count: 0,
+                },
+                created_at: "2026-03-08T00:00:00.000Z",
+                conversation_id: "conversation-promoted-zero",
                 in_reply_to_user_id: "author-2",
                 referenced_tweets: [],
               },
@@ -1522,6 +1578,36 @@ describe("createXGatewayClient", () => {
     });
   });
 
+  test("filters zero-metric promoted timeline posts by default", async () => {
+    process.env["X_GW_TOKEN"] = "bearer-token";
+
+    const client = createXGatewayClient();
+
+    await expect(
+      client.graphqlQuery({
+        query:
+          'query { userTimeline(userId: "promoted-zero-user", maxResults: 5) { posts { id promotionStatus text } pageInfo { resultCount newestId oldestId } } }',
+      }),
+    ).resolves.toEqual({
+      data: {
+        userTimeline: {
+          posts: [
+            {
+              id: "user-promoted-zero-user-2",
+              promotionStatus: "NOT_PROMOTED",
+              text: "zero-metric organic timeline post",
+            },
+          ],
+          pageInfo: {
+            resultCount: 1,
+            newestId: "user-promoted-zero-user-2",
+            oldestId: "user-promoted-zero-user-2",
+          },
+        },
+      },
+    });
+  });
+
   test("returns promoted posts when includePromoted is enabled", async () => {
     process.env["X_GW_TOKEN"] = "bearer-token";
 
@@ -1555,6 +1641,46 @@ describe("createXGatewayClient", () => {
         },
       },
     });
+  });
+
+  test("returns zero-metric promoted posts when includePromoted is enabled", async () => {
+    process.env["X_GW_TOKEN"] = "bearer-token";
+
+    const client = createXGatewayClient();
+
+    await expect(
+      client.graphqlQuery({
+        query:
+          'query { post(id: "promoted-zero-post", includePromoted: true) { id promotionStatus text } }',
+      }),
+    ).resolves.toEqual({
+      data: {
+        post: {
+          id: "promoted-zero-post",
+          promotionStatus: "PROMOTED",
+          text: "post promoted-zero-post",
+        },
+      },
+    });
+  });
+
+  test("rejects zero-metric top-level promoted post lookups unless includePromoted is enabled", async () => {
+    process.env["X_GW_TOKEN"] = "bearer-token";
+
+    const client = createXGatewayClient();
+
+    await expect(
+      client.graphqlQuery({
+        query: 'query { post(id: "promoted-zero-post") { id promotionStatus } }',
+      }),
+    ).rejects.toMatchObject(
+      expect.objectContaining({
+        payload: expect.objectContaining({
+          code: "PERMISSION_DENIED",
+          summary: "Promoted post filtered from the stable read surface",
+        }),
+      }),
+    );
   });
 
   test("rejects top-level promoted post lookups unless includePromoted is enabled", async () => {
@@ -2097,6 +2223,84 @@ describe("createXGatewayClient", () => {
         deletePost: {
           id: "tweet-1",
           deleted: true,
+        },
+      },
+    });
+  });
+
+  test("trims surrounding whitespace from project-owned GraphQL mutation post ids", async () => {
+    process.env["X_GW_CONSUMER_KEY"] = "ck";
+    process.env["X_GW_CONSUMER_SECRET"] = "cs";
+    process.env["X_GW_ACCESS_TOKEN"] = "at";
+    process.env["X_GW_ACCESS_TOKEN_SECRET"] = "ats";
+
+    const client = createXGatewayClient();
+
+    await expect(
+      client.graphqlQuery({
+        query:
+          'mutation { deletePost(postId: "  post-1  ") { id deleted } }',
+      }),
+    ).resolves.toEqual({
+      data: {
+        deletePost: {
+          id: "post-1",
+          deleted: true,
+        },
+      },
+    });
+
+    await expect(
+      client.graphqlQuery({
+        query:
+          'mutation { replyToPost(text: "hello", replyToPostId: "  post-2  ") { id text } }',
+      }),
+    ).resolves.toEqual({
+      data: {
+        replyToPost: {
+          id: "tweet-2",
+          text: "hello",
+        },
+      },
+    });
+
+    await expect(
+      client.graphqlQuery({
+        query:
+          'mutation { quotePost(text: "hello", quotedPostId: "  post-3  ") { id text } }',
+      }),
+    ).resolves.toEqual({
+      data: {
+        quotePost: {
+          id: "tweet-3",
+          text: "hello",
+        },
+      },
+    });
+
+    await expect(
+      client.graphqlQuery({
+        query: 'mutation { repostPost(postId: "  post-4  ") { id reposted } }',
+      }),
+    ).resolves.toEqual({
+      data: {
+        repostPost: {
+          id: "post-4",
+          reposted: true,
+        },
+      },
+    });
+
+    await expect(
+      client.graphqlQuery({
+        query:
+          'mutation { unrepostPost(postId: "  post-5  ") { id reposted } }',
+      }),
+    ).resolves.toEqual({
+      data: {
+        unrepostPost: {
+          id: "post-5",
+          reposted: false,
         },
       },
     });

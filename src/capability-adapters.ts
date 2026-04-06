@@ -209,6 +209,21 @@ type PostReadOptions = Readonly<{
   includePromoted: boolean;
 }>;
 
+type PostPageRequestInputs = Readonly<{
+  postReadOptions: PostReadOptions;
+  maxResults?: number;
+  paginationToken?: string;
+}>;
+
+type RestTimelineRequestOptions = Partial<Tweetv2FieldsParams> &
+  Readonly<{
+    max_results?: number;
+    pagination_token?: string;
+    next_token?: string;
+  }>;
+
+type RestPaginationTokenField = "pagination_token" | "next_token";
+
 type TweetMetricShape = Readonly<Record<string, unknown>>;
 type TweetMetricFieldName =
   | "public_metrics"
@@ -221,9 +236,9 @@ function isObjectRecord(
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function hasNumericMetricValue(metrics: TweetMetricShape): boolean {
+function hasFiniteMetricValue(metrics: TweetMetricShape): boolean {
   return Object.values(metrics).some(
-    (value) => typeof value === "number" && Number.isFinite(value) && value > 0,
+    (value) => typeof value === "number" && Number.isFinite(value),
   );
 }
 
@@ -285,12 +300,12 @@ function mapPostMetrics(tweet: TweetV2): XGatewayPostMetrics {
 
 function detectPromotionStatus(tweet: TweetV2): XGatewayPromotionStatus {
   const promotedMetrics = readTweetMetrics(tweet, "promoted_metrics");
-  if (promotedMetrics && hasNumericMetricValue(promotedMetrics)) {
+  if (promotedMetrics && hasFiniteMetricValue(promotedMetrics)) {
     return "PROMOTED";
   }
 
   const organicMetrics = readTweetMetrics(tweet, "organic_metrics");
-  if (organicMetrics && hasNumericMetricValue(organicMetrics)) {
+  if (organicMetrics && hasFiniteMetricValue(organicMetrics)) {
     return "NOT_PROMOTED";
   }
 
@@ -850,6 +865,54 @@ function readPostReadOptions(
   };
 }
 
+function readPostPageRequestInputs(
+  options: Readonly<{
+    mediaRootDir?: string;
+    downloadMedia?: boolean;
+    forceDownload?: boolean;
+    includePromoted?: boolean;
+    maxResults?: number;
+    paginationToken?: string;
+  }>,
+  minimumMaxResults: number,
+  dependencies: CapabilityAdapterDependencies,
+): PostPageRequestInputs {
+  const maxResults = validateOptionalMaxResults(
+    options.maxResults,
+    "maxResults",
+    minimumMaxResults,
+    100,
+    dependencies.createValidationError,
+  );
+  const paginationToken = validateOptionalPaginationToken(
+    options.paginationToken,
+    "paginationToken",
+    dependencies.createValidationError,
+  );
+  return {
+    postReadOptions: readPostReadOptions(options, dependencies),
+    ...(maxResults === undefined ? {} : { maxResults }),
+    ...(paginationToken === undefined ? {} : { paginationToken }),
+  };
+}
+
+function buildRestTimelineRequestOptions(
+  requestInputs: PostPageRequestInputs,
+  paginationTokenField: RestPaginationTokenField,
+): RestTimelineRequestOptions {
+  return {
+    ...(requestInputs.maxResults === undefined
+      ? {}
+      : { max_results: requestInputs.maxResults }),
+    ...(requestInputs.paginationToken === undefined
+      ? {}
+      : paginationTokenField === "pagination_token"
+        ? { pagination_token: requestInputs.paginationToken }
+        : { next_token: requestInputs.paginationToken }),
+    ...POST_LOOKUP_FIELDS,
+  };
+}
+
 function parseRetryAfterMs(headerValue: string | null): number | undefined {
   if (headerValue === null || !isNonEmpty(headerValue)) {
     return undefined;
@@ -1267,143 +1330,105 @@ export function createCapabilityAdapterFactories(
     return new TwitterApi(dependencies.auth.token!);
   }
 
-  function createOauth1ReadCapabilityAdapter(): XGatewayReadCapabilityAdapter {
-    const client = createOauth1RestClient();
+  function createRestReadCapabilityMethods(
+    client: TwitterApi,
+  ): Pick<
+    XGatewayReadCapabilityAdapter,
+    | "postGet"
+    | "postReplies"
+    | "timelineSearch"
+    | "timelineHome"
+    | "timelineUser"
+    | "timelineMentions"
+  > {
     const timelineHome = async (
       options: XGatewayTimelinePageOptions,
     ): Promise<XGatewayPostPage> => {
-      const postReadOptions = readPostReadOptions(options, dependencies);
-      const maxResults = validateOptionalMaxResults(
-        options.maxResults,
-        "maxResults",
-        5,
-        100,
-        dependencies.createValidationError,
-      );
-      const paginationToken = validateOptionalPaginationToken(
-        options.paginationToken,
-        "paginationToken",
-        dependencies.createValidationError,
-      );
+      const requestInputs = readPostPageRequestInputs(options, 5, dependencies);
       const response = await client.v2.homeTimeline({
-        ...(maxResults === undefined ? {} : { max_results: maxResults }),
-        ...(paginationToken === undefined
-          ? {}
-          : { pagination_token: paginationToken }),
-        ...POST_LOOKUP_FIELDS,
+        ...buildRestTimelineRequestOptions(
+          requestInputs,
+          "pagination_token",
+        ),
       });
       return mapPostPage(
         client,
         response.data as V2TimelinePayload,
-        postReadOptions,
+        requestInputs.postReadOptions,
       );
     };
+
     const timelineUser = async (
       options: XGatewayTimelineUserOptions,
     ): Promise<XGatewayPostPage> => {
-      const postReadOptions = readPostReadOptions(options, dependencies);
+      const requestInputs = readPostPageRequestInputs(options, 5, dependencies);
       const userId = normalizeRequiredInput(
         options.userId,
         "userId",
         dependencies.ensureRequired,
       );
-      const maxResults = validateOptionalMaxResults(
-        options.maxResults,
-        "maxResults",
-        5,
-        100,
-        dependencies.createValidationError,
-      );
-      const paginationToken = validateOptionalPaginationToken(
-        options.paginationToken,
-        "paginationToken",
-        dependencies.createValidationError,
-      );
       const response = await client.v2.userTimeline(userId, {
-        ...(maxResults === undefined ? {} : { max_results: maxResults }),
-        ...(paginationToken === undefined
-          ? {}
-          : { pagination_token: paginationToken }),
-        ...POST_LOOKUP_FIELDS,
+        ...buildRestTimelineRequestOptions(
+          requestInputs,
+          "pagination_token",
+        ),
       });
       return mapPostPage(
         client,
         response.data as V2TimelinePayload,
-        postReadOptions,
+        requestInputs.postReadOptions,
       );
     };
+
     const timelineMentions = async (
       options: XGatewayTimelineUserOptions,
     ): Promise<XGatewayPostPage> => {
-      const postReadOptions = readPostReadOptions(options, dependencies);
+      const requestInputs = readPostPageRequestInputs(options, 5, dependencies);
       const userId = normalizeRequiredInput(
         options.userId,
         "userId",
         dependencies.ensureRequired,
       );
-      const maxResults = validateOptionalMaxResults(
-        options.maxResults,
-        "maxResults",
-        5,
-        100,
-        dependencies.createValidationError,
-      );
-      const paginationToken = validateOptionalPaginationToken(
-        options.paginationToken,
-        "paginationToken",
-        dependencies.createValidationError,
-      );
       const response = await client.v2.userMentionTimeline(userId, {
-        ...(maxResults === undefined ? {} : { max_results: maxResults }),
-        ...(paginationToken === undefined
-          ? {}
-          : { pagination_token: paginationToken }),
-        ...POST_LOOKUP_FIELDS,
+        ...buildRestTimelineRequestOptions(
+          requestInputs,
+          "pagination_token",
+        ),
       });
       return mapPostPage(
         client,
         response.data as V2TimelinePayload,
-        postReadOptions,
+        requestInputs.postReadOptions,
       );
     };
+
     const timelineSearch = async (
       options: XGatewayTimelineSearchOptions,
     ): Promise<XGatewayPostPage> => {
-      const postReadOptions = readPostReadOptions(options, dependencies);
+      const requestInputs = readPostPageRequestInputs(options, 10, dependencies);
       const query = normalizeRequiredInput(
         options.query,
         "query",
         dependencies.ensureRequired,
       );
-      const maxResults = validateOptionalMaxResults(
-        options.maxResults,
-        "maxResults",
-        10,
-        100,
-        dependencies.createValidationError,
-      );
-      const paginationToken = validateOptionalPaginationToken(
-        options.paginationToken,
-        "paginationToken",
-        dependencies.createValidationError,
-      );
       const response = await client.v2.search(query, {
-        ...(maxResults === undefined ? {} : { max_results: maxResults }),
-        ...(paginationToken === undefined
-          ? {}
-          : { next_token: paginationToken }),
-        ...POST_LOOKUP_FIELDS,
+        ...buildRestTimelineRequestOptions(requestInputs, "next_token"),
       });
       return mapPostPage(
         client,
         response.data as V2TimelinePayload,
-        postReadOptions,
+        requestInputs.postReadOptions,
       );
     };
+
     const postGet = async (
       options: XGatewayPostGetOptions,
     ): Promise<XGatewayPostLookupResult> => {
-      const postId = dependencies.ensureRequired(options.postId, "postId");
+      const postId = normalizeRequiredInput(
+        options.postId,
+        "postId",
+        dependencies.ensureRequired,
+      );
       const postReadOptions = readPostReadOptions(options, dependencies);
       const response = await client.v2.singleTweet(postId, POST_LOOKUP_FIELDS);
       return mapPostLookupResult(
@@ -1413,36 +1438,35 @@ export function createCapabilityAdapterFactories(
         dependencies.createError,
       );
     };
+
     const postReplies = async (
       options: XGatewayPostRepliesOptions,
     ): Promise<XGatewayPostPage> => {
-      const postReadOptions = readPostReadOptions(options, dependencies);
+      const requestInputs = readPostPageRequestInputs(options, 10, dependencies);
       const query = buildPostRepliesSearchQuery(options, dependencies);
-      const maxResults = validateOptionalMaxResults(
-        options.maxResults,
-        "maxResults",
-        10,
-        100,
-        dependencies.createValidationError,
-      );
-      const paginationToken = validateOptionalPaginationToken(
-        options.paginationToken,
-        "paginationToken",
-        dependencies.createValidationError,
-      );
       const response = await client.v2.search(query, {
-        ...(maxResults === undefined ? {} : { max_results: maxResults }),
-        ...(paginationToken === undefined
-          ? {}
-          : { next_token: paginationToken }),
-        ...POST_LOOKUP_FIELDS,
+        ...buildRestTimelineRequestOptions(requestInputs, "next_token"),
       });
       return mapPostPage(
         client,
         response.data as V2TimelinePayload,
-        postReadOptions,
+        requestInputs.postReadOptions,
       );
     };
+
+    return {
+      postGet,
+      postReplies,
+      timelineSearch,
+      timelineHome,
+      timelineUser,
+      timelineMentions,
+    };
+  }
+
+  function createOauth1ReadCapabilityAdapter(): XGatewayReadCapabilityAdapter {
+    const client = createOauth1RestClient();
+    const readMethods = createRestReadCapabilityMethods(client);
 
     return {
       adapterKind: "rest-oauth1",
@@ -1474,191 +1498,13 @@ export function createCapabilityAdapterFactories(
           retryable: false,
         });
       },
-      postGet,
-      postReplies,
-      timelineSearch,
-      timelineHome,
-      timelineUser,
-      timelineMentions,
+      ...readMethods,
     };
   }
 
   function createBearerReadCapabilityAdapter(): XGatewayReadCapabilityAdapter {
     const client = createBearerRestClient();
-    const timelineHome = async (
-      options: XGatewayTimelinePageOptions,
-    ): Promise<XGatewayPostPage> => {
-      const postReadOptions = readPostReadOptions(options, dependencies);
-      const maxResults = validateOptionalMaxResults(
-        options.maxResults,
-        "maxResults",
-        5,
-        100,
-        dependencies.createValidationError,
-      );
-      const paginationToken = validateOptionalPaginationToken(
-        options.paginationToken,
-        "paginationToken",
-        dependencies.createValidationError,
-      );
-      const response = await client.v2.homeTimeline({
-        ...(maxResults === undefined ? {} : { max_results: maxResults }),
-        ...(paginationToken === undefined
-          ? {}
-          : { pagination_token: paginationToken }),
-        ...POST_LOOKUP_FIELDS,
-      });
-      return mapPostPage(
-        client,
-        response.data as V2TimelinePayload,
-        postReadOptions,
-      );
-    };
-    const timelineUser = async (
-      options: XGatewayTimelineUserOptions,
-    ): Promise<XGatewayPostPage> => {
-      const postReadOptions = readPostReadOptions(options, dependencies);
-      const userId = normalizeRequiredInput(
-        options.userId,
-        "userId",
-        dependencies.ensureRequired,
-      );
-      const maxResults = validateOptionalMaxResults(
-        options.maxResults,
-        "maxResults",
-        5,
-        100,
-        dependencies.createValidationError,
-      );
-      const paginationToken = validateOptionalPaginationToken(
-        options.paginationToken,
-        "paginationToken",
-        dependencies.createValidationError,
-      );
-      const response = await client.v2.userTimeline(userId, {
-        ...(maxResults === undefined ? {} : { max_results: maxResults }),
-        ...(paginationToken === undefined
-          ? {}
-          : { pagination_token: paginationToken }),
-        ...POST_LOOKUP_FIELDS,
-      });
-      return mapPostPage(
-        client,
-        response.data as V2TimelinePayload,
-        postReadOptions,
-      );
-    };
-    const timelineMentions = async (
-      options: XGatewayTimelineUserOptions,
-    ): Promise<XGatewayPostPage> => {
-      const postReadOptions = readPostReadOptions(options, dependencies);
-      const userId = normalizeRequiredInput(
-        options.userId,
-        "userId",
-        dependencies.ensureRequired,
-      );
-      const maxResults = validateOptionalMaxResults(
-        options.maxResults,
-        "maxResults",
-        5,
-        100,
-        dependencies.createValidationError,
-      );
-      const paginationToken = validateOptionalPaginationToken(
-        options.paginationToken,
-        "paginationToken",
-        dependencies.createValidationError,
-      );
-      const response = await client.v2.userMentionTimeline(userId, {
-        ...(maxResults === undefined ? {} : { max_results: maxResults }),
-        ...(paginationToken === undefined
-          ? {}
-          : { pagination_token: paginationToken }),
-        ...POST_LOOKUP_FIELDS,
-      });
-      return mapPostPage(
-        client,
-        response.data as V2TimelinePayload,
-        postReadOptions,
-      );
-    };
-    const timelineSearch = async (
-      options: XGatewayTimelineSearchOptions,
-    ): Promise<XGatewayPostPage> => {
-      const postReadOptions = readPostReadOptions(options, dependencies);
-      const query = normalizeRequiredInput(
-        options.query,
-        "query",
-        dependencies.ensureRequired,
-      );
-      const maxResults = validateOptionalMaxResults(
-        options.maxResults,
-        "maxResults",
-        10,
-        100,
-        dependencies.createValidationError,
-      );
-      const paginationToken = validateOptionalPaginationToken(
-        options.paginationToken,
-        "paginationToken",
-        dependencies.createValidationError,
-      );
-      const response = await client.v2.search(query, {
-        ...(maxResults === undefined ? {} : { max_results: maxResults }),
-        ...(paginationToken === undefined
-          ? {}
-          : { next_token: paginationToken }),
-        ...POST_LOOKUP_FIELDS,
-      });
-      return mapPostPage(
-        client,
-        response.data as V2TimelinePayload,
-        postReadOptions,
-      );
-    };
-    const postGet = async (
-      options: XGatewayPostGetOptions,
-    ): Promise<XGatewayPostLookupResult> => {
-      const postId = dependencies.ensureRequired(options.postId, "postId");
-      const postReadOptions = readPostReadOptions(options, dependencies);
-      const response = await client.v2.singleTweet(postId, POST_LOOKUP_FIELDS);
-      return mapPostLookupResult(
-        client,
-        response,
-        postReadOptions,
-        dependencies.createError,
-      );
-    };
-    const postReplies = async (
-      options: XGatewayPostRepliesOptions,
-    ): Promise<XGatewayPostPage> => {
-      const postReadOptions = readPostReadOptions(options, dependencies);
-      const query = buildPostRepliesSearchQuery(options, dependencies);
-      const maxResults = validateOptionalMaxResults(
-        options.maxResults,
-        "maxResults",
-        10,
-        100,
-        dependencies.createValidationError,
-      );
-      const paginationToken = validateOptionalPaginationToken(
-        options.paginationToken,
-        "paginationToken",
-        dependencies.createValidationError,
-      );
-      const response = await client.v2.search(query, {
-        ...(maxResults === undefined ? {} : { max_results: maxResults }),
-        ...(paginationToken === undefined
-          ? {}
-          : { next_token: paginationToken }),
-        ...POST_LOOKUP_FIELDS,
-      });
-      return mapPostPage(
-        client,
-        response.data as V2TimelinePayload,
-        postReadOptions,
-      );
-    };
+    const readMethods = createRestReadCapabilityMethods(client);
 
     return {
       adapterKind: "rest-bearer",
@@ -1669,12 +1515,7 @@ export function createCapabilityAdapterFactories(
         return mapBearerAccountProfile(response, dependencies.createError);
       },
       usageTweets: fetchUsageTweets,
-      postGet,
-      postReplies,
-      timelineSearch,
-      timelineHome,
-      timelineUser,
-      timelineMentions,
+      ...readMethods,
     };
   }
 
@@ -1755,14 +1596,19 @@ export function createCapabilityAdapterFactories(
         );
       },
       postDelete: async (options: XGatewayPostDeleteOptions) => {
-        const postId = dependencies.ensureRequired(options.postId, "postId");
+        const postId = normalizeRequiredInput(
+          options.postId,
+          "postId",
+          dependencies.ensureRequired,
+        );
         return client.v2.deleteTweet(postId);
       },
       postReply: async (options: XGatewayPostReplyOptions) => {
         const text = dependencies.ensureRequired(options.text, "text");
-        const replyToPostId = dependencies.ensureRequired(
+        const replyToPostId = normalizeRequiredInput(
           options.replyToPostId,
           "replyToPostId",
+          dependencies.ensureRequired,
         );
         return client.v2.reply(
           text,
@@ -1772,9 +1618,10 @@ export function createCapabilityAdapterFactories(
       },
       postQuote: async (options: XGatewayPostQuoteOptions) => {
         const text = dependencies.ensureRequired(options.text, "text");
-        const quotedPostId = dependencies.ensureRequired(
+        const quotedPostId = normalizeRequiredInput(
           options.quotedPostId,
           "quotedPostId",
+          dependencies.ensureRequired,
         );
         return client.v2.quote(
           text,
@@ -1783,12 +1630,20 @@ export function createCapabilityAdapterFactories(
         );
       },
       postRepost: async (options: XGatewayPostRepostOptions) => {
-        const postId = dependencies.ensureRequired(options.postId, "postId");
+        const postId = normalizeRequiredInput(
+          options.postId,
+          "postId",
+          dependencies.ensureRequired,
+        );
         const loggedUserId = await getLoggedUserId();
         return client.v2.retweet(loggedUserId, postId);
       },
       postUndoRepost: async (options: XGatewayPostRepostOptions) => {
-        const postId = dependencies.ensureRequired(options.postId, "postId");
+        const postId = normalizeRequiredInput(
+          options.postId,
+          "postId",
+          dependencies.ensureRequired,
+        );
         const loggedUserId = await getLoggedUserId();
         return client.v2.unretweet(loggedUserId, postId);
       },

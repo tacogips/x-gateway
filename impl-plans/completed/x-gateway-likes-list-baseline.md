@@ -1,9 +1,9 @@
 # X Gateway Likes List Baseline Implementation Plan
 
-**Status**: Blocked
+**Status**: Completed
 **Design Reference**: `design-docs/specs/architecture.md#capability-matrix-implementation-target`
 **Created**: 2026-03-08
-**Last Updated**: 2026-03-08
+**Last Updated**: 2026-04-05
 
 ---
 
@@ -16,7 +16,7 @@
 - `design-docs/specs/design-api-inventory.md`
 
 ### Summary
-Restore `likes.list` only after a reviewed live adapter route is verified. The previously attempted stable path is being rolled back from the canonical CLI, SDK, and project-owned GraphQL contract because it is known to fail with upstream HTTP 400 in real CLI usage.
+This plan is complete for the current repository baseline: `likes.list` was removed from the reviewed stable surface, explicit guardrails were added, and regression coverage now keeps that deferred state truthful. Any future restoration of `likes.list` should happen in a new implementation plan after a reviewed live adapter route is verified.
 
 ### Scope
 **Included**:
@@ -124,3 +124,11 @@ Restore `likes.list` only after a reviewed live adapter route is verified. The p
 **Notes**:
 - Continued architecture review found the documented/stable `likes` route was not actually defensible because real CLI usage currently fails with upstream HTTP 400.
 - This rollback makes the public contract truthful again: `likes.list` is deferred, `likes` is removed from the canonical project-owned GraphQL contract, `likes list` is removed from the stable CLI surface, and SDK usage now fails with explicit remediation instead of silently preserving a known-broken stable claim.
+
+### Session: 2026-04-05 19:48 JST
+**Tasks Completed**: Plan closure and tracker cleanup
+**Tasks In Progress**: None
+**Blockers**: None for this rollback/deferral slice
+**Notes**:
+- Reclassified this plan from blocked to completed because the actual deliverable scope for the current baseline was the rollback and guardrail work, and all completion criteria were already satisfied.
+- Future work to restore `likes.list` remains intentionally out of scope here and should be tracked by a new plan only after a reviewed live route exists.

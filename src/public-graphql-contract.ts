@@ -1058,7 +1058,11 @@ function createPublicGraphqlFieldRegistry(
           createValidationError,
         );
         return {
-          postId: readStringLiteral(args, "postId", createValidationError),
+          postId: readTrimmedStringLiteral(
+            args,
+            "postId",
+            createValidationError,
+          ),
         };
       },
       normalizeResult: (value, fieldName) => {
@@ -1088,7 +1092,7 @@ function createPublicGraphqlFieldRegistry(
         );
         return {
           text: readStringLiteral(args, "text", createValidationError),
-          replyToPostId: readStringLiteral(
+          replyToPostId: readTrimmedStringLiteral(
             args,
             "replyToPostId",
             createValidationError,
@@ -1127,7 +1131,7 @@ function createPublicGraphqlFieldRegistry(
         );
         return {
           text: readStringLiteral(args, "text", createValidationError),
-          quotedPostId: readStringLiteral(
+          quotedPostId: readTrimmedStringLiteral(
             args,
             "quotedPostId",
             createValidationError,
@@ -1171,7 +1175,11 @@ function createPublicGraphqlFieldRegistry(
           createValidationError,
         );
         return {
-          postId: readStringLiteral(args, "postId", createValidationError),
+          postId: readTrimmedStringLiteral(
+            args,
+            "postId",
+            createValidationError,
+          ),
         };
       },
       normalizeResult: (value, fieldName) => {
@@ -1206,7 +1214,11 @@ function createPublicGraphqlFieldRegistry(
           createValidationError,
         );
         return {
-          postId: readStringLiteral(args, "postId", createValidationError),
+          postId: readTrimmedStringLiteral(
+            args,
+            "postId",
+            createValidationError,
+          ),
         };
       },
       normalizeResult: (value, fieldName) => {

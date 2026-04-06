@@ -1,6 +1,6 @@
 # Canonical Public GraphQL Interface Implementation Plan
 
-**Status**: In Progress
+**Status**: Completed
 **Design Reference**: `design-docs/specs/architecture.md#stable-contract-with-internal-adapters`, `design-docs/specs/command.md#project-owned-graphql-contract`, `design-docs/specs/design-public-graphql-contract.md`
 **Created**: 2026-03-08
 **Last Updated**: 2026-04-05
@@ -113,7 +113,7 @@ Checklist:
 - [x] SDK execution tests cover canonical query/mutation names
 - [x] Registry coherence tests assert canonical public operation names
 - [x] Public schema validation rejects unsupported arguments and unsupported selection fields with actionable errors
-- [ ] CLI end-to-end smoke checks against a live configured environment
+- [x] CLI end-to-end smoke checks against a live configured environment
 
 ## Dependencies
 
@@ -123,7 +123,7 @@ Checklist:
 | CLI/docs repositioning | Canonical naming updates | Completed |
 | Automated verification | Canonical naming updates | Completed |
 | Schema validation hardening | Canonical naming updates | Completed |
-| Live smoke validation | Configured credentials | Blocked |
+| Live smoke validation | Configured credentials | Completed |
 
 ## Completion Criteria
 
@@ -133,7 +133,7 @@ Checklist:
 - [x] Existing stable account/post behavior remains routed through the shared capability executor
 - [x] Unsupported arguments and unsupported selection fields are rejected explicitly by the project-owned GraphQL validator
 - [x] Automated tests pass
-- [ ] Live smoke validation completed or explicitly blocked by missing credentials
+- [x] Live smoke validation completed or explicitly blocked by missing credentials
 
 ## Progress Log
 
@@ -283,3 +283,10 @@ Checklist:
 **Tasks In Progress**: Live upstream verification only for the supported account/post baseline
 **Blockers**: Live upstream verification is still blocked by missing reviewed credentials and network access in this environment
 **Notes**: Re-reviewed the current repository state against the intended product direction and confirmed that the architecture remains aligned: the project-owned `graphql` contract is the supported public surface, stable capability routing remains the shared execution boundary, and unsupported workflows are rejected instead of falling through to a raw GraphQL peer surface. This session updates the still-active plan wording to match the current CLI/SDK terminology and adds a small SDK/CLI hardening fix so capability inspection trims surrounding whitespace instead of failing on an exact-string mismatch.
+
+### Session: 2026-04-05 18:55 JST
+
+**Tasks Completed**: Live canonical GraphQL smoke validation
+**Tasks In Progress**: None
+**Blockers**: None for the supported account/post baseline; deferred `likes.list` remains tracked separately
+**Notes**: Verified the canonical project-owned GraphQL CLI against the configured live environment through both `bun run src/main.ts graphql query 'query { accountMe { id username } }' --json` and `bun run src/main-reader.ts graphql query 'query { accountMe { id username } }' --json`. Both commands returned successful `accountMe` results for the configured account, so the remaining live-smoke item for this plan is now complete.
