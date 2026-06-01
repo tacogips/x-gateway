@@ -1,14 +1,5 @@
-import {
-  mkdir,
-  stat,
-  writeFile,
-} from "node:fs/promises";
-import {
-  basename,
-  extname,
-  join,
-  resolve,
-} from "node:path";
+import { mkdir, stat, writeFile } from "node:fs/promises";
+import { basename, extname, join, resolve } from "node:path";
 import {
   TwitterApi,
   TwitterV2IncludesHelper,
@@ -40,6 +31,7 @@ import type {
   XGatewayPostRepostOptions,
   XGatewayReferencedPost,
   XGatewayPostSummary,
+  XGatewayFollowingTimelineOptions,
   XGatewayTimelinePageOptions,
   XGatewayTimelineSearchOptions,
   XGatewayTimelineUserOptions,
@@ -121,6 +113,11 @@ type V2TimelinePayload = Readonly<{
     tweets?: readonly TweetV2[];
     users?: readonly UserV2[];
   }>;
+  meta?: V2TimelineMeta;
+}>;
+
+type V2UserTimelinePayload = Readonly<{
+  data?: readonly UserV2[];
   meta?: V2TimelineMeta;
 }>;
 
@@ -222,6 +219,13 @@ type RestTimelineRequestOptions = Partial<Tweetv2FieldsParams> &
     next_token?: string;
   }>;
 
+type FollowingTimelineRequestInputs = Readonly<{
+  postReadOptions: PostReadOptions;
+  maxResults: number;
+  maxUsers: number;
+  maxResultsPerUser: number;
+}>;
+
 type RestPaginationTokenField = "pagination_token" | "next_token";
 
 type TweetMetricShape = Readonly<Record<string, unknown>>;
@@ -246,7 +250,9 @@ function readTweetMetrics(
   tweet: TweetV2,
   fieldName: TweetMetricFieldName,
 ): TweetMetricShape | undefined {
-  const value = (tweet as TweetV2 & Readonly<Record<string, unknown>>)[fieldName];
+  const value = (tweet as TweetV2 & Readonly<Record<string, unknown>>)[
+    fieldName
+  ];
   return isObjectRecord(value) ? value : undefined;
 }
 
@@ -277,14 +283,26 @@ function readFirstAvailableMetricNumber(
 
 function mapPostMetrics(tweet: TweetV2): XGatewayPostMetrics {
   return {
-    likeCount: readFirstAvailableMetricNumber(tweet, ["public_metrics"], "like_count"),
-    replyCount: readFirstAvailableMetricNumber(tweet, ["public_metrics"], "reply_count"),
+    likeCount: readFirstAvailableMetricNumber(
+      tweet,
+      ["public_metrics"],
+      "like_count",
+    ),
+    replyCount: readFirstAvailableMetricNumber(
+      tweet,
+      ["public_metrics"],
+      "reply_count",
+    ),
     repostCount: readFirstAvailableMetricNumber(
       tweet,
       ["public_metrics"],
       "retweet_count",
     ),
-    quoteCount: readFirstAvailableMetricNumber(tweet, ["public_metrics"], "quote_count"),
+    quoteCount: readFirstAvailableMetricNumber(
+      tweet,
+      ["public_metrics"],
+      "quote_count",
+    ),
     bookmarkCount: readFirstAvailableMetricNumber(
       tweet,
       ["public_metrics"],
@@ -312,7 +330,9 @@ function detectPromotionStatus(tweet: TweetV2): XGatewayPromotionStatus {
   return "UNKNOWN";
 }
 
-function collectReferencedTweetIds(tweets: readonly TweetV2[]): readonly string[] {
+function collectReferencedTweetIds(
+  tweets: readonly TweetV2[],
+): readonly string[] {
   const referencedTweetIds = new Set<string>();
 
   for (const tweet of tweets) {
@@ -565,7 +585,9 @@ async function mapPostSummary(
     return undefined;
   }
 
-  const author = mapOptionalAccountProfile(context.includesHelper.author(tweet));
+  const author = mapOptionalAccountProfile(
+    context.includesHelper.author(tweet),
+  );
   const [media, referencedPosts] = await Promise.all([
     mapMediaAssets(tweet, context, postReadOptions),
     maxReferenceDepth > 0
@@ -680,10 +702,7 @@ async function mapPostPage(
   postReadOptions: PostReadOptions,
 ): Promise<XGatewayPostPage> {
   const tweets = response.data ?? [];
-  const context = await createNestedReferenceIncludesHelper(
-    client,
-    response,
-  );
+  const context = await createNestedReferenceIncludesHelper(client, response);
   const meta = response.meta;
   const posts = (
     await Promise.all(
@@ -709,6 +728,20 @@ async function mapPostPage(
           ? {}
           : { oldestId: meta.oldest_id }
         : { oldestId: oldestPost.id }),
+    },
+  };
+}
+
+function createPostPageFromMergedPosts(
+  posts: readonly XGatewayPostSummary[],
+): XGatewayPostPage {
+  const oldestPost = posts.length === 0 ? undefined : posts[posts.length - 1];
+  return {
+    posts,
+    pageInfo: {
+      resultCount: posts.length,
+      ...(posts[0]?.id === undefined ? {} : { newestId: posts[0].id }),
+      ...(oldestPost?.id === undefined ? {} : { oldestId: oldestPost.id }),
     },
   };
 }
@@ -817,7 +850,11 @@ function buildPostRepliesSearchQuery(
   dependencies: CapabilityAdapterDependencies,
 ): string {
   const postId = validateSearchOperatorToken(
-    normalizeRequiredInput(options.postId, "postId", dependencies.ensureRequired),
+    normalizeRequiredInput(
+      options.postId,
+      "postId",
+      dependencies.ensureRequired,
+    ),
     "postId",
     dependencies.createValidationError,
   );
@@ -893,6 +930,52 @@ function readPostPageRequestInputs(
     postReadOptions: readPostReadOptions(options, dependencies),
     ...(maxResults === undefined ? {} : { maxResults }),
     ...(paginationToken === undefined ? {} : { paginationToken }),
+  };
+}
+
+function readFollowingTimelineRequestInputs(
+  options: XGatewayFollowingTimelineOptions,
+  dependencies: CapabilityAdapterDependencies,
+): FollowingTimelineRequestInputs {
+  const maxResults =
+    validateOptionalMaxResults(
+      options.maxResults,
+      "maxResults",
+      1,
+      100,
+      dependencies.createValidationError,
+    ) ?? 50;
+  const maxUsers =
+    validateOptionalMaxResults(
+      options.maxUsers,
+      "maxUsers",
+      1,
+      100,
+      dependencies.createValidationError,
+    ) ?? 25;
+  const maxResultsPerUser =
+    validateOptionalMaxResults(
+      options.maxResultsPerUser,
+      "maxResultsPerUser",
+      5,
+      100,
+      dependencies.createValidationError,
+    ) ?? 5;
+  const paginationToken = validateOptionalPaginationToken(
+    options.paginationToken,
+    "paginationToken",
+    dependencies.createValidationError,
+  );
+  if (paginationToken !== undefined) {
+    throw dependencies.createValidationError(
+      "followingTimeline.paginationToken is not supported until x-gateway implements a project-owned merged timeline cursor.",
+    );
+  }
+  return {
+    postReadOptions: readPostReadOptions(options, dependencies),
+    maxResults,
+    maxUsers,
+    maxResultsPerUser,
   };
 }
 
@@ -973,10 +1056,7 @@ export function createCapabilityAdapterFactories(
   }
 
   function readUsageInteger(value: unknown, fieldName: string): number {
-    if (
-      typeof value === "string" &&
-      /^(0|[1-9][0-9]*)$/.test(value.trim())
-    ) {
+    if (typeof value === "string" && /^(0|[1-9][0-9]*)$/.test(value.trim())) {
       const parsed = Number.parseInt(value, 10);
       if (Number.isSafeInteger(parsed) && parsed >= 0) {
         return parsed;
@@ -1005,7 +1085,11 @@ export function createCapabilityAdapterFactories(
   }
 
   function readUsageIdentifier(value: unknown, fieldName: string): string {
-    if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) {
+    if (
+      typeof value === "number" &&
+      Number.isSafeInteger(value) &&
+      value >= 0
+    ) {
       return String(value);
     }
     return readUsageString(value, fieldName);
@@ -1105,7 +1189,10 @@ export function createCapabilityAdapterFactories(
       projectId:
         projectTimeline.project_id === undefined
           ? fallbackProjectId
-          : readUsageIdentifier(projectTimeline.project_id, `${fieldName}.project_id`),
+          : readUsageIdentifier(
+              projectTimeline.project_id,
+              `${fieldName}.project_id`,
+            ),
       usage:
         projectTimeline.usage === undefined
           ? []
@@ -1332,12 +1419,14 @@ export function createCapabilityAdapterFactories(
 
   function createRestReadCapabilityMethods(
     client: TwitterApi,
+    getAuthenticatedUserId: () => Promise<string>,
   ): Pick<
     XGatewayReadCapabilityAdapter,
     | "postGet"
     | "postReplies"
     | "timelineSearch"
     | "timelineHome"
+    | "timelineFollowing"
     | "timelineUser"
     | "timelineMentions"
   > {
@@ -1346,16 +1435,63 @@ export function createCapabilityAdapterFactories(
     ): Promise<XGatewayPostPage> => {
       const requestInputs = readPostPageRequestInputs(options, 5, dependencies);
       const response = await client.v2.homeTimeline({
-        ...buildRestTimelineRequestOptions(
-          requestInputs,
-          "pagination_token",
-        ),
+        ...buildRestTimelineRequestOptions(requestInputs, "pagination_token"),
       });
       return mapPostPage(
         client,
         response.data as V2TimelinePayload,
         requestInputs.postReadOptions,
       );
+    };
+
+    const timelineFollowing = async (
+      options: XGatewayFollowingTimelineOptions,
+    ): Promise<XGatewayPostPage> => {
+      const requestInputs = readFollowingTimelineRequestInputs(
+        options,
+        dependencies,
+      );
+      const authenticatedUserId = await getAuthenticatedUserId();
+      const followingResponse = (await client.v2.following(
+        authenticatedUserId,
+        {
+          max_results: requestInputs.maxUsers,
+          "user.fields": ["id", "name", "username"],
+        },
+      )) as V2UserTimelinePayload;
+      const followedUsers = (followingResponse.data ?? []).slice(
+        0,
+        requestInputs.maxUsers,
+      );
+      const pages = await Promise.all(
+        followedUsers.map(async (user) => {
+          const response = await client.v2.userTimeline(user.id, {
+            ...buildRestTimelineRequestOptions(
+              {
+                postReadOptions: requestInputs.postReadOptions,
+                maxResults: requestInputs.maxResultsPerUser,
+              },
+              "pagination_token",
+            ),
+          });
+          return mapPostPage(
+            client,
+            response.data as V2TimelinePayload,
+            requestInputs.postReadOptions,
+          );
+        }),
+      );
+      const posts = pages
+        .flatMap((page) => page.posts)
+        .sort((left, right) => {
+          const rightTime =
+            right.createdAt === undefined ? 0 : Date.parse(right.createdAt);
+          const leftTime =
+            left.createdAt === undefined ? 0 : Date.parse(left.createdAt);
+          return rightTime - leftTime;
+        })
+        .slice(0, requestInputs.maxResults);
+      return createPostPageFromMergedPosts(posts);
     };
 
     const timelineUser = async (
@@ -1368,10 +1504,7 @@ export function createCapabilityAdapterFactories(
         dependencies.ensureRequired,
       );
       const response = await client.v2.userTimeline(userId, {
-        ...buildRestTimelineRequestOptions(
-          requestInputs,
-          "pagination_token",
-        ),
+        ...buildRestTimelineRequestOptions(requestInputs, "pagination_token"),
       });
       return mapPostPage(
         client,
@@ -1390,10 +1523,7 @@ export function createCapabilityAdapterFactories(
         dependencies.ensureRequired,
       );
       const response = await client.v2.userMentionTimeline(userId, {
-        ...buildRestTimelineRequestOptions(
-          requestInputs,
-          "pagination_token",
-        ),
+        ...buildRestTimelineRequestOptions(requestInputs, "pagination_token"),
       });
       return mapPostPage(
         client,
@@ -1405,7 +1535,11 @@ export function createCapabilityAdapterFactories(
     const timelineSearch = async (
       options: XGatewayTimelineSearchOptions,
     ): Promise<XGatewayPostPage> => {
-      const requestInputs = readPostPageRequestInputs(options, 10, dependencies);
+      const requestInputs = readPostPageRequestInputs(
+        options,
+        10,
+        dependencies,
+      );
       const query = normalizeRequiredInput(
         options.query,
         "query",
@@ -1442,7 +1576,11 @@ export function createCapabilityAdapterFactories(
     const postReplies = async (
       options: XGatewayPostRepliesOptions,
     ): Promise<XGatewayPostPage> => {
-      const requestInputs = readPostPageRequestInputs(options, 10, dependencies);
+      const requestInputs = readPostPageRequestInputs(
+        options,
+        10,
+        dependencies,
+      );
       const query = buildPostRepliesSearchQuery(options, dependencies);
       const response = await client.v2.search(query, {
         ...buildRestTimelineRequestOptions(requestInputs, "next_token"),
@@ -1459,6 +1597,7 @@ export function createCapabilityAdapterFactories(
       postReplies,
       timelineSearch,
       timelineHome,
+      timelineFollowing,
       timelineUser,
       timelineMentions,
     };
@@ -1466,7 +1605,17 @@ export function createCapabilityAdapterFactories(
 
   function createOauth1ReadCapabilityAdapter(): XGatewayReadCapabilityAdapter {
     const client = createOauth1RestClient();
-    const readMethods = createRestReadCapabilityMethods(client);
+    const getAuthenticatedUserId = async (): Promise<string> => {
+      const user = await client.v1.verifyCredentials({
+        include_entities: false,
+        skip_status: true,
+      });
+      return user.id_str;
+    };
+    const readMethods = createRestReadCapabilityMethods(
+      client,
+      getAuthenticatedUserId,
+    );
 
     return {
       adapterKind: "rest-oauth1",
@@ -1504,7 +1653,16 @@ export function createCapabilityAdapterFactories(
 
   function createBearerReadCapabilityAdapter(): XGatewayReadCapabilityAdapter {
     const client = createBearerRestClient();
-    const readMethods = createRestReadCapabilityMethods(client);
+    const getAuthenticatedUserId = async (): Promise<string> => {
+      const response = await client.v2.me({
+        "user.fields": ["id", "name", "username"],
+      });
+      return mapBearerAccountProfile(response, dependencies.createError).id;
+    };
+    const readMethods = createRestReadCapabilityMethods(
+      client,
+      getAuthenticatedUserId,
+    );
 
     return {
       adapterKind: "rest-bearer",

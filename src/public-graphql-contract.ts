@@ -244,6 +244,25 @@ function readOptionalIntegerLiteral(
   return value;
 }
 
+function readOptionalBoundedIntegerLiteral(
+  args: Readonly<Record<string, PublicGraphqlValue>>,
+  name: string,
+  minimum: number,
+  maximum: number,
+  createValidationError: ValidationErrorFactory,
+): number | undefined {
+  const value = readOptionalIntegerLiteral(args, name, createValidationError);
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value < minimum || value > maximum) {
+    throw createValidationError(
+      `Public GraphQL argument '${name}' must be an integer between ${minimum} and ${maximum} when provided.`,
+    );
+  }
+  return value;
+}
+
 function readOptionalBooleanLiteral(
   args: Readonly<Record<string, PublicGraphqlValue>>,
   name: string,
@@ -332,6 +351,44 @@ function readOptionalPostPageArguments(
     ...readOptionalPostReadArguments(args, createValidationError),
     ...(maxResults === undefined ? {} : { maxResults }),
     ...(paginationToken === undefined ? {} : { paginationToken }),
+  };
+}
+
+function readOptionalFollowingTimelineArguments(
+  args: Readonly<Record<string, PublicGraphqlValue>>,
+  createValidationError: ValidationErrorFactory,
+): Readonly<{
+  maxResults?: number;
+  maxUsers?: number;
+  maxResultsPerUser?: number;
+  paginationToken?: string;
+  mediaRootDir?: string;
+  downloadMedia?: boolean;
+  forceDownload?: boolean;
+  includePromoted?: boolean;
+}> {
+  const pageArguments = readOptionalPostPageArguments(
+    args,
+    createValidationError,
+  );
+  const maxUsers = readOptionalBoundedIntegerLiteral(
+    args,
+    "maxUsers",
+    1,
+    100,
+    createValidationError,
+  );
+  const maxResultsPerUser = readOptionalBoundedIntegerLiteral(
+    args,
+    "maxResultsPerUser",
+    5,
+    100,
+    createValidationError,
+  );
+  return {
+    ...pageArguments,
+    ...(maxUsers === undefined ? {} : { maxUsers }),
+    ...(maxResultsPerUser === undefined ? {} : { maxResultsPerUser }),
   };
 }
 
@@ -690,7 +747,8 @@ function validateSelectionsAgainstSchema(
   operationType: PublicGraphqlOperationType,
   createValidationError: ValidationErrorFactory,
 ): void {
-  const rootField = getPublicRootType(operationType).getFields()[topLevelFieldName];
+  const rootField =
+    getPublicRootType(operationType).getFields()[topLevelFieldName];
   if (!rootField) {
     throw createValidationError(
       `Public GraphQL field '${topLevelFieldName}' is not part of the stable x-gateway contract.`,
@@ -782,6 +840,14 @@ function createPublicGraphqlFieldRegistry(
   );
   const homeTimelineSelectionSchema = readSchemaFieldSelectionSchema(
     "homeTimeline",
+    "query",
+  );
+  const followingTimelineAllowedArgumentNames = readSchemaFieldArgumentNames(
+    "followingTimeline",
+    "query",
+  );
+  const followingTimelineSelectionSchema = readSchemaFieldSelectionSchema(
+    "followingTimeline",
     "query",
   );
   const userTimelineAllowedArgumentNames = readSchemaFieldArgumentNames(
@@ -949,6 +1015,29 @@ function createPublicGraphqlFieldRegistry(
         );
         return {
           ...readOptionalPostPageArguments(args, createValidationError),
+        };
+      },
+      normalizeResult: (value, fieldName) =>
+        normalizePostPageResult(value, fieldName, createPayloadError),
+    },
+    {
+      fieldName: "followingTimeline",
+      capabilityId: "timeline.following",
+      operationType: "query",
+      allowedArgumentNames: followingTimelineAllowedArgumentNames,
+      selectionSchema: followingTimelineSelectionSchema,
+      buildCapabilityInput: (args) => {
+        rejectUnexpectedArguments(
+          "followingTimeline",
+          args,
+          followingTimelineAllowedArgumentNames,
+          createValidationError,
+        );
+        return {
+          ...readOptionalFollowingTimelineArguments(
+            args,
+            createValidationError,
+          ),
         };
       },
       normalizeResult: (value, fieldName) =>

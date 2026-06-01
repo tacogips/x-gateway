@@ -15,6 +15,7 @@ import {
 import type {
   XGatewayAccountProfile,
   XGatewayError,
+  XGatewayFollowingTimelineOptions,
   XGatewayPostPage,
   XGatewayPostCreateOptions,
   XGatewayPostDeleteOptions,
@@ -49,6 +50,9 @@ export type XGatewayReadCapabilityAdapter = Readonly<{
   timelineHome: (
     options: XGatewayTimelinePageOptions,
   ) => Promise<XGatewayPostPage>;
+  timelineFollowing: (
+    options: XGatewayFollowingTimelineOptions,
+  ) => Promise<XGatewayPostPage>;
   timelineUser: (
     options: XGatewayTimelineUserOptions,
   ) => Promise<XGatewayPostPage>;
@@ -74,6 +78,7 @@ export type StableCapabilityInputById = Readonly<{
   "post.replies": XGatewayPostRepliesOptions;
   "timeline.search": XGatewayTimelineSearchOptions;
   "timeline.home": XGatewayTimelinePageOptions;
+  "timeline.following": XGatewayFollowingTimelineOptions;
   "timeline.user": XGatewayTimelineUserOptions;
   "timeline.mentions": XGatewayTimelineUserOptions;
   "post.create": XGatewayPostCreateOptions;
@@ -91,6 +96,7 @@ export type StableCapabilityResultById = Readonly<{
   "post.replies": XGatewayPostPage;
   "timeline.search": XGatewayPostPage;
   "timeline.home": XGatewayPostPage;
+  "timeline.following": XGatewayPostPage;
   "timeline.user": XGatewayPostPage;
   "timeline.mentions": XGatewayPostPage;
   "post.create": unknown;
@@ -335,6 +341,18 @@ export function createStableCapabilityExecutor(
           "Home timeline",
           {
             read: async (adapter) => adapter.timelineHome(input),
+          },
+          traceId,
+        ),
+    },
+    "timeline.following": {
+      capabilityLabel: "Following timeline",
+      plan: (input, traceId) =>
+        buildCapabilityExecutionPlan(
+          "timeline.following",
+          "Following timeline",
+          {
+            read: async (adapter) => adapter.timelineFollowing(input),
           },
           traceId,
         ),

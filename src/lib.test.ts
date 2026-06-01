@@ -39,7 +39,7 @@ const twitterMockState = {
   >,
   timelineCalls: [] as Array<
     Readonly<{
-      kind: "search" | "home" | "user" | "mentions";
+      kind: "search" | "home" | "following" | "user" | "mentions";
       authMode: "oauth1" | "bearer";
       query?: string;
       userId?: string;
@@ -242,6 +242,13 @@ vi.mock("twitter-api-v2", () => {
         max_results?: number;
         pagination_token?: string;
       }) => Promise<{ data: MockTimelinePayload }>;
+      following: (
+        userId: string,
+        options?: { max_results?: number },
+      ) => Promise<{
+        data: readonly MockUser[];
+        meta: { result_count: number };
+      }>;
       userTimeline: (
         userId: string,
         options?: { max_results?: number; pagination_token?: string },
@@ -250,9 +257,7 @@ vi.mock("twitter-api-v2", () => {
         userId: string,
         options?: { max_results?: number; pagination_token?: string },
       ) => Promise<{ data: MockTimelinePayload }>;
-      tweets: (
-        ids: readonly string[] | string,
-      ) => Promise<{
+      tweets: (ids: readonly string[] | string) => Promise<{
         data: readonly MockTweet[];
         includes: {
           media?: readonly MockMedia[];
@@ -603,6 +608,97 @@ vi.mock("twitter-api-v2", () => {
           });
           const count = options?.max_results ?? 5;
           const page = options?.pagination_token === "page-2" ? 2 : 1;
+          if (userId === "followed-a") {
+            return {
+              data: {
+                data: [
+                  {
+                    id: "followed-a-older",
+                    text: "followed A older",
+                    author_id: "followed-a",
+                    created_at: "2026-03-08T01:00:00.000Z",
+                    conversation_id: "following-conversation-a-older",
+                    organic_metrics: {
+                      impression_count: 11,
+                    },
+                  },
+                  {
+                    id: "followed-a-newer",
+                    text: "followed A newer",
+                    author_id: "followed-a",
+                    created_at: "2026-03-08T04:00:00.000Z",
+                    conversation_id: "following-conversation-a-newer",
+                    public_metrics: {
+                      like_count: 9,
+                      reply_count: 1,
+                      retweet_count: 2,
+                      quote_count: 3,
+                      bookmark_count: 4,
+                    },
+                    organic_metrics: {
+                      impression_count: 55,
+                    },
+                  },
+                ].slice(0, count),
+                includes: {
+                  users: [
+                    {
+                      id: "followed-a",
+                      username: "followed_a",
+                      name: "Followed A",
+                    },
+                  ],
+                },
+                meta: {
+                  result_count: Math.min(count, 2),
+                  newest_id: "followed-a-newer",
+                  oldest_id: "followed-a-older",
+                },
+              },
+            };
+          }
+          if (userId === "followed-b") {
+            return {
+              data: {
+                data: [
+                  {
+                    id: "followed-b-promoted",
+                    text: "followed B promoted",
+                    author_id: "followed-b",
+                    created_at: "2026-03-08T05:00:00.000Z",
+                    conversation_id: "following-conversation-b-promoted",
+                    promoted_metrics: {
+                      impression_count: 100,
+                    },
+                  },
+                  {
+                    id: "followed-b-middle",
+                    text: "followed B middle",
+                    author_id: "followed-b",
+                    created_at: "2026-03-08T03:00:00.000Z",
+                    conversation_id: "following-conversation-b-middle",
+                    organic_metrics: {
+                      impression_count: 22,
+                    },
+                  },
+                ].slice(0, count),
+                includes: {
+                  users: [
+                    {
+                      id: "followed-b",
+                      username: "followed_b",
+                      name: "Followed B",
+                    },
+                  ],
+                },
+                meta: {
+                  result_count: Math.min(count, 2),
+                  newest_id: "followed-b-promoted",
+                  oldest_id: "followed-b-middle",
+                },
+              },
+            };
+          }
           if (userId === "nested-user") {
             return {
               data: {
@@ -627,7 +723,10 @@ vi.mock("twitter-api-v2", () => {
                     mockMediaByKey["media-photo-quoted-1"]!,
                     mockMediaByKey["media-photo-retweet-1"]!,
                   ],
-                  tweets: [mockTweetsById["quoted-1"]!, mockTweetsById["retweet-1"]!],
+                  tweets: [
+                    mockTweetsById["quoted-1"]!,
+                    mockTweetsById["retweet-1"]!,
+                  ],
                   users: [
                     mockUsersById["author-1"]!,
                     mockUsersById["author-3"]!,
@@ -668,7 +767,10 @@ vi.mock("twitter-api-v2", () => {
                   },
                 ],
                 includes: {
-                  users: [mockUsersById["author-1"]!, mockUsersById["author-2"]!],
+                  users: [
+                    mockUsersById["author-1"]!,
+                    mockUsersById["author-2"]!,
+                  ],
                 },
                 meta: {
                   result_count: 2,
@@ -704,7 +806,10 @@ vi.mock("twitter-api-v2", () => {
                   },
                 ],
                 includes: {
-                  users: [mockUsersById["author-1"]!, mockUsersById["author-2"]!],
+                  users: [
+                    mockUsersById["author-1"]!,
+                    mockUsersById["author-2"]!,
+                  ],
                 },
                 meta: {
                   result_count: 2,
@@ -716,6 +821,44 @@ vi.mock("twitter-api-v2", () => {
           }
           return {
             data: buildTimelinePayload(`user-${userId}`, count, page),
+          };
+        },
+        following: async (
+          userId: string,
+          options?: { max_results?: number },
+        ) => {
+          if (this.auth === "bad-token") {
+            throw new ApiResponseError("Unauthorized", {
+              code: 401,
+              data: { title: "Unauthorized", detail: "Token expired" },
+            });
+          }
+          twitterMockState.timelineCalls.push({
+            kind: "following",
+            authMode,
+            userId,
+            ...(options?.max_results === undefined
+              ? {}
+              : { maxResults: options.max_results }),
+          });
+          const users =
+            userId === "empty-following-user"
+              ? []
+              : [
+                  {
+                    id: "followed-a",
+                    username: "followed_a",
+                    name: "Followed A",
+                  },
+                  {
+                    id: "followed-b",
+                    username: "followed_b",
+                    name: "Followed B",
+                  },
+                ];
+          return {
+            data: users.slice(0, options?.max_results ?? users.length),
+            meta: { result_count: users.length },
           };
         },
         tweets: async (ids: readonly string[] | string) => {
@@ -763,17 +906,23 @@ vi.mock("twitter-api-v2", () => {
           }
           return {
             data:
-              typeof this.auth === "string"
+              this.auth === "empty-following-token"
                 ? {
-                    id: "bearer-user",
-                    username: "bearer_user",
-                    name: "Bearer User",
+                    id: "empty-following-user",
+                    username: "empty_following_user",
+                    name: "Empty Following User",
                   }
-                : {
-                    id: "oauth1-user",
-                    username: "oauth1_user",
-                    name: "OAuth One",
-                  },
+                : typeof this.auth === "string"
+                  ? {
+                      id: "bearer-user",
+                      username: "bearer_user",
+                      name: "Bearer User",
+                    }
+                  : {
+                      id: "oauth1-user",
+                      username: "oauth1_user",
+                      name: "OAuth One",
+                    },
           };
         },
         singleTweet: async (postId: string) => {
@@ -1511,6 +1660,202 @@ describe("createXGatewayClient", () => {
     });
   });
 
+  test("supports followed-account latest posts through followingTimeline SDK contract", async () => {
+    process.env["X_GW_CONSUMER_KEY"] = "ck";
+    process.env["X_GW_CONSUMER_SECRET"] = "cs";
+    process.env["X_GW_ACCESS_TOKEN"] = "at";
+    process.env["X_GW_ACCESS_TOKEN_SECRET"] = "ats";
+
+    const client = createXGatewayClient();
+
+    await expect(
+      client.graphqlQuery({
+        query:
+          "query { followingTimeline(maxResults: 3, maxUsers: 2, maxResultsPerUser: 5) { posts { id text author { username name } metrics { likeCount replyCount repostCount quoteCount bookmarkCount impressionCount } } pageInfo { resultCount newestId oldestId nextToken } } }",
+      }),
+    ).resolves.toEqual({
+      data: {
+        followingTimeline: {
+          posts: [
+            {
+              id: "followed-a-newer",
+              text: "followed A newer",
+              author: {
+                username: "followed_a",
+                name: "Followed A",
+              },
+              metrics: {
+                likeCount: 9,
+                replyCount: 1,
+                repostCount: 2,
+                quoteCount: 3,
+                bookmarkCount: 4,
+                impressionCount: 55,
+              },
+            },
+            {
+              id: "followed-b-middle",
+              text: "followed B middle",
+              author: {
+                username: "followed_b",
+                name: "Followed B",
+              },
+              metrics: {
+                likeCount: null,
+                replyCount: null,
+                repostCount: null,
+                quoteCount: null,
+                bookmarkCount: null,
+                impressionCount: 22,
+              },
+            },
+            {
+              id: "followed-a-older",
+              text: "followed A older",
+              author: {
+                username: "followed_a",
+                name: "Followed A",
+              },
+              metrics: {
+                likeCount: null,
+                replyCount: null,
+                repostCount: null,
+                quoteCount: null,
+                bookmarkCount: null,
+                impressionCount: 11,
+              },
+            },
+          ],
+          pageInfo: {
+            resultCount: 3,
+            newestId: "followed-a-newer",
+            oldestId: "followed-a-older",
+          },
+        },
+      },
+    });
+    expect(twitterMockState.timelineCalls).toEqual([
+      {
+        kind: "following",
+        authMode: "oauth1",
+        userId: "oauth1-user",
+        maxResults: 2,
+      },
+      {
+        kind: "user",
+        authMode: "oauth1",
+        userId: "followed-a",
+        maxResults: 5,
+      },
+      {
+        kind: "user",
+        authMode: "oauth1",
+        userId: "followed-b",
+        maxResults: 5,
+      },
+    ]);
+  });
+
+  test("returns promoted followed-account posts when includePromoted is enabled", async () => {
+    process.env["X_GW_CONSUMER_KEY"] = "ck";
+    process.env["X_GW_CONSUMER_SECRET"] = "cs";
+    process.env["X_GW_ACCESS_TOKEN"] = "at";
+    process.env["X_GW_ACCESS_TOKEN_SECRET"] = "ats";
+
+    const client = createXGatewayClient();
+
+    await expect(
+      client.graphqlQuery({
+        query:
+          "query { followingTimeline(maxResults: 1, maxUsers: 2, maxResultsPerUser: 5, includePromoted: true) { posts { id promotionStatus } pageInfo { resultCount newestId oldestId nextToken } } }",
+      }),
+    ).resolves.toEqual({
+      data: {
+        followingTimeline: {
+          posts: [
+            {
+              id: "followed-b-promoted",
+              promotionStatus: "PROMOTED",
+            },
+          ],
+          pageInfo: {
+            resultCount: 1,
+            newestId: "followed-b-promoted",
+            oldestId: "followed-b-promoted",
+          },
+        },
+      },
+    });
+  });
+
+  test("returns a conservative empty page when the follow graph is empty", async () => {
+    process.env["X_GW_TOKEN"] = "empty-following-token";
+
+    const client = createXGatewayClient();
+
+    await expect(
+      client.graphqlQuery({
+        query:
+          "query { followingTimeline(maxResults: 10, maxUsers: 5, maxResultsPerUser: 5) { posts { id } pageInfo { resultCount newestId oldestId nextToken } } }",
+      }),
+    ).resolves.toEqual({
+      data: {
+        followingTimeline: {
+          posts: [],
+          pageInfo: {
+            resultCount: 0,
+          },
+        },
+      },
+    });
+  });
+
+  test("rejects unsupported followingTimeline aggregate cursors", async () => {
+    process.env["X_GW_CONSUMER_KEY"] = "ck";
+    process.env["X_GW_CONSUMER_SECRET"] = "cs";
+    process.env["X_GW_ACCESS_TOKEN"] = "at";
+    process.env["X_GW_ACCESS_TOKEN_SECRET"] = "ats";
+
+    const client = createXGatewayClient();
+
+    await expect(
+      client.graphqlQuery({
+        query:
+          'query { followingTimeline(maxResults: 5, paginationToken: "page-2") { posts { id } } }',
+      }),
+    ).rejects.toMatchObject({
+      payload: expect.objectContaining({
+        code: "VALIDATION_ERROR",
+        details: expect.stringContaining(
+          "followingTimeline.paginationToken is not supported",
+        ),
+      }),
+    });
+  });
+
+  test("rejects unsafe followingTimeline aggregate bounds", async () => {
+    process.env["X_GW_CONSUMER_KEY"] = "ck";
+    process.env["X_GW_CONSUMER_SECRET"] = "cs";
+    process.env["X_GW_ACCESS_TOKEN"] = "at";
+    process.env["X_GW_ACCESS_TOKEN_SECRET"] = "ats";
+
+    const client = createXGatewayClient();
+
+    await expect(
+      client.graphqlQuery({
+        query:
+          "query { followingTimeline(maxResults: 5, maxUsers: 101) { posts { id } } }",
+      }),
+    ).rejects.toMatchObject({
+      payload: expect.objectContaining({
+        code: "VALIDATION_ERROR",
+        details: expect.stringContaining(
+          "Public GraphQL argument 'maxUsers' must be an integer between 1 and 100",
+        ),
+      }),
+    });
+  });
+
   test("supports recursive replies selections through the project-owned GraphQL post contract", async () => {
     process.env["X_GW_TOKEN"] = "bearer-token";
 
@@ -1531,7 +1876,9 @@ describe("createXGatewayClient", () => {
                 id: "search-in_reply_to_tweet_id:post-42-1",
                 replies: {
                   posts: expect.arrayContaining([
-                    { id: "search-in_reply_to_tweet_id:search-in_reply_to_tweet_id:post-42-1-1" },
+                    {
+                      id: "search-in_reply_to_tweet_id:search-in_reply_to_tweet_id:post-42-1-1",
+                    },
                   ]),
                   pageInfo: {
                     resultCount: 10,
@@ -1671,7 +2018,8 @@ describe("createXGatewayClient", () => {
 
     await expect(
       client.graphqlQuery({
-        query: 'query { post(id: "promoted-zero-post") { id promotionStatus } }',
+        query:
+          'query { post(id: "promoted-zero-post") { id promotionStatus } }',
       }),
     ).rejects.toMatchObject(
       expect.objectContaining({
@@ -1811,9 +2159,9 @@ describe("createXGatewayClient", () => {
         },
       });
 
-      expect(readFileSync(`${mediaRootDir}/quoted-1/quoted-1.jpg`, "utf8")).toBe(
-        "downloaded:https://example.test/media/quoted-1.jpg",
-      );
+      expect(
+        readFileSync(`${mediaRootDir}/quoted-1/quoted-1.jpg`, "utf8"),
+      ).toBe("downloaded:https://example.test/media/quoted-1.jpg");
       expect(
         readFileSync(`${mediaRootDir}/retweet-1/retweet-1.jpg`, "utf8"),
       ).toBe("downloaded:https://example.test/media/retweet-1.jpg");
@@ -1895,9 +2243,13 @@ describe("createXGatewayClient", () => {
     mkdirSync(`${mediaRootDir}/retweet-1`, { recursive: true });
     mkdirSync(`${mediaRootDir}/retweet-2`, { recursive: true });
     writeFileSync(existingFilePath, "already-downloaded", { encoding: "utf8" });
-    writeFileSync(`${mediaRootDir}/retweet-1/retweet-1.jpg`, "already-downloaded", {
-      encoding: "utf8",
-    });
+    writeFileSync(
+      `${mediaRootDir}/retweet-1/retweet-1.jpg`,
+      "already-downloaded",
+      {
+        encoding: "utf8",
+      },
+    );
     writeFileSync(
       `${mediaRootDir}/retweet-2/retweet-2-high.mp4`,
       "already-downloaded",
@@ -1956,9 +2308,13 @@ describe("createXGatewayClient", () => {
     mkdirSync(`${mediaRootDir}/retweet-1`, { recursive: true });
     mkdirSync(`${mediaRootDir}/retweet-2`, { recursive: true });
     writeFileSync(existingFilePath, "already-downloaded", { encoding: "utf8" });
-    writeFileSync(`${mediaRootDir}/retweet-1/retweet-1.jpg`, "already-downloaded", {
-      encoding: "utf8",
-    });
+    writeFileSync(
+      `${mediaRootDir}/retweet-1/retweet-1.jpg`,
+      "already-downloaded",
+      {
+        encoding: "utf8",
+      },
+    );
     writeFileSync(
       `${mediaRootDir}/retweet-2/retweet-2-high.mp4`,
       "already-downloaded",
@@ -2238,8 +2594,7 @@ describe("createXGatewayClient", () => {
 
     await expect(
       client.graphqlQuery({
-        query:
-          'mutation { deletePost(postId: "  post-1  ") { id deleted } }',
+        query: 'mutation { deletePost(postId: "  post-1  ") { id deleted } }',
       }),
     ).resolves.toEqual({
       data: {
@@ -3128,10 +3483,13 @@ describe("executeCli", () => {
 
   test("rejects bare numeric flags instead of coercing them to true", async () => {
     await expect(
-      executeCli(["graphql", "query", "query { accountMe { id } }", "--retry"], {
-        commandName: "x-gateway",
-        surface: "full",
-      }),
+      executeCli(
+        ["graphql", "query", "query { accountMe { id } }", "--retry"],
+        {
+          commandName: "x-gateway",
+          surface: "full",
+        },
+      ),
     ).rejects.toMatchObject({
       payload: expect.objectContaining({
         code: "VALIDATION_ERROR",
@@ -3143,11 +3501,7 @@ describe("executeCli", () => {
   test("rejects mutation GraphQL requests in reader mode", async () => {
     await expect(
       executeCli(
-        [
-          "graphql",
-          "query",
-          'mutation { createPost(text: "hello") { id } }',
-        ],
+        ["graphql", "query", 'mutation { createPost(text: "hello") { id } }'],
         {
           commandName: "x-gateway-reader",
           surface: "reader",
@@ -3281,13 +3635,10 @@ describe("executeCli", () => {
     process.env["X_GW_ACCESS_TOKEN_SECRET"] = "ats";
 
     await expect(
-      executeCli(
-        ["graphql", "query", "query { accountMe { id username } }"],
-        {
-          commandName: "x-gateway",
-          surface: "full",
-        },
-      ),
+      executeCli(["graphql", "query", "query { accountMe { id username } }"], {
+        commandName: "x-gateway",
+        surface: "full",
+      }),
     ).resolves.toEqual({
       data: {
         accountMe: {
@@ -3471,6 +3822,51 @@ describe("executeCli", () => {
           pageInfo: {
             resultCount: 5,
             previousToken: "page-1",
+          },
+        },
+      },
+    });
+  });
+
+  test("supports followingTimeline through the read-only GraphQL CLI contract", async () => {
+    process.env["X_GW_CONSUMER_KEY"] = "ck";
+    process.env["X_GW_CONSUMER_SECRET"] = "cs";
+    process.env["X_GW_ACCESS_TOKEN"] = "at";
+    process.env["X_GW_ACCESS_TOKEN_SECRET"] = "ats";
+
+    await expect(
+      executeCli(
+        [
+          "graphql",
+          "query",
+          "query { followingTimeline(maxResults: 2, maxUsers: 2, maxResultsPerUser: 5) { posts { id author { username } } pageInfo { resultCount newestId oldestId nextToken } } }",
+        ],
+        {
+          commandName: "x-gateway-reader",
+          surface: "reader",
+        },
+      ),
+    ).resolves.toEqual({
+      data: {
+        followingTimeline: {
+          posts: [
+            {
+              id: "followed-a-newer",
+              author: {
+                username: "followed_a",
+              },
+            },
+            {
+              id: "followed-b-middle",
+              author: {
+                username: "followed_b",
+              },
+            },
+          ],
+          pageInfo: {
+            resultCount: 2,
+            newestId: "followed-a-newer",
+            oldestId: "followed-b-middle",
           },
         },
       },
@@ -3839,11 +4235,7 @@ describe("executeCli", () => {
   test("rejects removed api request aliases with migration guidance", async () => {
     await expect(
       executeCli(
-        [
-          "api",
-          "request",
-          'mutation { createPost(text: "hello") { id } }',
-        ],
+        ["api", "request", 'mutation { createPost(text: "hello") { id } }'],
         {
           commandName: "x-gateway-reader",
           surface: "reader",
@@ -4005,6 +4397,7 @@ describe("executeCli", () => {
     const usageTweets = client.capabilitiesGet("usage.tweets");
     const timelineSearch = client.capabilitiesGet("timeline.search");
     const timelineHome = client.capabilitiesGet("timeline.home");
+    const timelineFollowing = client.capabilitiesGet("timeline.following");
     const deferredSocial = client.capabilitiesGet("social.follows");
     const stableLikes = client.capabilitiesGet("likes.list");
 
@@ -4033,6 +4426,9 @@ describe("executeCli", () => {
     expect(timelineSearch.transportStrategy).toBe("rest-v2");
     expect(timelineHome.publicOperationName).toBe("homeTimeline");
     expect(timelineHome.surfaceCategory).toBe("stable-contract");
+    expect(timelineFollowing.publicOperationName).toBe("followingTimeline");
+    expect(timelineFollowing.surfaceCategory).toBe("stable-contract");
+    expect(timelineFollowing.status).toBe("implemented");
     expect(deferredSocial.notes).not.toContain(
       "GraphQL-only transport is enforced",
     );
@@ -4073,6 +4469,7 @@ describe("executeCli", () => {
       "apiUsage",
       "createPost",
       "deletePost",
+      "followingTimeline",
       "homeTimeline",
       "mentionsTimeline",
       "post",
@@ -4121,11 +4518,7 @@ describe("executeCli", () => {
 
     await expect(
       executeCli(
-        [
-          "graphql",
-          "query",
-          "query { apiUsage(days: 14) { projectId } }",
-        ],
+        ["graphql", "query", "query { apiUsage(days: 14) { projectId } }"],
         {
           commandName: "x-gateway",
           surface: "full",

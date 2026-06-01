@@ -167,6 +167,16 @@ ${POST_SHARED_FIELDS}
       forceDownload: Boolean
       includePromoted: Boolean
     ): PostPage!
+    followingTimeline(
+      maxResults: Int
+      maxUsers: Int
+      maxResultsPerUser: Int
+      paginationToken: String
+      mediaRootDir: String
+      downloadMedia: Boolean
+      forceDownload: Boolean
+      includePromoted: Boolean
+    ): PostPage!
     userTimeline(
       userId: String!
       maxResults: Int

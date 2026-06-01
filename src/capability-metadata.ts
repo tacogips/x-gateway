@@ -11,9 +11,7 @@ export type CapabilityTransportStrategy =
   | "graphql-web"
   | "hybrid";
 
-export type CapabilitySurfaceCategory =
-  | "stable-contract"
-  | "deferred";
+export type CapabilitySurfaceCategory = "stable-contract" | "deferred";
 
 export type XGatewayCapabilityAccessType = "read" | "write" | "read-write";
 
@@ -50,6 +48,7 @@ export const STABLE_CAPABILITY_IDS = [
   "post.replies",
   "timeline.search",
   "timeline.home",
+  "timeline.following",
   "timeline.user",
   "timeline.mentions",
   "post.create",
@@ -94,6 +93,7 @@ type StablePostingCapabilityId = Exclude<
   | "post.get"
   | "timeline.search"
   | "timeline.home"
+  | "timeline.following"
   | "timeline.user"
   | "timeline.mentions"
 >;
@@ -106,6 +106,7 @@ type StableReadCapabilityId = Extract<
   | "post.replies"
   | "timeline.search"
   | "timeline.home"
+  | "timeline.following"
   | "timeline.user"
   | "timeline.mentions"
 >;
@@ -307,6 +308,14 @@ export const CAPABILITY_REGISTRY: readonly CapabilityDescriptor[] = [
     operation: "home timeline with explicit pagination tokens",
     notes:
       "Stable home-timeline baseline uses the REST v2 reverse-chronological timeline endpoint. OAuth1 is reviewed; bearer auth may require a user-context token rather than an app-only bearer.",
+  }),
+  createStableReadCapabilityDescriptor({
+    id: "timeline.following",
+    publicOperationName: "followingTimeline",
+    endpointFamily: "timelines",
+    operation: "latest posts from followed accounts",
+    notes:
+      "Stable following-timeline baseline reads the authenticated account follow graph, then fetches recent user timelines for followed accounts and merges them by recency. OAuth1 is reviewed; bearer auth may require a user-context token.",
   }),
   createStableReadCapabilityDescriptor({
     id: "timeline.user",
@@ -540,6 +549,17 @@ export const CAPABILITY_PLANNING_REGISTRY: readonly CapabilityPlanningDefinition
       bearerReadinessStatus: "conditional",
       bearerReadinessReason:
         "Bearer auth is configured, but home timeline requires a user-context bearer token to succeed live.",
+    }),
+    createStableReadPlanningDefinition({
+      capabilityId: "timeline.following",
+      missingAuthReason:
+        "Following timeline requires OAuth1 credentials or a user-context bearer token.",
+      oauth1ReadinessReason:
+        "OAuth1 credentials are configured for the reviewed following timeline adapter.",
+      bearerReadinessRequirement: "user-context-bearer",
+      bearerReadinessStatus: "conditional",
+      bearerReadinessReason:
+        "Bearer auth is configured, but following timeline requires a user-context bearer token to read the follow graph live.",
     }),
     createStableReadPlanningDefinition({
       capabilityId: "timeline.user",

@@ -91,6 +91,7 @@ Large features are split into multiple related plans with cross-references.
 | `active/x-gateway-surface-category-clarification.md` | Completed | `design-docs/specs/architecture.md#stable-contract-with-internal-adapters` | 2026-03-08 |
 | `active/x-gateway-graphql-cli-namespace.md` | Completed | `design-docs/specs/design-graphql-command-surface.md`, `design-docs/specs/command.md#project-owned-graphql-contract` | 2026-04-05 |
 | `active/x-gateway-sdk-graphql-surface-alignment.md` | Completed | `design-docs/specs/architecture.md#overview`, `design-docs/specs/design-public-graphql-contract.md#contract-rules`, `design-docs/specs/design-graphql-command-surface.md` | 2026-04-05 |
+| `active/x-gateway-following-timeline.md` | Ready | `design-docs/specs/design-public-graphql-contract.md#query`, `design-docs/specs/command.md#project-owned-graphql-contract`, `design-docs/specs/architecture.md#capability-matrix-implementation-target` | 2026-06-01 |
 
 ## Completed Plans
 

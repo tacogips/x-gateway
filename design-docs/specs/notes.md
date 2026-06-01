@@ -22,6 +22,8 @@ This document records additional design constraints and implementation notes.
 - Planner diagnostics must name the actual reviewed route, including both transport and auth family, or mixed-auth failures become ambiguous.
 - The project-owned GraphQL field registry and the capability registry must be treated as one shared contract boundary with explicit drift checks.
 - Stable capability metadata, route planning, and executor dispatch must also be treated as one shared contract boundary with explicit drift checks.
+- Followed-account digest workflows should use a reviewed `followingTimeline` aggregate rather than assuming `homeTimeline` always reflects accounts followed by the authenticated user. Live evidence for the target account shows direct OAuth1 `following()` plus `userTimeline()` access succeeds while the stable `homeTimeline(maxResults:50)` path returns an empty page.
+- Aggregate read capabilities that fan out over followed users must keep conservative defaults and explicit bounds to reduce rate-limit exposure.
 
 ## AI-Caller Expectations
 

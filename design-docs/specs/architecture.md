@@ -130,6 +130,7 @@ The long-term implementation target remains broad coverage of X API capabilities
 - Phase 1 canonical public GraphQL fields: `accountMe`, `post`, `createPost`, `deletePost`, `replyToPost`, `quotePost`, `repostPost`, and `unrepostPost`
 - Direct reply listing is part of the stable contract through `post.replies`, implemented as direct-reply recent search and exposed canonically through nested `Post.replies(...)`.
 - Recursive reply expansion is also supported through `Post.replies(...)`, using bounded nested execution on top of the same stable `post.replies` capability.
+- Followed-account latest-post retrieval is part of the stable read contract through `timeline.following`, exposed canonically as `followingTimeline(...)`. It is intentionally modeled as a bounded project-owned aggregate: read the authenticated account follow graph, fetch recent user timelines for followed accounts, merge posts by recency, and return the same `PostPage` payload shape used by other timeline reads.
 - Phase 1 canonical mutation baseline includes inline image attachments for `createPost`, `replyToPost`, and `quotePost` through project-owned attachment input that maps onto internal OAuth1 media upload plus stable REST posting
 - `likes.list` remains deferred until a reviewed live route is verified; it is intentionally not part of the canonical public GraphQL contract in the current repository state
 - Phase 2: add GraphQL-backed adapters where public REST does not cover the required behavior
@@ -205,6 +206,7 @@ Each category provides:
 - Current implementation note: stable capability execution now lives in a dedicated module so `src/lib.ts` no longer owns the registry-driven dispatch layer directly.
 - Current implementation note: reviewed REST capability adapters now live in `src/capability-adapters.ts`.
 - Current implementation note: the public GraphQL parser now accepts list and object literals for project-owned input objects such as post attachments while still rejecting variables, fragments, aliases, directives, and multi-field documents.
+- Current implementation target: `followingTimeline` must complete the existing partial registry/schema work by adding the reviewed adapter and tests that prove the public GraphQL field, stable capability executor, capability metadata, SDK types, and PostPage projection all remain coherent.
 - Future extractions when complexity warrants:
   - `src/public-contract/` for project-owned GraphQL parsing and projection
   - `src/planner/` for capability planning and transport/auth routing

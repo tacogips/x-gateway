@@ -48,6 +48,10 @@ x-gateway-reader graphql query 'query { homeTimeline(maxResults: 10) { posts { i
 ```
 
 ```bash
+x-gateway-reader graphql query 'query { followingTimeline(maxResults: 10, maxUsers: 25, maxResultsPerUser: 5) { posts { id text createdAt author { username name } metrics { impressionCount likeCount replyCount repostCount quoteCount bookmarkCount } } pageInfo { resultCount newestId oldestId nextToken } } }'
+```
+
+```bash
 x-gateway-reader graphql query 'query { userTimeline(userId: "user-42", maxResults: 10) { posts { id text } pageInfo { resultCount nextToken } } }'
 ```
 
@@ -64,3 +68,5 @@ x-gateway-reader graphql query 'query { apiUsage(days: 14) { projectId projectUs
 - If the user asks to post, repost, quote, reply, delete, or otherwise mutate X state, stop using this skill and switch to the `x-post-via-gateway` skill.
 - If a query fails validation, inspect `x-gateway-reader graphql schema` and rewrite the request to match the public schema.
 - Prefer stable project-owned GraphQL fields over raw upstream GraphQL shapes.
+- Use `followingTimeline` for followed-account latest-post retrieval when `homeTimeline` is empty or unavailable for the authenticated account. It is a bounded project-owned aggregate over the authenticated user's follow graph, not a raw X home timeline.
+- Do not pass `followingTimeline.paginationToken` until x-gateway ships a reviewed merged aggregate cursor; the current stable behavior is first-page aggregation with no upstream cursor passthrough.

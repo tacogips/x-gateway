@@ -23,6 +23,17 @@ Provide a stable GraphQL-shaped public contract that expresses user intent witho
   - maps to capability `account.me`
 - `post(id: ID!)`
   - maps to capability `post.get`
+- `searchPosts(query: String!, maxResults: Int, paginationToken: String, mediaRootDir: String, downloadMedia: Boolean, forceDownload: Boolean, includePromoted: Boolean)`
+  - maps to capability `timeline.search`
+- `homeTimeline(maxResults: Int, paginationToken: String, mediaRootDir: String, downloadMedia: Boolean, forceDownload: Boolean, includePromoted: Boolean)`
+  - maps to capability `timeline.home`
+- `followingTimeline(maxResults: Int, maxUsers: Int, maxResultsPerUser: Int, paginationToken: String, mediaRootDir: String, downloadMedia: Boolean, forceDownload: Boolean, includePromoted: Boolean)`
+  - maps to capability `timeline.following`
+  - reads the authenticated account follow graph, fetches bounded recent timelines for followed accounts, merges posts by recency, and returns the stable `PostPage` shape
+- `userTimeline(userId: String!, maxResults: Int, paginationToken: String, mediaRootDir: String, downloadMedia: Boolean, forceDownload: Boolean, includePromoted: Boolean)`
+  - maps to capability `timeline.user`
+- `mentionsTimeline(userId: String!, maxResults: Int, paginationToken: String, mediaRootDir: String, downloadMedia: Boolean, forceDownload: Boolean, includePromoted: Boolean)`
+  - maps to capability `timeline.mentions`
 - `Post.replies(maxResults: Int, paginationToken: String)`
   - maps to capability `post.replies` using the parent `Post.id`
 
@@ -133,6 +144,8 @@ These limits are acceptable as long as diagnostics are explicit and the contract
 - Validation errors must name the unsupported public field or argument.
 - Validation errors must also reject unsupported selection fields instead of silently ignoring them.
 - Validation errors must reject unexpected arguments instead of silently accepting transport-shaped extras.
+- `followingTimeline` must reject non-positive or unsafe aggregate bounds; defaults should be conservative because the adapter fans out over followed-user timelines.
+- `followingTimeline.paginationToken` must be project-owned and must not claim to be a native upstream home-timeline cursor. If aggregate pagination is not fully implemented, the first reviewed slice may return no `nextToken` and document that behavior through `pageInfo`.
 - Object-valued public fields must require a nested selection set, and scalar public fields must reject nested selections.
 - When callers use superseded contract names from earlier iterations, errors should include the canonical replacement.
 - Current migration guidance must explicitly cover:
@@ -151,6 +164,8 @@ These limits are acceptable as long as diagnostics are explicit and the contract
 
 - `accountMe` returns a projected account object.
 - `post(id)` returns a projected post object plus `referencedPosts` when requested.
+- `searchPosts`, `homeTimeline`, `followingTimeline`, `userTimeline`, and `mentionsTimeline` return the stable `PostPage` shape.
+- `followingTimeline` sorts merged followed-account posts by `createdAt` descending, trims to `maxResults`, applies the existing promoted-post filtering rule, and carries stable nullable post metrics including `impressionCount` when upstream access provides it.
 - `Post.replies(...)` reuses the stable `PostPage` payload shape and may recursively hydrate nested `replies(...)` selections.
 - Post-shaped payloads expose `metrics` as a stable nested object with nullable metric fields so missing upstream metric access surfaces as `null` rather than a failed post read.
 - Mutations return stable project-defined objects, not raw transport payloads.
@@ -164,6 +179,7 @@ These limits are acceptable as long as diagnostics are explicit and the contract
 - passthrough of arbitrary user GraphQL to X
 - auto-support for all deferred capability families
 - claims that `likes` is part of the stable contract before a reviewed live adapter exists
+- treating `followingTimeline` as a raw X home timeline replacement; it is a bounded project-owned aggregate over followed accounts
 
 ## References
 

@@ -297,8 +297,7 @@ export function resolveConfig(
             clientId: paramAuth.clientId ?? envAuth.clientId,
             clientSecret: paramAuth.clientSecret ?? envAuth.clientSecret,
           };
-  const mediaRootDirRaw =
-    config.mediaRootDir ?? readEnv("X_GW_MEDIA_ROOT_DIR");
+  const mediaRootDirRaw = config.mediaRootDir ?? readEnv("X_GW_MEDIA_ROOT_DIR");
   const mediaRootDir =
     mediaRootDirRaw === undefined || mediaRootDirRaw.trim().length === 0
       ? undefined
@@ -813,10 +812,7 @@ export type XGatewayPostAttachmentInput = Readonly<{
 }>;
 
 export type XGatewayMediaKind = "photo" | "video" | "animated_gif";
-export type XGatewayPromotionStatus =
-  | "PROMOTED"
-  | "NOT_PROMOTED"
-  | "UNKNOWN";
+export type XGatewayPromotionStatus = "PROMOTED" | "NOT_PROMOTED" | "UNKNOWN";
 
 export type XGatewayMediaAsset = Readonly<{
   kind: XGatewayMediaKind;
@@ -927,6 +923,13 @@ export type XGatewayTimelineSearchOptions = Readonly<
 export type XGatewayTimelineUserOptions = Readonly<
   XGatewayTimelinePageOptions & {
     userId: string;
+  }
+>;
+
+export type XGatewayFollowingTimelineOptions = Readonly<
+  XGatewayTimelinePageOptions & {
+    maxUsers?: number;
+    maxResultsPerUser?: number;
   }
 >;
 
@@ -1460,7 +1463,9 @@ export function createXGatewayClient(
       return value;
     }
 
-    const record: Record<string, unknown> = { ...(value as Record<string, unknown>) };
+    const record: Record<string, unknown> = {
+      ...(value as Record<string, unknown>),
+    };
     for (const selection of selections) {
       const childSchema = schema.fields[selection.name];
       if (!childSchema) {
