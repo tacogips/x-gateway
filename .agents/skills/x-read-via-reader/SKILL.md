@@ -69,4 +69,5 @@ x-gateway-reader graphql query 'query { apiUsage(days: 14) { projectId projectUs
 - If a query fails validation, inspect `x-gateway-reader graphql schema` and rewrite the request to match the public schema.
 - Prefer stable project-owned GraphQL fields over raw upstream GraphQL shapes.
 - Use `followingTimeline` for followed-account latest-post retrieval when `homeTimeline` is empty or unavailable for the authenticated account. It is a bounded project-owned aggregate over the authenticated user's follow graph, not a raw X home timeline.
+- `followingTimeline` followed-account fanout requests public tweet fields only: it keeps `public_metrics`, omits owner-only `organic_metrics` and `promoted_metrics` for other users, and leaves `metrics.impressionCount` as `null` when no reviewed public impression source is available.
 - Do not pass `followingTimeline.paginationToken` until x-gateway ships a reviewed merged aggregate cursor; the current stable behavior is first-page aggregation with no upstream cursor passthrough.

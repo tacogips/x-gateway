@@ -166,6 +166,7 @@ These limits are acceptable as long as diagnostics are explicit and the contract
 - `post(id)` returns a projected post object plus `referencedPosts` when requested.
 - `searchPosts`, `homeTimeline`, `followingTimeline`, `userTimeline`, and `mentionsTimeline` return the stable `PostPage` shape.
 - `followingTimeline` sorts merged followed-account posts by `createdAt` descending, trims to `maxResults`, applies the existing promoted-post filtering rule, and carries stable nullable post metrics including `impressionCount` when upstream access provides it.
+- `followingTimeline` followed-account `userTimeline` reads must request public tweet fields only. They must not include owner-only `organic_metrics` or `promoted_metrics` for other-user timeline reads, because those fields are unavailable to the authenticated reader for accounts they follow and can turn a readable page into an upstream error with no tweets.
 - `Post.replies(...)` reuses the stable `PostPage` payload shape and may recursively hydrate nested `replies(...)` selections.
 - Post-shaped payloads expose `metrics` as a stable nested object with nullable metric fields so missing upstream metric access surfaces as `null` rather than a failed post read.
 - Mutations return stable project-defined objects, not raw transport payloads.

@@ -54,7 +54,9 @@ The same metrics object is reused across `Post`, `ReferencedPost`, and `Referenc
 ## Source Mapping
 
 - `likeCount`, `replyCount`, `repostCount`, `quoteCount`, and `bookmarkCount` come from upstream public metrics when available.
-- `impressionCount` prefers the first reviewed numeric source available, typically `public_metrics.impression_count` and otherwise `organic_metrics.impression_count`.
+- `impressionCount` prefers the first reviewed numeric source available.
+- Other-user timeline reads, including followed-account reads inside `followingTimeline`, must not request owner-only metric field groups solely to populate `impressionCount`; when no public impression source is returned, `impressionCount` remains `null`.
+- Owner-only metric groups such as `organic_metrics` and `promoted_metrics` may be considered only for a reviewed self-owned read path where the authenticated user is allowed to access them.
 
 ## Capability Impact
 

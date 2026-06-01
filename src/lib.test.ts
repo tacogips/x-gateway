@@ -45,6 +45,7 @@ const twitterMockState = {
       userId?: string;
       maxResults?: number;
       paginationToken?: string;
+      tweetFields?: readonly string[];
     }>
   >,
 };
@@ -101,6 +102,13 @@ vi.mock("twitter-api-v2", () => {
       newest_id: string;
       oldest_id: string;
     };
+  }>;
+
+  type MockTimelineOptions = Readonly<{
+    max_results?: number;
+    pagination_token?: string;
+    next_token?: string;
+    "tweet.fields"?: readonly string[];
   }>;
 
   class ApiResponseError extends Error {
@@ -236,12 +244,11 @@ vi.mock("twitter-api-v2", () => {
     get v2(): {
       search: (
         query: string,
-        options?: { max_results?: number; next_token?: string },
+        options?: MockTimelineOptions,
       ) => Promise<{ data: MockTimelinePayload }>;
-      homeTimeline: (options?: {
-        max_results?: number;
-        pagination_token?: string;
-      }) => Promise<{ data: MockTimelinePayload }>;
+      homeTimeline: (
+        options?: MockTimelineOptions,
+      ) => Promise<{ data: MockTimelinePayload }>;
       following: (
         userId: string,
         options?: { max_results?: number },
@@ -251,11 +258,11 @@ vi.mock("twitter-api-v2", () => {
       }>;
       userTimeline: (
         userId: string,
-        options?: { max_results?: number; pagination_token?: string },
+        options?: MockTimelineOptions,
       ) => Promise<{ data: MockTimelinePayload }>;
       userMentionTimeline: (
         userId: string,
-        options?: { max_results?: number; pagination_token?: string },
+        options?: MockTimelineOptions,
       ) => Promise<{ data: MockTimelinePayload }>;
       tweets: (ids: readonly string[] | string) => Promise<{
         data: readonly MockTweet[];
@@ -532,10 +539,7 @@ vi.mock("twitter-api-v2", () => {
           ? ("bearer" as const)
           : ("oauth1" as const);
       return {
-        search: async (
-          query: string,
-          options?: { max_results?: number; next_token?: string },
-        ) => {
+        search: async (query: string, options?: MockTimelineOptions) => {
           if (this.auth === "bad-token") {
             throw new ApiResponseError("Unauthorized", {
               code: 401,
@@ -552,6 +556,9 @@ vi.mock("twitter-api-v2", () => {
             ...(options?.next_token === undefined
               ? {}
               : { paginationToken: options.next_token }),
+            ...(options?.["tweet.fields"] === undefined
+              ? {}
+              : { tweetFields: options["tweet.fields"] }),
           });
           const count = options?.max_results ?? 10;
           const page = options?.next_token === "page-2" ? 2 : 1;
@@ -559,10 +566,7 @@ vi.mock("twitter-api-v2", () => {
             data: buildTimelinePayload(`search-${query}`, count, page),
           };
         },
-        homeTimeline: async (options?: {
-          max_results?: number;
-          pagination_token?: string;
-        }) => {
+        homeTimeline: async (options?: MockTimelineOptions) => {
           if (this.auth === "bad-token") {
             throw new ApiResponseError("Unauthorized", {
               code: 401,
@@ -578,6 +582,9 @@ vi.mock("twitter-api-v2", () => {
             ...(options?.pagination_token === undefined
               ? {}
               : { paginationToken: options.pagination_token }),
+            ...(options?.["tweet.fields"] === undefined
+              ? {}
+              : { tweetFields: options["tweet.fields"] }),
           });
           const count = options?.max_results ?? 5;
           const page = options?.pagination_token === "page-2" ? 2 : 1;
@@ -585,10 +592,7 @@ vi.mock("twitter-api-v2", () => {
             data: buildTimelinePayload("home", count, page),
           };
         },
-        userTimeline: async (
-          userId: string,
-          options?: { max_results?: number; pagination_token?: string },
-        ) => {
+        userTimeline: async (userId: string, options?: MockTimelineOptions) => {
           if (this.auth === "bad-token") {
             throw new ApiResponseError("Unauthorized", {
               code: 401,
@@ -605,6 +609,9 @@ vi.mock("twitter-api-v2", () => {
             ...(options?.pagination_token === undefined
               ? {}
               : { paginationToken: options.pagination_token }),
+            ...(options?.["tweet.fields"] === undefined
+              ? {}
+              : { tweetFields: options["tweet.fields"] }),
           });
           const count = options?.max_results ?? 5;
           const page = options?.pagination_token === "page-2" ? 2 : 1;
@@ -618,9 +625,6 @@ vi.mock("twitter-api-v2", () => {
                     author_id: "followed-a",
                     created_at: "2026-03-08T01:00:00.000Z",
                     conversation_id: "following-conversation-a-older",
-                    organic_metrics: {
-                      impression_count: 11,
-                    },
                   },
                   {
                     id: "followed-a-newer",
@@ -634,9 +638,6 @@ vi.mock("twitter-api-v2", () => {
                       retweet_count: 2,
                       quote_count: 3,
                       bookmark_count: 4,
-                    },
-                    organic_metrics: {
-                      impression_count: 55,
                     },
                   },
                 ].slice(0, count),
@@ -677,9 +678,6 @@ vi.mock("twitter-api-v2", () => {
                     author_id: "followed-b",
                     created_at: "2026-03-08T03:00:00.000Z",
                     conversation_id: "following-conversation-b-middle",
-                    organic_metrics: {
-                      impression_count: 22,
-                    },
                   },
                 ].slice(0, count),
                 includes: {
@@ -872,7 +870,7 @@ vi.mock("twitter-api-v2", () => {
         },
         userMentionTimeline: async (
           userId: string,
-          options?: { max_results?: number; pagination_token?: string },
+          options?: MockTimelineOptions,
         ) => {
           if (this.auth === "bad-token") {
             throw new ApiResponseError("Unauthorized", {
@@ -890,6 +888,9 @@ vi.mock("twitter-api-v2", () => {
             ...(options?.pagination_token === undefined
               ? {}
               : { paginationToken: options.pagination_token }),
+            ...(options?.["tweet.fields"] === undefined
+              ? {}
+              : { tweetFields: options["tweet.fields"] }),
           });
           const count = options?.max_results ?? 5;
           const page = options?.pagination_token === "page-2" ? 2 : 1;
@@ -1690,7 +1691,7 @@ describe("createXGatewayClient", () => {
                 repostCount: 2,
                 quoteCount: 3,
                 bookmarkCount: 4,
-                impressionCount: 55,
+                impressionCount: null,
               },
             },
             {
@@ -1706,7 +1707,7 @@ describe("createXGatewayClient", () => {
                 repostCount: null,
                 quoteCount: null,
                 bookmarkCount: null,
-                impressionCount: 22,
+                impressionCount: null,
               },
             },
             {
@@ -1722,7 +1723,7 @@ describe("createXGatewayClient", () => {
                 repostCount: null,
                 quoteCount: null,
                 bookmarkCount: null,
-                impressionCount: 11,
+                impressionCount: null,
               },
             },
           ],
@@ -1746,14 +1747,23 @@ describe("createXGatewayClient", () => {
         authMode: "oauth1",
         userId: "followed-a",
         maxResults: 5,
+        tweetFields: expect.arrayContaining(["public_metrics"]),
       },
       {
         kind: "user",
         authMode: "oauth1",
         userId: "followed-b",
         maxResults: 5,
+        tweetFields: expect.arrayContaining(["public_metrics"]),
       },
     ]);
+    for (const call of twitterMockState.timelineCalls) {
+      if (call.kind !== "user") {
+        continue;
+      }
+      expect(call.tweetFields).not.toContain("organic_metrics");
+      expect(call.tweetFields).not.toContain("promoted_metrics");
+    }
   });
 
   test("returns promoted followed-account posts when includePromoted is enabled", async () => {

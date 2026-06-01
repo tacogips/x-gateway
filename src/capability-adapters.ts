@@ -227,6 +227,7 @@ type FollowingTimelineRequestInputs = Readonly<{
 }>;
 
 type RestPaginationTokenField = "pagination_token" | "next_token";
+type RestTimelineMetricFieldPolicy = "default" | "public-only";
 
 type TweetMetricShape = Readonly<Record<string, unknown>>;
 type TweetMetricFieldName =
@@ -982,7 +983,16 @@ function readFollowingTimelineRequestInputs(
 function buildRestTimelineRequestOptions(
   requestInputs: PostPageRequestInputs,
   paginationTokenField: RestPaginationTokenField,
+  metricFieldPolicy: RestTimelineMetricFieldPolicy = "default",
 ): RestTimelineRequestOptions {
+  const lookupTweetFields = POST_LOOKUP_FIELDS["tweet.fields"];
+  const tweetFields =
+    metricFieldPolicy === "public-only" && Array.isArray(lookupTweetFields)
+      ? lookupTweetFields.filter(
+          (field) =>
+            field !== "organic_metrics" && field !== "promoted_metrics",
+        )
+      : lookupTweetFields;
   return {
     ...(requestInputs.maxResults === undefined
       ? {}
@@ -993,6 +1003,7 @@ function buildRestTimelineRequestOptions(
         ? { pagination_token: requestInputs.paginationToken }
         : { next_token: requestInputs.paginationToken }),
     ...POST_LOOKUP_FIELDS,
+    ...(tweetFields === undefined ? {} : { "tweet.fields": tweetFields }),
   };
 }
 
@@ -1472,6 +1483,7 @@ export function createCapabilityAdapterFactories(
                 maxResults: requestInputs.maxResultsPerUser,
               },
               "pagination_token",
+              "public-only",
             ),
           });
           return mapPostPage(

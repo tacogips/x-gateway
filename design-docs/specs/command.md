@@ -154,6 +154,7 @@ Capability adapter rules:
 - `likes list` must remain rejected until a reviewed live adapter route is verified; capability inventory and auth diagnostics must not advertise liked-post reads as part of the stable contract while the live path is known to fail.
 - `followingTimeline` must use an authenticated-user read path, not public search inference. The reviewed adapter should prefer OAuth1 when configured and may treat bearer readiness as conditional on a user-context bearer token.
 - `followingTimeline` must return stable `PostPage` output with author data through the existing author shape, nullable metrics including `impressionCount`, existing media options, and existing promoted-post filtering semantics.
+- `followingTimeline` followed-account timeline fetches must not request owner-only `organic_metrics` or `promoted_metrics`; public metrics should still be requested, and unavailable impression counts must remain `null` instead of failing the page.
 - `followingTimeline` aggregate pagination must be explicit and defensible; until a reviewed merged-cursor design is implemented, the command may expose only first-page bounded aggregation with no misleading upstream cursor passthrough.
 - `post create` must prefer a stable public API adapter when public REST support is sufficient.
 - `post delete` must prefer a stable public API adapter when public REST support is sufficient.
@@ -215,6 +216,6 @@ Current implementation note:
 - Stable posting helpers prefer OAuth1 whenever it is configured.
 - Stable `createPost`, `replyToPost`, and `quotePost` support inline image attachments through internal OAuth1 media upload and alt-text application; callers do not provide raw upload sequencing.
 - Stable `Post.replies(...)` allows recursive direct-reply traversal within one GraphQL request, subject to a bounded per-request expansion limit.
-- Stable `followingTimeline(...)` is the intended rielflow X digest read field for followed-account latest-post retrieval; the consumer example can switch from `homeTimeline` after the adapter and contract tests are complete.
+- Stable `followingTimeline(...)` is the intended rielflow X digest read field for followed-account latest-post retrieval. The concrete downstream reference is `/Users/taco/gits/tacogips/rielflow/examples/x-follower-ai-business-digest/workflow.json`, whose `fetch-follower-posts` node runs `rielflow/x-gateway-read` through Docker image `ghcr.io/tacogips/x-gateway:latest` and queries `followingTimeline { posts { ... metrics { ... impressionCount } } pageInfo { ... } }`. Treat that workflow as a behavioral consumer reference only: implementation should preserve the `followingTimeline` -> `PostPage` -> nullable `metrics.impressionCount` data flow without copying code from the rielflow repository.
 - Support is counted only when the reviewed auth path is actually enforced by the adapter contract; latent placeholder methods inside the wrong auth adapter do not count as delivered capability support.
 - Deferred commands must still fail explicitly with `UNSUPPORTED` and remediation that keeps `graphql query` as the canonical surface for reviewed capabilities.
