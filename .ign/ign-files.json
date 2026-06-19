@@ -1,0 +1,26 @@
+{
+  "files": [
+    ".agents/marketplace/.agents-plugin/marketplace.json",
+    ".agents/marketplace/plugins/lsp/.agents-plugin/plugin.json",
+    ".agents/skills/design-doc/agents/openai.yaml",
+    ".agents/skills/exec-impl-plan-ref/agents/openai.yaml",
+    ".agents/skills/impl-plan/agents/openai.yaml",
+    ".agents/skills/lib-replacement/agents/openai.yaml",
+    ".agents/skills/secure-github-action/agents/openai.yaml",
+    ".agents/skills/supply-chain-secure-code/agents/openai.yaml",
+    ".agents/skills/supply-chain-secure-install/agents/openai.yaml",
+    ".agents/skills/supply-chain-secure-publish/agents/openai.yaml",
+    ".agents/skills/test-plan/agents/openai.yaml",
+    ".agents/skills/test-refactor/agents/openai.yaml",
+    ".agents/skills/ts-coding-standards/agents/openai.yaml",
+    ".agents/skills/ts-review/SKILL.md",
+    ".claude",
+    "biome.json",
+    "bunfig.toml",
+    "package.json",
+    "src/lib.test.ts",
+    "src/lib.ts",
+    "src/main.ts",
+    "tsconfig.json"
+  ]
+}

@@ -1,38 +1,30 @@
 {
   "name": "x-gateway",
-  "version": "0.1.0",
-  "description": "AI-oriented CLI and library gateway for X API",
+  "version": "0.0.1",
+  "description": "x api client",
   "type": "module",
-  "main": "dist/lib.js",
-  "module": "dist/lib.js",
-  "types": "dist/lib.d.ts",
-  "bin": {
-    "x-gateway": "./dist/main.js",
-    "x-gateway-reader": "./dist/main-reader.js"
-  },
+  "main": "dist/main.js",
+  "module": "dist/main.js",
+  "types": "dist/main.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/lib.d.ts",
-      "import": "./dist/lib.js",
-      "default": "./dist/lib.js"
-    },
-    "./cli": {
-      "types": "./dist/cli.d.ts",
-      "import": "./dist/cli.js",
-      "default": "./dist/cli.js"
+      "types": "./dist/main.d.ts",
+      "import": "./dist/main.js",
+      "default": "./dist/main.js"
     }
   },
   "scripts": {
     "dev": "bun run --watch src/main.ts",
-    "build": "rm -rf dist && bun build src/lib.ts --outdir dist --target bun && bun build src/cli.ts --outdir dist --target bun && bun build src/main.ts --outdir dist --target bun && bun build src/main-reader.ts --outdir dist --target bun && tsc --emitDeclarationOnly --declaration --declarationMap --outDir dist --rootDir src",
+    "build": "bun build src/main.ts --outdir dist --target bun",
     "start": "bun run src/main.ts",
-    "test": "bun test",
-    "test:watch": "bun test --watch",
-    "test:ui": "bun test --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:ui": "vitest --ui",
     "typecheck": "tsc --noEmit",
-    "lint": "bun run typecheck",
-    "format": "prettier --write \"src/**/*.ts\"",
-    "format:check": "prettier --check \"src/**/*.ts\"",
+    "lint:biome": "biome check . --diagnostic-level=warn",
+    "lint": "biome check . --diagnostic-level=warn && bun run typecheck",
+    "format": "biome format --write .",
+    "format:check": "biome format .",
     "clean": "rm -rf dist"
   },
   "homepage": "https://github.com/user/repo",
@@ -40,17 +32,13 @@
     "type": "git",
     "url": "https://github.com/user/repo"
   },
+
   "license": "MIT",
   "trustedDependencies": [],
   "devDependencies": {
     "@types/bun": "1.1.14",
     "@vitest/ui": "2.1.8",
     "typescript": "5.7.2",
-    "prettier": "3.4.2",
     "vitest": "2.1.8"
-  },
-  "dependencies": {
-    "graphql": "16.13.1",
-    "twitter-api-v2": "1.29.0"
   }
 }

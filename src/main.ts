@@ -1,8 +1,14 @@
-#!/usr/bin/env node
+/**
+ * x-gateway - Main entry point
+ *
+ * x api client
+ */
 
-import { runCli } from "./cli";
+import { greet } from "./lib";
 
-void runCli({
-  commandName: "x-gateway",
-  surface: "full",
-});
+function main(): void {
+  const message = greet("World");
+  console.log(message);
+}
+
+main();

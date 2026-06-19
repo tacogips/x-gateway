@@ -115,6 +115,14 @@ Large features are split into multiple related plans with cross-references.
 | `completed/x-gateway-post-metrics-nullable.md` | 2026-04-05 | `design-docs/specs/design-post-metrics.md` |
 | `completed/x-gateway-promotion-status-and-read-adapter-hardening.md` | 2026-04-05 | `design-docs/specs/architecture.md#stable-contract-with-internal-adapters` |
 | `completed/x-gateway-public-request-planner-extraction.md` | 2026-03-08 | `design-docs/specs/architecture.md#module-boundaries-planned` |
+| `completed/x-gateway-swift-port-split-commands.md` | 2026-06-19 | `design-docs/specs/architecture.md#swift-port-architecture` |
+| `completed/x-gateway-swift-attachment-contract-hardening.md` | 2026-06-19 | `design-docs/specs/command.md#swift-split-commands` |
+| `completed/x-gateway-swift-oauth1-signing-baseline.md` | 2026-06-19 | `design-docs/specs/architecture.md#swift-port-architecture` |
+| `completed/x-gateway-swift-media-upload-baseline.md` | 2026-06-19 | `design-docs/specs/command.md#swift-split-commands` |
+| `completed/x-gateway-swift-projection-parity-baseline.md` | 2026-06-19 | `design-docs/specs/architecture.md#swift-port-architecture` |
+| `completed/x-gateway-swift-promoted-filtering-baseline.md` | 2026-06-19 | `design-docs/specs/command.md#swift-split-commands` |
+| `completed/x-gateway-swift-media-download-baseline.md` | 2026-06-19 | `design-docs/specs/command.md#swift-split-commands` |
+| `completed/x-gateway-swift-nested-replies-baseline.md` | 2026-06-19 | `design-docs/specs/command.md#swift-split-commands` |
 
 ## Phase Dependencies (for impl-exec-auto)
 

@@ -129,15 +129,15 @@ feat: implement user authentication system
 
 ## Project Overview
 
-This is x-gateway - a TypeScript project with Bun runtime and Nix flake development environment support.
+This is x-gateway - a Swift Package Manager project with Nix flake development environment support.
 
 ### Product Direction (Bootstrap Scope)
 
 - `x-gateway` is a command-line client that enables X (Twitter) API usage through the `x-gateway` command.
 - Primary usage assumes invocation from AI agents/tools, so operational errors must be highly explanatory and remediation-oriented.
 - The same repository must provide both:
-  - CLI interface (`x-gateway ...`)
-  - TypeScript library interface (`import { ... } from "x-gateway"`)
+  - CLI interface through the split Swift executables (`x-gateway-read ...` and `x-gateway-write ...`)
+  - Swift library interface (`import XGatewayCore`)
 - API/auth configuration must be accepted by both:
   - environment variables
   - explicit function parameters (for embedders that avoid environment coupling)
@@ -156,45 +156,36 @@ This is x-gateway - a TypeScript project with Bun runtime and Nix flake developm
   - Include concrete recovery actions where possible
 
 ## Development Environment
-- **Language**: TypeScript
-- **Runtime**: Bun
-- **Build Tool**: Bun (with go-task for automation)
+- **Language**: Swift
+- **Runtime/Package Manager**: Swift Package Manager
+- **Build Tool**: SwiftPM (with go-task for automation)
 - **Environment Manager**: Nix flakes + direnv
 - **Development Shell**: Run `nix develop` or use direnv to activate
 
 ## Project Structure
 ```
 .
-├── flake.nix          # Nix flake configuration for TypeScript/Bun development
+├── flake.nix          # Nix flake configuration for Swift development
 ├── flake.lock         # Locked flake dependencies
-├── package.json       # Package manifest
-├── bun.lockb          # Bun lock file
-├── tsconfig.json      # TypeScript configuration (maximum strictness)
-├── .envrc             # direnv configuration
-├── src/               # Source code
-│   ├── main.ts        # Entry point
-│   ├── lib.ts         # Library code
-│   └── lib.test.ts    # Test files
+├── Package.swift      # Swift package manifest
+├── Taskfile.yml       # Build/test/release automation
+├── Sources/           # Swift and C source code
+│   ├── XGatewayCore/  # Shared Swift library code
+│   ├── XGatewayRead/  # Read-only CLI executable
+│   ├── XGatewayWrite/ # Write CLI executable
+│   └── XGatewaySwiftSmokeTests/ # Smoke test executable
 └── .gitignore         # Git ignore patterns
 ```
 
 ## Development Tools Available
-- `bun` - JavaScript/TypeScript runtime and package manager
-- `tsc` - TypeScript compiler
-- `typescript-language-server` - TypeScript language server (LSP)
-- `prettier` - Code formatter
+- `swift` - Swift compiler, package manager, and test/build driver
 - `task` - Task runner (go-task)
 
-## TypeScript Code Development
+## Swift Code Development
 
-**IMPORTANT**: When writing TypeScript code, you (the LLM model) MUST use the specialized agents:
+**IMPORTANT**: When writing or reviewing Swift code, use the available Swift coding guidance.
 
-1. **ts-coding agent** (`.claude/agents/ts-coding.md`): For writing, refactoring, and implementing TypeScript code
-2. **check-and-test-after-modify agent** (`.claude/agents/check-and-test-after-modify.md`): MUST be invoked automatically after ANY TypeScript file modifications
-
-**Coding Standards**: Refer to `.claude/skills/ts-coding-standards/` for TypeScript coding conventions, project layout, error handling, type safety, and async patterns.
-
-**TypeScript Configuration**: This project uses maximum TypeScript strictness. See `tsconfig.json` for the complete strict configuration.
+After modifying Swift source files, run the relevant Swift verification command, normally `task test` for smoke coverage and `task ci` when release-build coverage is needed.
 
 ## Design Documentation
 
@@ -215,7 +206,7 @@ This is x-gateway - a TypeScript project with Bun runtime and Nix flake developm
 ```
 Design Document --> Implementation Plan --> Implementation --> Completion
      |                    |                      |               |
-design-docs/         impl-plans/            ts-coding        Progress
+design-docs/         impl-plans/            swift-coding     Progress
 specs/*.md          active/*.md              agent            Update
 ```
 
@@ -273,7 +264,7 @@ When implementing from a plan:
 
 1. Read the implementation plan from `impl-plans/active/`
 2. Select a subtask (consider parallelization and dependencies)
-3. Use the `ts-coding` agent with the deliverable specifications
+3. Use Swift coding guidance with the deliverable specifications
 4. Update the plan's progress log and completion criteria
 5. When all tasks complete, move plan to `impl-plans/completed/`
 
@@ -316,7 +307,7 @@ Example subtask format:
 ### TASK-001: Core Parser Implementation
 **Status**: In Progress
 **Parallelizable**: Yes
-**Deliverables**: src/parser/variable.ts
+**Deliverables**: Sources/XGatewayCore/VariableParser.swift
 
 **Completion Criteria**:
 - [x] parseVariables function implemented
@@ -335,4 +326,4 @@ Example subtask format:
 - This project uses Nix flakes for reproducible development environments
 - Use direnv for automatic environment activation
 - All development dependencies are managed through flake.nix
-- Runtime is Bun, which provides fast TypeScript execution and built-in testing
+- Runtime and packaging are provided by Swift Package Manager

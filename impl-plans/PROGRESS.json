@@ -1,5 +1,5 @@
 {
-  "lastUpdated": "2026-06-01T10:05:00Z",
+  "lastUpdated": "2026-06-19T17:35:00Z",
   "phases": {
     "1": { "status": "READY" },
     "2": { "status": "BLOCKED" },
@@ -809,6 +809,184 @@
           "status": "Completed",
           "parallelizable": false,
           "deps": ["TASK-003"]
+        }
+      }
+    },
+    "x-gateway-swift-port-split-commands": {
+      "phase": 1,
+      "status": "Completed",
+      "tasks": {
+        "TASK-001": {
+          "status": "Completed",
+          "parallelizable": true,
+          "deps": []
+        },
+        "TASK-002": {
+          "status": "Completed",
+          "parallelizable": false,
+          "deps": ["TASK-001"]
+        },
+        "TASK-003": {
+          "status": "Completed",
+          "parallelizable": false,
+          "deps": ["TASK-002"]
+        },
+        "TASK-004": {
+          "status": "Completed",
+          "parallelizable": false,
+          "deps": ["TASK-002", "TASK-003"]
+        },
+        "TASK-005": {
+          "status": "Completed",
+          "parallelizable": false,
+          "deps": ["TASK-001", "TASK-003"]
+        }
+      }
+    },
+    "x-gateway-swift-attachment-contract-hardening": {
+      "phase": 1,
+      "status": "Completed",
+      "tasks": {
+        "TASK-001": {
+          "status": "Completed",
+          "parallelizable": true,
+          "deps": ["x-gateway-swift-port-split-commands:TASK-002"]
+        },
+        "TASK-002": {
+          "status": "Completed",
+          "parallelizable": false,
+          "deps": ["TASK-001"]
+        },
+        "TASK-003": {
+          "status": "Completed",
+          "parallelizable": false,
+          "deps": ["TASK-001", "TASK-002"]
+        }
+      }
+    },
+    "x-gateway-swift-oauth1-signing-baseline": {
+      "phase": 1,
+      "status": "Completed",
+      "tasks": {
+        "TASK-001": {
+          "status": "Completed",
+          "parallelizable": true,
+          "deps": ["x-gateway-swift-port-split-commands:TASK-001"]
+        },
+        "TASK-002": {
+          "status": "Completed",
+          "parallelizable": false,
+          "deps": ["TASK-001"]
+        },
+        "TASK-003": {
+          "status": "Completed",
+          "parallelizable": false,
+          "deps": ["TASK-002"]
+        }
+      }
+    },
+    "x-gateway-swift-media-upload-baseline": {
+      "phase": 1,
+      "status": "Completed",
+      "tasks": {
+        "TASK-001": {
+          "status": "Completed",
+          "parallelizable": false,
+          "deps": ["x-gateway-swift-attachment-contract-hardening:TASK-001"]
+        },
+        "TASK-002": {
+          "status": "Completed",
+          "parallelizable": false,
+          "deps": ["x-gateway-swift-oauth1-signing-baseline:TASK-002"]
+        },
+        "TASK-003": {
+          "status": "Completed",
+          "parallelizable": false,
+          "deps": ["TASK-001", "TASK-002"]
+        }
+      }
+    },
+    "x-gateway-swift-projection-parity-baseline": {
+      "phase": 1,
+      "status": "Completed",
+      "tasks": {
+        "TASK-001": {
+          "status": "Completed",
+          "parallelizable": true,
+          "deps": ["x-gateway-swift-port-split-commands:TASK-002"]
+        },
+        "TASK-002": {
+          "status": "Completed",
+          "parallelizable": false,
+          "deps": ["TASK-001"]
+        },
+        "TASK-003": {
+          "status": "Completed",
+          "parallelizable": false,
+          "deps": ["TASK-002"]
+        }
+      }
+    },
+    "x-gateway-swift-promoted-filtering-baseline": {
+      "phase": 1,
+      "status": "Completed",
+      "tasks": {
+        "TASK-001": {
+          "status": "Completed",
+          "parallelizable": true,
+          "deps": ["x-gateway-swift-projection-parity-baseline:TASK-001"]
+        },
+        "TASK-002": {
+          "status": "Completed",
+          "parallelizable": false,
+          "deps": ["TASK-001"]
+        },
+        "TASK-003": {
+          "status": "Completed",
+          "parallelizable": false,
+          "deps": ["TASK-002"]
+        }
+      }
+    },
+    "x-gateway-swift-media-download-baseline": {
+      "phase": 1,
+      "status": "Completed",
+      "tasks": {
+        "TASK-001": {
+          "status": "Completed",
+          "parallelizable": true,
+          "deps": ["x-gateway-swift-projection-parity-baseline:TASK-001"]
+        },
+        "TASK-002": {
+          "status": "Completed",
+          "parallelizable": false,
+          "deps": ["TASK-001"]
+        },
+        "TASK-003": {
+          "status": "Completed",
+          "parallelizable": false,
+          "deps": ["TASK-002"]
+        }
+      }
+    },
+    "x-gateway-swift-nested-replies-baseline": {
+      "phase": 1,
+      "status": "Completed",
+      "tasks": {
+        "TASK-001": {
+          "status": "Completed",
+          "parallelizable": true,
+          "deps": ["x-gateway-swift-projection-parity-baseline:TASK-001"]
+        },
+        "TASK-002": {
+          "status": "Completed",
+          "parallelizable": false,
+          "deps": ["TASK-001"]
+        },
+        "TASK-003": {
+          "status": "Completed",
+          "parallelizable": false,
+          "deps": ["TASK-002"]
         }
       }
     }

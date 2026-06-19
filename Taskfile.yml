@@ -2,6 +2,8 @@ version: '3'
 
 vars:
   PROJECT_NAME: x-gateway
+  VERSION:
+    sh: git describe --tags --always --dirty 2>/dev/null || echo 0.1.0
 
 tasks:
   default:
@@ -9,83 +11,54 @@ tasks:
     cmds:
       - task --list
 
-  install:
-    desc: Install dependencies
-    cmds:
-      - bun install
-
-  dev:
-    desc: Run in development mode with watch
-    cmds:
-      - bun run dev
-
   build:
-    desc: Build the project
+    desc: Build all Swift products
     cmds:
-      - bun run build
+      - swift build -c release
 
-  start:
-    desc: Run the application
+  build-read:
+    desc: Build the Swift read-only command product
     cmds:
-      - bun run start
+      - swift build -c release --product x-gateway-read
+
+  build-write:
+    desc: Build the Swift write command product
+    cmds:
+      - swift build -c release --product x-gateway-write
 
   test:
-    desc: Run tests with Vitest
+    desc: Run Swift smoke tests
     cmds:
-      - bun run test
-
-  test-watch:
-    desc: Run tests in watch mode with Vitest
-    cmds:
-      - bun run test:watch
-
-  test-verbose:
-    desc: Run tests with verbose output
-    cmds:
-      - vitest run --reporter=verbose
-
-  test-ui:
-    desc: Run tests with Vitest UI
-    cmds:
-      - vitest --ui
-
-  typecheck:
-    desc: Run TypeScript type checking
-    cmds:
-      - bun run typecheck
-
-  fmt:
-    desc: Format code with prettier
-    cmds:
-      - bun run format
-
-  fmt-check:
-    desc: Check code formatting
-    cmds:
-      - bun run format:check
-
-  lint:
-    desc: Run all lints (format check + typecheck)
-    cmds:
-      - task: fmt-check
-      - task: typecheck
-
-  clean:
-    desc: Clean build artifacts
-    cmds:
-      - bun run clean
+      - swift run x-gateway-swift-smoke-tests
 
   ci:
-    desc: Run all CI checks
+    desc: Run Swift verification
     cmds:
-      - task: fmt-check
-      - task: typecheck
-      - task: test
       - task: build
+      - task: test
 
-  # -------------------------
-  # Release tasks
-  # -------------------------
+  clean:
+    desc: Clean build and release artifacts
+    cmds:
+      - rm -rf .build release
+
+  install-read:
+    desc: Install only the Swift read-only command
+    vars:
+      INSTALL_PREFIX: '{{default "/usr/local" .PREFIX}}'
+    cmds:
+      - swift build -c release --product x-gateway-read
+      - mkdir -p "{{.INSTALL_PREFIX}}/bin"
+      - install .build/release/x-gateway-read "{{.INSTALL_PREFIX}}/bin/x-gateway-read"
+
+  install-write:
+    desc: Install only the Swift write command
+    vars:
+      INSTALL_PREFIX: '{{default "/usr/local" .PREFIX}}'
+    cmds:
+      - swift build -c release --product x-gateway-write
+      - mkdir -p "{{.INSTALL_PREFIX}}/bin"
+      - install .build/release/x-gateway-write "{{.INSTALL_PREFIX}}/bin/x-gateway-write"
 
   release:clean:
     desc: Clean release artifacts
@@ -93,63 +66,27 @@ tasks:
       - rm -rf release
 
   release:prepare:
-    desc: Run CI and build before release packaging
+    desc: Run verification before release packaging
     cmds:
       - task: ci
 
   release:binary:
-    desc: Build compiled binaries for a specific target (internal)
-    internal: true
-    requires:
-      vars: [TARGET, SUFFIX]
+    desc: Build a local Swift binary archive
     vars:
-      VERSION:
-        sh: bun -e "const p = await Bun.file('./package.json').json(); console.log(p.version)"
-      RELEASE_DIR: 'release/{{.PROJECT_NAME}}-v{{.VERSION}}-{{.SUFFIX}}'
-    cmds:
-      - mkdir -p {{.RELEASE_DIR}}
-      - bun build src/main.ts --compile --target {{.TARGET}} --outfile {{.RELEASE_DIR}}/x-gateway
-      - bun build src/main-reader.ts --compile --target {{.TARGET}} --outfile {{.RELEASE_DIR}}/x-gateway-reader
-      - cd release && tar -czf {{.PROJECT_NAME}}-v{{.VERSION}}-{{.SUFFIX}}.tar.gz $(basename {{.RELEASE_DIR}})
-      - echo "Built release/{{.PROJECT_NAME}}-v{{.VERSION}}-{{.SUFFIX}}.tar.gz"
-
-  release:binaries:
-    desc: Build all binary release archives (macOS + Linux)
+      RELEASE_DIR: 'release/{{.PROJECT_NAME}}-{{.VERSION}}'
     cmds:
       - task: release:prepare
-      - task: release:binary
-        vars:
-          TARGET: bun-darwin-arm64
-          SUFFIX: darwin-arm64
-      - task: release:binary
-        vars:
-          TARGET: bun-darwin-x64
-          SUFFIX: darwin-x64
-      - task: release:binary
-        vars:
-          TARGET: bun-linux-x64
-          SUFFIX: linux-x64
-      - task: release:binary
-        vars:
-          TARGET: bun-linux-arm64
-          SUFFIX: linux-arm64
-
-  release:npm:
-    desc: Build npm tarball into release/
-    vars:
-      VERSION:
-        sh: bun -e "const p = await Bun.file('./package.json').json(); console.log(p.version)"
-    cmds:
-      - task: release:prepare
-      - mkdir -p release
-      - bun pm pack --destination release
-      - echo "Built release/{{.PROJECT_NAME}}-{{.VERSION}}.tgz"
+      - mkdir -p {{.RELEASE_DIR}}/bin
+      - install .build/release/x-gateway-read {{.RELEASE_DIR}}/bin/x-gateway-read
+      - install .build/release/x-gateway-write {{.RELEASE_DIR}}/bin/x-gateway-write
+      - cd release && tar -czf {{.PROJECT_NAME}}-{{.VERSION}}.tar.gz $(basename {{.RELEASE_DIR}})
+      - echo "Built release/{{.PROJECT_NAME}}-{{.VERSION}}.tar.gz"
 
   release:checksums:
     desc: Generate SHA256 checksums for release assets
     cmds:
       - test -d release
-      - cd release && sha256sum *.tar.gz *.tgz > SHA256SUMS.txt
+      - cd release && shasum -a 256 *.tar.gz > SHA256SUMS.txt
       - echo "Wrote release/SHA256SUMS.txt"
 
   release:nix:
@@ -158,18 +95,15 @@ tasks:
       - nix flake check
 
   release:all:
-    desc: Build all release artifacts (binaries + npm tarball + checksums)
+    desc: Build all local release artifacts
     cmds:
       - task: release:clean
-      - task: release:binaries
-      - task: release:npm
+      - task: release:binary
       - task: release:checksums
 
   release:github:
     desc: Publish release assets to GitHub Release
     vars:
-      VERSION:
-        sh: bun -e "const p = await Bun.file('./package.json').json(); console.log(p.version)"
       TAG: 'v{{.VERSION}}'
     cmds:
       - gh auth status
@@ -189,20 +123,7 @@ tasks:
       - gh release upload "{{.TAG}}" release/* --clobber
       - echo "Published GitHub release {{.TAG}}"
 
-  release:npm-publish:
-    desc: Publish package to npm registry (requires NPM_TOKEN)
-    cmds:
-      - task: release:nix
-      - task: release:npm
-      - |
-        test -n "$NPM_TOKEN" || (echo "NPM_TOKEN is required" && exit 1)
-        TMP_NPMRC=$(mktemp)
-        printf '%s\n' '//registry.npmjs.org/:_authToken=${NPM_TOKEN}' > "$TMP_NPMRC"
-        NPM_CONFIG_USERCONFIG="$TMP_NPMRC" bunx npm publish --access public
-        rm -f "$TMP_NPMRC"
-
   release:
-    desc: Full release (GitHub release + npm publish)
+    desc: Full Swift release
     cmds:
       - task: release:github
-      - task: release:npm-publish

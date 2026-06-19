@@ -37,7 +37,7 @@ For the accepted owner-only metrics fix, user-facing documentation must state th
 - preserves stable nullable `metrics.impressionCount` semantics
 - remains a bounded project-owned aggregate over followed accounts, not a raw X home timeline cursor
 
-The downstream reference `/Users/taco/gits/tacogips/rielflow/examples/x-follower-ai-business-digest/workflow.json` is a behavioral consumer reference only. Do not copy implementation code from that repository.
+The downstream reference `../rielflow/examples/x-follower-ai-business-digest/workflow.json` is a behavioral consumer reference only. Do not copy implementation code from that repository.
 
 ## Verification Commands
 

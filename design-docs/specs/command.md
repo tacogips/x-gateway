@@ -159,9 +159,9 @@ Capability adapter rules:
 - `post create` must prefer a stable public API adapter when public REST support is sufficient.
 - `post delete` must prefer a stable public API adapter when public REST support is sufficient.
 - `post reply`, `post quote`, `post repost`, and `post unrepost` must prefer stable public API adapters when public REST support is sufficient.
-- When both bearer and OAuth1 credentials are configured, stable posting helpers must prefer OAuth1 instead of failing just because bearer is also present.
+- In the TypeScript CLI, when both bearer and OAuth1 credentials are configured, stable posting helpers must prefer OAuth1 instead of failing just because bearer is also present.
 - `x-gateway-reader` must reject write-oriented capability behavior such as `createPost`.
-- Stable posting helpers are currently an OAuth1-backed baseline only; bearer-token create/delete/reply/quote/repost flows must remain rejected until a reviewed user-context auth path is implemented.
+- In the TypeScript CLI, stable posting helpers are currently an OAuth1-backed baseline only; bearer-token create/delete/reply/quote/repost flows must remain rejected until that surface has a reviewed user-context auth path. The Swift split-command port has a separate bearer-token baseline documented below.
 
 Retry behavior rules:
 
@@ -211,11 +211,40 @@ Current implementation note:
 - The current implementation exposes the project-owned GraphQL public request surface plus local auth diagnostics, capability inspection, health, and version commands.
 - The canonical path is the project-owned GraphQL public request surface, which resolves onto the same reviewed capabilities instead of leaking raw X transport details as the main contract.
 - `likes list` is intentionally withheld from the stable CLI, SDK, and public GraphQL contract until a reviewed live adapter route is verified.
-- `account me` can use OAuth1 or a user-context bearer token; the stable posting helpers currently require OAuth1.
+- In the TypeScript CLI, `account me` can use OAuth1 or a user-context bearer token; the stable posting helpers currently require OAuth1.
 - `post get` can use OAuth1 or bearer-token reads through the public lookup API, and it prefers OAuth1 when both are configured.
-- Stable posting helpers prefer OAuth1 whenever it is configured.
+- In the TypeScript CLI, stable posting helpers prefer OAuth1 whenever it is configured.
 - Stable `createPost`, `replyToPost`, and `quotePost` support inline image attachments through internal OAuth1 media upload and alt-text application; callers do not provide raw upload sequencing.
 - Stable `Post.replies(...)` allows recursive direct-reply traversal within one GraphQL request, subject to a bounded per-request expansion limit.
 - Stable `followingTimeline(...)` is the intended rielflow X digest read field for followed-account latest-post retrieval. The concrete downstream reference is `/Users/taco/gits/tacogips/rielflow/examples/x-follower-ai-business-digest/workflow.json`, whose `fetch-follower-posts` node runs `rielflow/x-gateway-read` through Docker image `ghcr.io/tacogips/x-gateway:latest` and queries `followingTimeline { posts { ... metrics { ... impressionCount } } pageInfo { ... } }`. Treat that workflow as a behavioral consumer reference only: implementation should preserve the `followingTimeline` -> `PostPage` -> nullable `metrics.impressionCount` data flow without copying code from the rielflow repository.
 - Support is counted only when the reviewed auth path is actually enforced by the adapter contract; latent placeholder methods inside the wrong auth adapter do not count as delivered capability support.
 - Deferred commands must still fail explicitly with `UNSUPPORTED` and remediation that keeps `graphql query` as the canonical surface for reviewed capabilities.
+
+## Swift Split Commands
+
+The Swift package exposes installable read and write command products:
+
+- `x-gateway-read`: read-only command. It accepts read diagnostics and schema commands, rejects GraphQL mutations before live execution, and currently supports `accountMe`, `post`, `searchPosts`, `homeTimeline`, `followingTimeline`, `userTimeline`, and `mentionsTimeline` with OAuth1-preferred signing plus bearer fallback. `apiUsage` remains bearer-token only.
+- `x-gateway-write`: write command. It accepts write diagnostics and schema commands, rejects GraphQL read queries before live execution, and currently supports `createPost`, `deletePost`, `replyToPost`, `quotePost`, `repostPost`, and `unrepostPost` with OAuth1-preferred signing plus bearer fallback. Attachment-backed `createPost`, `replyToPost`, and `quotePost` require OAuth1 for media upload.
+
+The Swift split is an installation boundary as well as a runtime safety
+boundary. Installers may build and copy only `x-gateway-read` or only
+`x-gateway-write` from SwiftPM products, and the shared `XGatewayCore` library
+must enforce the operation split so entrypoints cannot drift.
+
+The Swift write command parses and validates `attachments` on `createPost`,
+`replyToPost`, and `quotePost`. Valid attachment input uploads image files
+through the OAuth1 media upload path, applies alt text when provided, and posts
+with the resulting `media_ids`; malformed attachment input fails with
+`VALIDATION_ERROR`, and bearer-only attachment attempts fail with an OAuth1
+auth remediation before any text-only post can be created.
+
+Swift read projections include stable post metrics, author profiles, media
+asset URLs, and referenced-post shortcuts from upstream expansions. Swift read
+fields accept `includePromoted`; promoted posts are filtered by default when
+upstream promotion metrics identify them. Swift read fields also accept
+`mediaRootDir`, `downloadMedia`, and `forceDownload`; downloaded media is
+stored under `mediaRootDir/<post-id>/`, existing files are reused unless forced,
+and `downloadMedia: false` keeps the response source-only. Nested
+`Post.replies(...)` selections are hydrated through bounded Swift reply-search
+lookups and reject unsupported nested arguments before live execution.

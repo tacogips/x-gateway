@@ -216,6 +216,49 @@ Each category provides:
   - `src/gateway/x-api/` for shared transport concerns
   - `src/errors/` and `src/config/` for focused infrastructure modules
 
+## Swift Port Architecture
+
+The Swift port is introduced as a Swift Package Manager package that can
+coexist with the TypeScript implementation during migration. The package owns
+three first-slice products:
+
+- `XGatewayCore`: Swift library target for config resolution, command parsing,
+  error envelopes, public GraphQL operation classification, capability metadata,
+  and CLI execution helpers.
+- `x-gateway-read`: read-only executable product. It accepts stable read
+  commands and rejects GraphQL mutations before execution.
+- `x-gateway-write`: write-oriented executable product. It accepts write
+  commands and rejects GraphQL queries before execution.
+
+The package boundary is intentionally product-oriented rather than a single
+monolithic executable so downstream installers can build, package, and install
+only the read or write command. The initial migration slices keep the public
+CLI contract stable for local diagnostics (`health`, `version`, `auth`,
+`capabilities`, `graphql schema`), enforce read/write GraphQL separation, and
+provide a live transport baseline for `accountMe`, `post`, `apiUsage`,
+`searchPosts`, `homeTimeline`, `followingTimeline`, `userTimeline`,
+`mentionsTimeline`, `createPost`, `deletePost`, `replyToPost`, `quotePost`,
+`repostPost`, and `unrepostPost`. Non-usage Swift live requests prefer OAuth1
+signing when complete OAuth1 credentials are configured and fall back to bearer
+tokens; `apiUsage` remains bearer-token only. Swift read projections include
+stable metrics, author profiles, media asset URLs, and referenced-post
+shortcuts when upstream expansions are present, and honor `includePromoted` by
+filtering promoted posts by default when upstream promotion metrics identify
+them. Swift read fields also honor `mediaRootDir`, `downloadMedia`, and
+`forceDownload`, materializing media under `mediaRootDir/<post-id>/` while
+reusing existing files unless a forced refresh is requested. Swift also hydrates
+bounded nested `Post.replies(...)` selections through the same read transport
+and reply-search capability path. Remaining live X API transport details should
+be ported capability-by-capability behind `XGatewayCore` without changing the
+two executable products. Swift
+attachment-backed `createPost`, `replyToPost`, and `quotePost` mutations
+require OAuth1, upload image attachments through the X media upload API, apply
+alt text when provided, and include uploaded `media_ids` in the v2 tweet body.
+
+Swift command output must preserve the existing structured `ok` envelope and
+remediation-oriented error payloads so AI agent callers receive the same
+operational diagnostics as the TypeScript CLI.
+
 ## Test Strategy (High Level)
 
 - unit tests for config validation and error mapping
