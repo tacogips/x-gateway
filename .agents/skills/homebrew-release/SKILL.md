@@ -1,6 +1,6 @@
 ---
 name: homebrew-release
-description: Use when building, validating, publishing, or tap-rendering Homebrew formula tarball releases for this Swift project, including scripts/build-homebrew-release.sh, scripts/render-homebrew-formula.sh, and task build:homebrew or homebrew:formula commands.
+description: Use when building, validating, publishing, or tap-rendering Homebrew formula tarball releases for this Swift project, including scripts/build-homebrew-release.sh, scripts/render-homebrew-formula.sh, and task build:homebrew, homebrew:formula-read, or homebrew:formula-write commands.
 ---
 
 # Homebrew Release
@@ -9,28 +9,19 @@ Use this skill for Formula releases installed with:
 
 ```bash
 brew tap tacogips/homebrew-tap
-brew install x-gateway
 brew install x-gateway-read
 brew install x-gateway-write
 ```
-
-Use `.agents/skills/macos-cask-release/SKILL.md` for signed and notarized Cask
-DMGs.
 
 The release archive contains both command products:
 
 - `x-gateway-read`
 - `x-gateway-write`
 
-Render three formulae from the same archive:
+Render two formulae from the same archive:
 
-- `x-gateway`: installs both commands
 - `x-gateway-read`: installs only `x-gateway-read`
 - `x-gateway-write`: installs only `x-gateway-write`
-
-The combined formula and command-specific formulae are alternatives. Do not
-install `x-gateway` together with `x-gateway-read` or `x-gateway-write` because
-they link the same executable names.
 
 ## Release Contract
 
@@ -65,7 +56,6 @@ Render locally:
 
 ```bash
 version="$(tr -d '[:space:]' < VERSION)"
-task homebrew:formula -- "$version"
 task homebrew:formula-read -- "$version"
 task homebrew:formula-write -- "$version"
 ```
@@ -74,7 +64,6 @@ Render into the default sibling tap:
 
 ```bash
 version="$(tr -d '[:space:]' < VERSION)"
-task homebrew:tap-formula -- "$version"
 task homebrew:tap-formula-read -- "$version"
 task homebrew:tap-formula-write -- "$version"
 ```
@@ -83,9 +72,8 @@ For a custom tap path:
 
 ```bash
 version="$(tr -d '[:space:]' < VERSION)"
-scripts/render-homebrew-formula.sh "$version" /path/to/homebrew-tap/Formula/x-gateway.rb
-scripts/render-homebrew-formula.sh "$version" /path/to/homebrew-tap/Formula/x-gateway-read.rb read
-scripts/render-homebrew-formula.sh "$version" /path/to/homebrew-tap/Formula/x-gateway-write.rb write
+scripts/render-homebrew-formula.sh "$version" read /path/to/homebrew-tap/Formula/x-gateway-read.rb
+scripts/render-homebrew-formula.sh "$version" write /path/to/homebrew-tap/Formula/x-gateway-write.rb
 ```
 
 ## Publishing Notes
@@ -114,19 +102,12 @@ gh release upload "v${version}" \
 From the tap checkout:
 
 ```bash
-ruby -c Formula/x-gateway.rb
 ruby -c Formula/x-gateway-read.rb
 ruby -c Formula/x-gateway-write.rb
-brew audit --strict x-gateway || brew audit --strict --formula x-gateway
 brew audit --strict x-gateway-read || brew audit --strict --formula x-gateway-read
 brew audit --strict x-gateway-write || brew audit --strict --formula x-gateway-write
-brew fetch --formula tacogips/homebrew-tap/x-gateway
 brew fetch --formula tacogips/homebrew-tap/x-gateway-read
 brew fetch --formula tacogips/homebrew-tap/x-gateway-write
-brew install tacogips/homebrew-tap/x-gateway
-x-gateway-read version
-x-gateway-write version
-brew test tacogips/homebrew-tap/x-gateway
 brew install tacogips/homebrew-tap/x-gateway-read
 x-gateway-read version
 brew test tacogips/homebrew-tap/x-gateway-read

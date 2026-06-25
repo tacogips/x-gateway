@@ -17,7 +17,6 @@ outputs in `flake.nix`.
 
 Package outputs:
 
-- `.#x-gateway`: installs both commands
 - `.#x-gateway-read`: installs only `x-gateway-read`
 - `.#x-gateway-write`: installs only `x-gateway-write`
 

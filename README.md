@@ -143,47 +143,31 @@ Build local formula archives. The archive contains both command binaries:
 task build:homebrew -- darwin-arm64 darwin-x64
 ```
 
-Render a formula after both platform archives exist:
+Render formulae after both platform archives exist:
 
 ```bash
-task homebrew:formula -- 0.1.1
+task homebrew:formula-read -- 0.1.1
+task homebrew:formula-write -- 0.1.1
 ```
 
 Render directly into the default sibling tap checkout:
 
 ```bash
-task homebrew:tap-formula -- 0.1.1
+task homebrew:tap-formula-read -- 0.1.1
+task homebrew:tap-formula-write -- 0.1.1
 ```
 
 Install from the tap after the formula is published:
 
 ```bash
 brew tap tacogips/homebrew-tap
-brew install x-gateway
-```
-
-The formula installs `x-gateway-read` and `x-gateway-write`.
-
-Install only one command when needed:
-
-```bash
 brew install tacogips/homebrew-tap/x-gateway-read
 brew install tacogips/homebrew-tap/x-gateway-write
 ```
 
-Choose either the combined formula or the command-specific formulae. Installing
-`x-gateway` together with `x-gateway-read` or `x-gateway-write` will conflict
-because they link the same command names.
-
 ## Nix
 
-Install both commands:
-
-```bash
-nix profile install github:tacogips/x-gateway#x-gateway
-```
-
-Install one command:
+Install commands:
 
 ```bash
 nix profile install github:tacogips/x-gateway#x-gateway-read
@@ -196,36 +180,3 @@ Run without installing:
 nix run github:tacogips/x-gateway#x-gateway-read -- version
 nix run github:tacogips/x-gateway#x-gateway-write -- version
 ```
-
-## Homebrew Cask
-
-The Cask workflow builds signed, notarized, and stapled macOS DMG artifacts.
-Apple signing credentials must stay local and must not be committed.
-
-Check the build plan:
-
-```bash
-task build:homebrew-cask -- --dry-run darwin-arm64 darwin-x64
-```
-
-Build with local signing credentials:
-
-```bash
-kinko exec --env APPLE_SIGNING_IDENTITY,APPLE_ID,APPLE_PASSWORD,APPLE_TEAM_ID -- \
-  task build:homebrew-cask -- darwin-arm64 darwin-x64
-```
-
-Render a Cask:
-
-```bash
-task homebrew:cask -- 0.1.1
-```
-
-For a tagged release, build, upload, and render the tap Cask:
-
-```bash
-kinko exec --env APPLE_SIGNING_IDENTITY,APPLE_ID,APPLE_PASSWORD,APPLE_TEAM_ID -- \
-  task release:homebrew-cask-local -- v0.1.1
-```
-
-See `packaging/homebrew/README.md` and `.agents/skills/` for release workflows.

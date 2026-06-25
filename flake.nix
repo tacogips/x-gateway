@@ -100,18 +100,9 @@
           };
         commandPackages =
           if hasReleaseArtifact then
-            rec {
+            {
               x-gateway-read = mkCommandPackage "x-gateway-read";
               x-gateway-write = mkCommandPackage "x-gateway-write";
-              x-gateway = pkgs.buildEnv {
-                name = "x-gateway-${version}";
-                paths = [
-                  x-gateway-read
-                  x-gateway-write
-                ];
-                pathsToLink = [ "/bin" ];
-              };
-              default = x-gateway;
             }
           else
             { };

@@ -4,12 +4,11 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$script_dir/.." && pwd)"
 artifact_name="x-gateway"
-products=("x-gateway-read" "x-gateway-write")
 
 usage() {
   cat <<EOF
 Usage:
-  scripts/render-homebrew-formula.sh <version> [output-file] [combined|read|write]
+  scripts/render-homebrew-formula.sh <version> <read|write> [output-file]
 
 Reads archive checksums from:
   dist/homebrew/$artifact_name-<version>-<target>.tar.gz.sha256
@@ -20,9 +19,8 @@ Environment:
 
 Example:
   scripts/build-homebrew-release.sh darwin-arm64 darwin-x64
-  scripts/render-homebrew-formula.sh 0.1.1 Formula/$artifact_name.rb
-  scripts/render-homebrew-formula.sh 0.1.1 Formula/x-gateway-read.rb read
-  scripts/render-homebrew-formula.sh 0.1.1 Formula/x-gateway-write.rb write
+  scripts/render-homebrew-formula.sh 0.1.1 read Formula/x-gateway-read.rb
+  scripts/render-homebrew-formula.sh 0.1.1 write Formula/x-gateway-write.rb
 
 This renderer expects Swift macOS release archives. Linux archives are
 unsupported until the project defines a reviewed Swift Linux build contract.
@@ -50,23 +48,23 @@ main() {
     usage
     return
   fi
-  if [[ "${1:-}" == "" ]]; then
+  if [[ "${1:-}" == "" || "${2:-}" == "" ]]; then
     usage
     return 2
   fi
 
   local version output variant release_dir release_base_url
   version="$1"
-  output="${2:-$repo_root/Formula/$artifact_name.rb}"
-  variant="${3:-combined}"
+  variant="$2"
+  output="${3:-$repo_root/Formula/$artifact_name-$variant.rb}"
   release_dir="${RELEASE_DIR:-$repo_root/dist/homebrew}"
   release_base_url="${RELEASE_BASE_URL:-https://github.com/tacogips/x-gateway/releases/download/v$version}"
 
   case "$variant" in
-    combined | read | write) ;;
+    read | write) ;;
     *)
       printf 'unsupported formula variant: %s\n' "$variant" >&2
-      printf 'expected one of: combined, read, write\n' >&2
+      printf 'expected one of: read, write\n' >&2
       return 2
       ;;
   esac
@@ -77,14 +75,6 @@ main() {
 
   local class_name desc install_body test_body
   case "$variant" in
-    combined)
-      class_name="XGateway"
-      desc="X API client and gateway CLI"
-      install_body='    bin.install "bin/x-gateway-read"
-    bin.install "bin/x-gateway-write"'
-      test_body="    assert_match \"$version\", shell_output(\"#{bin}/x-gateway-read version\")
-    assert_match \"$version\", shell_output(\"#{bin}/x-gateway-write version\")"
-      ;;
     read)
       class_name="XGatewayRead"
       desc="Read-only X API gateway CLI"

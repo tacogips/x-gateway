@@ -3,7 +3,6 @@
     "DESCRIPTION": "X API client and gateway CLI",
     "EXECUTABLE_NAME": "x-gateway",
     "GITHUB_REPOSITORY": "tacogips/x-gateway",
-    "HOMEBREW_CASK_TOKEN": "x-gateway",
     "HOMEBREW_FORMULA_CLASS": "XGateway",
     "HOMEBREW_TAP": "tacogips/homebrew-tap",
     "HOMEBREW_TAP_DIR": "../homebrew-tap",

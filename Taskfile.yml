@@ -71,11 +71,6 @@ tasks:
     cmds:
       - scripts/build-homebrew-release.sh {{.CLI_ARGS}}
 
-  homebrew:formula:
-    desc: Render Formula/x-gateway.rb from dist/homebrew checksums
-    cmds:
-      - scripts/render-homebrew-formula.sh {{.CLI_ARGS}}
-
   homebrew:formula-read:
     desc: Render Formula/x-gateway-read.rb from dist/homebrew checksums
     cmds:
@@ -85,7 +80,7 @@ tasks:
           echo "usage: task homebrew:formula-read -- <version>" >&2
           exit 2
         fi
-        scripts/render-homebrew-formula.sh "{{.CLI_ARGS}}" "Formula/x-gateway-read.rb" read
+        scripts/render-homebrew-formula.sh "{{.CLI_ARGS}}" read "Formula/x-gateway-read.rb"
 
   homebrew:formula-write:
     desc: Render Formula/x-gateway-write.rb from dist/homebrew checksums
@@ -96,18 +91,7 @@ tasks:
           echo "usage: task homebrew:formula-write -- <version>" >&2
           exit 2
         fi
-        scripts/render-homebrew-formula.sh "{{.CLI_ARGS}}" "Formula/x-gateway-write.rb" write
-
-  homebrew:tap-formula:
-    desc: Render the formula into the default sibling Homebrew tap checkout
-    cmds:
-      - |
-        set -euo pipefail
-        if [ -z "{{.CLI_ARGS}}" ]; then
-          echo "usage: task homebrew:tap-formula -- <version>" >&2
-          exit 2
-        fi
-        scripts/render-homebrew-formula.sh "{{.CLI_ARGS}}" "{{.TAP_DIR}}/Formula/x-gateway.rb"
+        scripts/render-homebrew-formula.sh "{{.CLI_ARGS}}" write "Formula/x-gateway-write.rb"
 
   homebrew:tap-formula-read:
     desc: Render the read-only formula into the default sibling Homebrew tap checkout
@@ -118,7 +102,7 @@ tasks:
           echo "usage: task homebrew:tap-formula-read -- <version>" >&2
           exit 2
         fi
-        scripts/render-homebrew-formula.sh "{{.CLI_ARGS}}" "{{.TAP_DIR}}/Formula/x-gateway-read.rb" read
+        scripts/render-homebrew-formula.sh "{{.CLI_ARGS}}" read "{{.TAP_DIR}}/Formula/x-gateway-read.rb"
 
   homebrew:tap-formula-write:
     desc: Render the write formula into the default sibling Homebrew tap checkout
@@ -129,30 +113,4 @@ tasks:
           echo "usage: task homebrew:tap-formula-write -- <version>" >&2
           exit 2
         fi
-        scripts/render-homebrew-formula.sh "{{.CLI_ARGS}}" "{{.TAP_DIR}}/Formula/x-gateway-write.rb" write
-
-  build:homebrew-cask:
-    desc: Build signed and notarized Homebrew Cask DMGs, or pass targets after --
-    cmds:
-      - scripts/build-homebrew-cask-release.sh {{.CLI_ARGS}}
-
-  homebrew:cask:
-    desc: Render Casks/x-gateway.rb from dist/homebrew-cask checksums
-    cmds:
-      - scripts/render-homebrew-cask.sh {{.CLI_ARGS}}
-
-  homebrew:tap-cask:
-    desc: Render the cask into the default sibling Homebrew tap checkout
-    cmds:
-      - |
-        set -euo pipefail
-        if [ -z "{{.CLI_ARGS}}" ]; then
-          echo "usage: task homebrew:tap-cask -- <version>" >&2
-          exit 2
-        fi
-        scripts/render-homebrew-cask.sh "{{.CLI_ARGS}}" "{{.TAP_DIR}}/Casks/x-gateway.rb"
-
-  release:homebrew-cask-local:
-    desc: Build, notarize, upload, and render the sibling tap cask for a v<version> tag
-    cmds:
-      - scripts/release-homebrew-cask-local.sh {{.CLI_ARGS}}
+        scripts/render-homebrew-formula.sh "{{.CLI_ARGS}}" write "{{.TAP_DIR}}/Formula/x-gateway-write.rb"
