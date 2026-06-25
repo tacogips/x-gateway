@@ -12,19 +12,38 @@ Use this skill for release-time Nix validation and optional lock refresh.
 
 ## Release Intent In This Repository
 
-`x-gateway` currently defines a development shell in `flake.nix` and does not publish a dedicated Nix package output.
+`x-gateway` defines a development shell and release-backed Darwin package
+outputs in `flake.nix`.
+
+Package outputs:
+
+- `.#x-gateway`: installs both commands
+- `.#x-gateway-read`: installs only `x-gateway-read`
+- `.#x-gateway-write`: installs only `x-gateway-write`
+
+App outputs:
+
+- `.#x-gateway-read`
+- `.#x-gateway-write`
 
 For this repository, Nix release scope means:
 1. Validate flake health (`nix flake check`)
-2. Validate dev shell reproducibility (`nix develop -c ...`)
-3. Optionally update and commit `flake.lock` when requested
+2. Validate command-specific package builds (`nix build .#x-gateway-read`,
+   `nix build .#x-gateway-write`)
+3. Validate command-specific apps (`nix run .#x-gateway-read -- version`,
+   `nix run .#x-gateway-write -- version`)
+4. Validate dev shell reproducibility (`nix develop -c ...`)
+5. Optionally update and commit `flake.lock` when requested
 
 ## Standard Validation Commands
 
 ```bash
 nix flake show
 nix flake check
-nix develop -c bun --version
+nix build .#x-gateway-read
+nix build .#x-gateway-write
+nix run .#x-gateway-read -- version
+nix run .#x-gateway-write -- version
 nix develop -c task --version
 ```
 
@@ -42,9 +61,13 @@ If updates are accepted, include `flake.lock` in the release commit before taggi
 ## Verification Checklist
 
 1. `nix flake check` passes.
-2. `nix develop` successfully exposes bun/task toolchain.
-3. `flake.lock` diff is intentional and reviewed.
-4. No uncommitted lockfile drift remains at release tag time.
+2. `nix build .#x-gateway-read` and `nix build .#x-gateway-write` pass on a
+   supported Darwin system.
+3. `nix run .#x-gateway-read -- version` and
+   `nix run .#x-gateway-write -- version` report the release version.
+4. `nix develop` successfully exposes the expected toolchain.
+5. `flake.lock` diff is intentional and reviewed.
+6. No uncommitted lockfile drift remains at release tag time.
 
 ## Failure Handling
 

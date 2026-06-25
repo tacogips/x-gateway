@@ -10,15 +10,23 @@ Use this skill for Formula releases installed with:
 ```bash
 brew tap tacogips/homebrew-tap
 brew install x-gateway
+brew install x-gateway-read
+brew install x-gateway-write
 ```
 
 Use `.agents/skills/macos-cask-release/SKILL.md` for signed and notarized Cask
 DMGs.
 
-The formula archive installs both command products:
+The release archive contains both command products:
 
 - `x-gateway-read`
 - `x-gateway-write`
+
+Render three formulae from the same archive:
+
+- `x-gateway`: installs both commands
+- `x-gateway-read`: installs only `x-gateway-read`
+- `x-gateway-write`: installs only `x-gateway-write`
 
 ## Release Contract
 
@@ -54,6 +62,8 @@ Render locally:
 ```bash
 version="$(tr -d '[:space:]' < VERSION)"
 task homebrew:formula -- "$version"
+task homebrew:formula-read -- "$version"
+task homebrew:formula-write -- "$version"
 ```
 
 Render into the default sibling tap:
@@ -61,6 +71,8 @@ Render into the default sibling tap:
 ```bash
 version="$(tr -d '[:space:]' < VERSION)"
 task homebrew:tap-formula -- "$version"
+task homebrew:tap-formula-read -- "$version"
+task homebrew:tap-formula-write -- "$version"
 ```
 
 For a custom tap path:
@@ -68,6 +80,8 @@ For a custom tap path:
 ```bash
 version="$(tr -d '[:space:]' < VERSION)"
 scripts/render-homebrew-formula.sh "$version" /path/to/homebrew-tap/Formula/x-gateway.rb
+scripts/render-homebrew-formula.sh "$version" /path/to/homebrew-tap/Formula/x-gateway-read.rb read
+scripts/render-homebrew-formula.sh "$version" /path/to/homebrew-tap/Formula/x-gateway-write.rb write
 ```
 
 ## Publishing Notes
@@ -97,11 +111,21 @@ From the tap checkout:
 
 ```bash
 ruby -c Formula/x-gateway.rb
+ruby -c Formula/x-gateway-read.rb
+ruby -c Formula/x-gateway-write.rb
 brew audit --strict x-gateway || brew audit --strict --formula x-gateway
+brew audit --strict x-gateway-read || brew audit --strict --formula x-gateway-read
+brew audit --strict x-gateway-write || brew audit --strict --formula x-gateway-write
 brew install tacogips/homebrew-tap/x-gateway
 x-gateway-read version
 x-gateway-write version
 brew test tacogips/homebrew-tap/x-gateway
+brew install tacogips/homebrew-tap/x-gateway-read
+x-gateway-read version
+brew test tacogips/homebrew-tap/x-gateway-read
+brew install tacogips/homebrew-tap/x-gateway-write
+x-gateway-write version
+brew test tacogips/homebrew-tap/x-gateway-write
 ```
 
 If online audit fails because of local GitHub credentials or rate limits, run a

@@ -76,6 +76,28 @@ tasks:
     cmds:
       - scripts/render-homebrew-formula.sh {{.CLI_ARGS}}
 
+  homebrew:formula-read:
+    desc: Render Formula/x-gateway-read.rb from dist/homebrew checksums
+    cmds:
+      - |
+        set -euo pipefail
+        if [ -z "{{.CLI_ARGS}}" ]; then
+          echo "usage: task homebrew:formula-read -- <version>" >&2
+          exit 2
+        fi
+        scripts/render-homebrew-formula.sh "{{.CLI_ARGS}}" "Formula/x-gateway-read.rb" read
+
+  homebrew:formula-write:
+    desc: Render Formula/x-gateway-write.rb from dist/homebrew checksums
+    cmds:
+      - |
+        set -euo pipefail
+        if [ -z "{{.CLI_ARGS}}" ]; then
+          echo "usage: task homebrew:formula-write -- <version>" >&2
+          exit 2
+        fi
+        scripts/render-homebrew-formula.sh "{{.CLI_ARGS}}" "Formula/x-gateway-write.rb" write
+
   homebrew:tap-formula:
     desc: Render the formula into the default sibling Homebrew tap checkout
     cmds:
@@ -86,6 +108,28 @@ tasks:
           exit 2
         fi
         scripts/render-homebrew-formula.sh "{{.CLI_ARGS}}" "{{.TAP_DIR}}/Formula/x-gateway.rb"
+
+  homebrew:tap-formula-read:
+    desc: Render the read-only formula into the default sibling Homebrew tap checkout
+    cmds:
+      - |
+        set -euo pipefail
+        if [ -z "{{.CLI_ARGS}}" ]; then
+          echo "usage: task homebrew:tap-formula-read -- <version>" >&2
+          exit 2
+        fi
+        scripts/render-homebrew-formula.sh "{{.CLI_ARGS}}" "{{.TAP_DIR}}/Formula/x-gateway-read.rb" read
+
+  homebrew:tap-formula-write:
+    desc: Render the write formula into the default sibling Homebrew tap checkout
+    cmds:
+      - |
+        set -euo pipefail
+        if [ -z "{{.CLI_ARGS}}" ]; then
+          echo "usage: task homebrew:tap-formula-write -- <version>" >&2
+          exit 2
+        fi
+        scripts/render-homebrew-formula.sh "{{.CLI_ARGS}}" "{{.TAP_DIR}}/Formula/x-gateway-write.rb" write
 
   build:homebrew-cask:
     desc: Build signed and notarized Homebrew Cask DMGs, or pass targets after --

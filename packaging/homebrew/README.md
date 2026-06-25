@@ -27,11 +27,17 @@ dist/homebrew/x-gateway-<version>-darwin-x64.tar.gz.sha256
 ```
 
 Publish those assets to the GitHub release named `v<version>`, then render the
-formula into a tap checkout:
+formulae into a tap checkout:
 
 ```bash
 scripts/render-homebrew-formula.sh <version> ../homebrew-tap/Formula/x-gateway.rb
+scripts/render-homebrew-formula.sh <version> ../homebrew-tap/Formula/x-gateway-read.rb read
+scripts/render-homebrew-formula.sh <version> ../homebrew-tap/Formula/x-gateway-write.rb write
 ```
+
+The combined `x-gateway` formula installs both commands. The command-specific
+`x-gateway-read` and `x-gateway-write` formulae reuse the same release archive
+but install only their matching executable.
 
 ## Cask
 
@@ -71,7 +77,11 @@ From the tap checkout:
 
 ```bash
 ruby -c Formula/x-gateway.rb
+ruby -c Formula/x-gateway-read.rb
+ruby -c Formula/x-gateway-write.rb
 brew audit --strict x-gateway || brew audit --strict --formula x-gateway
+brew audit --strict x-gateway-read || brew audit --strict --formula x-gateway-read
+brew audit --strict x-gateway-write || brew audit --strict --formula x-gateway-write
 brew fetch --cask tacogips/homebrew-tap/x-gateway
 HOMEBREW_NO_GITHUB_API=1 brew audit --cask tacogips/homebrew-tap/x-gateway
 ```

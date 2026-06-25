@@ -164,6 +164,35 @@ brew install x-gateway
 
 The formula installs `x-gateway-read` and `x-gateway-write`.
 
+Install only one command when needed:
+
+```bash
+brew install tacogips/homebrew-tap/x-gateway-read
+brew install tacogips/homebrew-tap/x-gateway-write
+```
+
+## Nix
+
+Install both commands:
+
+```bash
+nix profile install github:tacogips/x-gateway#x-gateway
+```
+
+Install one command:
+
+```bash
+nix profile install github:tacogips/x-gateway#x-gateway-read
+nix profile install github:tacogips/x-gateway#x-gateway-write
+```
+
+Run without installing:
+
+```bash
+nix run github:tacogips/x-gateway#x-gateway-read -- version
+nix run github:tacogips/x-gateway#x-gateway-write -- version
+```
+
 ## Homebrew Cask
 
 The Cask workflow builds signed, notarized, and stapled macOS DMG artifacts.
