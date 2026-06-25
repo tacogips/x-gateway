@@ -1,12 +1,25 @@
 {
   "variables": {
-    "AUTHOR_EMAIL": "",
-    "AUTHOR_NAME": "tacogips",
-    "DESCRIPTION": "x api client",
-    "HAS_AUTHOR": false,
-    "HOMEPAGE": "https://github.com/user/repo",
+    "DESCRIPTION": "X API client and gateway CLI",
+    "EXECUTABLE_NAME": "x-gateway",
+    "GITHUB_REPOSITORY": "tacogips/x-gateway",
+    "HOMEBREW_CASK_TOKEN": "x-gateway",
+    "HOMEBREW_FORMULA_CLASS": "XGateway",
+    "HOMEBREW_TAP": "tacogips/homebrew-tap",
+    "HOMEBREW_TAP_DIR": "../homebrew-tap",
+    "HOMEPAGE": "https://github.com/tacogips/x-gateway",
+    "LICENSE": "MIT",
+    "MACOS_VERSION": "v13",
     "PROJECT_NAME": "x-gateway",
-    "REPOSITORY": "https://github.com/user/repo",
-    "VERSION": "0.0.1"
+    "SWIFT_COMMAND_TYPE": "XGatewayCLI",
+    "SWIFT_EXECUTABLE_TARGET": "XGatewayRead",
+    "SWIFT_LIBRARY_TARGET": "XGatewayCore",
+    "SWIFT_READ_EXECUTABLE_NAME": "x-gateway-read",
+    "SWIFT_READ_EXECUTABLE_TARGET": "XGatewayRead",
+    "SWIFT_SMOKE_TEST_TARGET": "XGatewaySwiftSmokeTests",
+    "SWIFT_TOOLS_VERSION": "5.8",
+    "SWIFT_WRITE_EXECUTABLE_NAME": "x-gateway-write",
+    "SWIFT_WRITE_EXECUTABLE_TARGET": "XGatewayWrite",
+    "VERSION": "0.1.1"
   }
 }

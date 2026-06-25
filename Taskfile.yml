@@ -2,8 +2,9 @@ version: '3'
 
 vars:
   PROJECT_NAME: x-gateway
+  TAP_DIR: ../homebrew-tap
   VERSION:
-    sh: git describe --tags --always --dirty 2>/dev/null || echo 0.1.0
+    sh: tr -d '[:space:]' < VERSION 2>/dev/null || git describe --tags --always --dirty 2>/dev/null || echo 0.1.1
 
 tasks:
   default:
@@ -40,7 +41,12 @@ tasks:
   clean:
     desc: Clean build and release artifacts
     cmds:
-      - rm -rf .build release
+      - rm -rf .build dist release
+
+  lint:
+    desc: Run SwiftLint when available
+    cmds:
+      - swiftlint
 
   install-read:
     desc: Install only the Swift read-only command
@@ -60,70 +66,49 @@ tasks:
       - mkdir -p "{{.INSTALL_PREFIX}}/bin"
       - install .build/release/x-gateway-write "{{.INSTALL_PREFIX}}/bin/x-gateway-write"
 
-  release:clean:
-    desc: Clean release artifacts
+  build:homebrew:
+    desc: Build Homebrew formula archives containing read and write commands
     cmds:
-      - rm -rf release
+      - scripts/build-homebrew-release.sh {{.CLI_ARGS}}
 
-  release:prepare:
-    desc: Run verification before release packaging
+  homebrew:formula:
+    desc: Render Formula/x-gateway.rb from dist/homebrew checksums
     cmds:
-      - task: ci
+      - scripts/render-homebrew-formula.sh {{.CLI_ARGS}}
 
-  release:binary:
-    desc: Build a local Swift binary archive
-    vars:
-      RELEASE_DIR: 'release/{{.PROJECT_NAME}}-{{.VERSION}}'
+  homebrew:tap-formula:
+    desc: Render the formula into the default sibling Homebrew tap checkout
     cmds:
-      - task: release:prepare
-      - mkdir -p {{.RELEASE_DIR}}/bin
-      - install .build/release/x-gateway-read {{.RELEASE_DIR}}/bin/x-gateway-read
-      - install .build/release/x-gateway-write {{.RELEASE_DIR}}/bin/x-gateway-write
-      - cd release && tar -czf {{.PROJECT_NAME}}-{{.VERSION}}.tar.gz $(basename {{.RELEASE_DIR}})
-      - echo "Built release/{{.PROJECT_NAME}}-{{.VERSION}}.tar.gz"
-
-  release:checksums:
-    desc: Generate SHA256 checksums for release assets
-    cmds:
-      - test -d release
-      - cd release && shasum -a 256 *.tar.gz > SHA256SUMS.txt
-      - echo "Wrote release/SHA256SUMS.txt"
-
-  release:nix:
-    desc: Validate Nix flake for release
-    cmds:
-      - nix flake check
-
-  release:all:
-    desc: Build all local release artifacts
-    cmds:
-      - task: release:clean
-      - task: release:binary
-      - task: release:checksums
-
-  release:github:
-    desc: Publish release assets to GitHub Release
-    vars:
-      TAG: 'v{{.VERSION}}'
-    cmds:
-      - gh auth status
-      - task: release:nix
-      - task: release:all
       - |
-        if git rev-parse "{{.TAG}}" >/dev/null 2>&1; then
-          echo "Tag {{.TAG}} already exists"
-        else
-          git tag -a "{{.TAG}}" -m "Release {{.TAG}}"
-          git push origin "{{.TAG}}"
-          echo "Created and pushed tag {{.TAG}}"
+        set -euo pipefail
+        if [ -z "{{.CLI_ARGS}}" ]; then
+          echo "usage: task homebrew:tap-formula -- <version>" >&2
+          exit 2
         fi
-      - |
-        gh release view "{{.TAG}}" >/dev/null 2>&1 || \
-          gh release create "{{.TAG}}" --title "{{.PROJECT_NAME}} {{.TAG}}" --generate-notes
-      - gh release upload "{{.TAG}}" release/* --clobber
-      - echo "Published GitHub release {{.TAG}}"
+        scripts/render-homebrew-formula.sh "{{.CLI_ARGS}}" "{{.TAP_DIR}}/Formula/x-gateway.rb"
 
-  release:
-    desc: Full Swift release
+  build:homebrew-cask:
+    desc: Build signed and notarized Homebrew Cask DMGs, or pass targets after --
     cmds:
-      - task: release:github
+      - scripts/build-homebrew-cask-release.sh {{.CLI_ARGS}}
+
+  homebrew:cask:
+    desc: Render Casks/x-gateway.rb from dist/homebrew-cask checksums
+    cmds:
+      - scripts/render-homebrew-cask.sh {{.CLI_ARGS}}
+
+  homebrew:tap-cask:
+    desc: Render the cask into the default sibling Homebrew tap checkout
+    cmds:
+      - |
+        set -euo pipefail
+        if [ -z "{{.CLI_ARGS}}" ]; then
+          echo "usage: task homebrew:tap-cask -- <version>" >&2
+          exit 2
+        fi
+        scripts/render-homebrew-cask.sh "{{.CLI_ARGS}}" "{{.TAP_DIR}}/Casks/x-gateway.rb"
+
+  release:homebrew-cask-local:
+    desc: Build, notarize, upload, and render the sibling tap cask for a v<version> tag
+    cmds:
+      - scripts/release-homebrew-cask-local.sh {{.CLI_ARGS}}
