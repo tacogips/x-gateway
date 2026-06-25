@@ -171,6 +171,10 @@ brew install tacogips/homebrew-tap/x-gateway-read
 brew install tacogips/homebrew-tap/x-gateway-write
 ```
 
+Choose either the combined formula or the command-specific formulae. Installing
+`x-gateway` together with `x-gateway-read` or `x-gateway-write` will conflict
+because they link the same command names.
+
 ## Nix
 
 Install both commands:

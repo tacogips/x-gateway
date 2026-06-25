@@ -28,6 +28,10 @@ Render three formulae from the same archive:
 - `x-gateway-read`: installs only `x-gateway-read`
 - `x-gateway-write`: installs only `x-gateway-write`
 
+The combined formula and command-specific formulae are alternatives. Do not
+install `x-gateway` together with `x-gateway-read` or `x-gateway-write` because
+they link the same executable names.
+
 ## Release Contract
 
 1. Confirm `VERSION` is the intended release version.
@@ -116,6 +120,9 @@ ruby -c Formula/x-gateway-write.rb
 brew audit --strict x-gateway || brew audit --strict --formula x-gateway
 brew audit --strict x-gateway-read || brew audit --strict --formula x-gateway-read
 brew audit --strict x-gateway-write || brew audit --strict --formula x-gateway-write
+brew fetch --formula tacogips/homebrew-tap/x-gateway
+brew fetch --formula tacogips/homebrew-tap/x-gateway-read
+brew fetch --formula tacogips/homebrew-tap/x-gateway-write
 brew install tacogips/homebrew-tap/x-gateway
 x-gateway-read version
 x-gateway-write version

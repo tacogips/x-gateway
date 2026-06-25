@@ -39,6 +39,9 @@ The combined `x-gateway` formula installs both commands. The command-specific
 `x-gateway-read` and `x-gateway-write` formulae reuse the same release archive
 but install only their matching executable.
 
+Do not install the combined formula together with the command-specific formulae;
+they intentionally link the same executable names.
+
 ## Cask
 
 Build signed and notarized DMGs on macOS:
@@ -82,6 +85,9 @@ ruby -c Formula/x-gateway-write.rb
 brew audit --strict x-gateway || brew audit --strict --formula x-gateway
 brew audit --strict x-gateway-read || brew audit --strict --formula x-gateway-read
 brew audit --strict x-gateway-write || brew audit --strict --formula x-gateway-write
+brew fetch --formula tacogips/homebrew-tap/x-gateway
+brew fetch --formula tacogips/homebrew-tap/x-gateway-read
+brew fetch --formula tacogips/homebrew-tap/x-gateway-write
 brew fetch --cask tacogips/homebrew-tap/x-gateway
 HOMEBREW_NO_GITHUB_API=1 brew audit --cask tacogips/homebrew-tap/x-gateway
 ```
