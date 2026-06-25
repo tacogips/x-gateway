@@ -18,7 +18,55 @@ func assert(_ condition: @autoclosure () -> Bool, _ message: String) throws {
     }
 }
 
+struct ProcessResult {
+    let exitCode: Int32
+    let stderr: String
+}
+
+let environmentExecutable = "/usr/bin/env"
+let formulaSmokeVersion = "0.1.3"
+
+func runProcess(
+    executable: String,
+    arguments: [String],
+    environment extraEnvironment: [String: String] = [:]
+) throws -> ProcessResult {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: executable)
+    process.arguments = arguments
+    var environment = ProcessInfo.processInfo.environment
+    for (key, value) in extraEnvironment {
+        environment[key] = value
+    }
+    process.environment = environment
+
+    let standardOutput = Pipe()
+    let stderr = Pipe()
+    process.standardOutput = standardOutput
+    process.standardError = stderr
+
+    try process.run()
+    process.waitUntilExit()
+    _ = standardOutput.fileHandleForReading.readDataToEndOfFile()
+
+    return ProcessResult(
+        exitCode: process.terminationStatus,
+        stderr: String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+    )
+}
+
 func runSmokeTests() throws {
+    try runCryptoAndSurfaceSmokeTests()
+    try runSchemaAndFormulaSmokeTests()
+    try runRepliesAndMetadataSmokeTests()
+    try runReadAuthSmokeTests()
+    try runGraphQLSelectionParsingSmokeTests()
+    try runGraphQLArgumentSyntaxSmokeTests()
+    try runMutationValidationSmokeTests()
+    try runProjectionSmokeTests()
+}
+
+func runCryptoAndSurfaceSmokeTests() throws {
     let hmac = XGatewayOAuth1Signer.hmacSHA1Base64(
         message: "The quick brown fox jumps over the lazy dog",
         key: "key"
@@ -110,6 +158,10 @@ func runSmokeTests() throws {
     )
     try assert(invalidEnvBackoff.exitCode == 2, "invalid retry backoff env var should fail validation")
     try assert(invalidEnvBackoff.stderr.contains("X_GW_RETRY_BACKOFF"), "invalid retry backoff env var should be named")
+}
+
+func runSchemaAndFormulaSmokeTests() throws {
+    let readCli = XGatewayCLI(commandName: "x-gateway-reader", surface: .read)
 
     let schema = readCli.run(arguments: ["graphql", "schema"], environment: [:])
     try assert(schema.exitCode == 0, "schema command should succeed")
@@ -123,6 +175,55 @@ func runSmokeTests() throws {
     try assert(schema.stdout.contains("downloadMedia: Boolean"), "schema should expose downloadMedia arguments")
     try assert(schema.stdout.contains("forceDownload: Boolean"), "schema should expose forceDownload arguments")
     try assert(schema.stdout.contains("replies(maxResults: Int"), "schema should expose nested Post.replies")
+    try assert(schema.stdout.components(separatedBy: "deleted: Boolean!").count == 2, "schema should expose DeletePostResult.deleted once")
+
+    let unsafeFormulaURL = try runProcess(
+        executable: environmentExecutable,
+        arguments: ["bash", "scripts/render-homebrew-formula.sh", formulaSmokeVersion, "reader"],
+        environment: ["RELEASE_BASE_URL": "https://example.com/releases/\"#{Kernel.exit}"]
+    )
+    try assert(unsafeFormulaURL.exitCode != 0, "formula renderer should reject unsafe release URL before rendering")
+    try assert(unsafeFormulaURL.stderr.contains("unsafe release base URL"), "unsafe release URL rejection should be explicit")
+
+    let unsafeFormulaVersion = try runProcess(
+        executable: environmentExecutable,
+        arguments: ["bash", "scripts/render-homebrew-formula.sh", "../\(formulaSmokeVersion)", "reader"]
+    )
+    try assert(unsafeFormulaVersion.exitCode != 0, "formula renderer should reject unsafe versions before rendering")
+    try assert(unsafeFormulaVersion.stderr.contains("unsafe release version"), "unsafe version rejection should be explicit")
+
+    let temporaryReleaseDirectory = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("x-gateway-smoke-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: temporaryReleaseDirectory, withIntermediateDirectories: true)
+    defer {
+        try? FileManager.default.removeItem(at: temporaryReleaseDirectory)
+    }
+    let validSha = String(repeating: "a", count: 64)
+    try "not-a-sha\n".write(
+        to: temporaryReleaseDirectory.appendingPathComponent("x-gateway-\(formulaSmokeVersion)-darwin-arm64.tar.gz.sha256"),
+        atomically: true,
+        encoding: .utf8
+    )
+    try "\(validSha)\n".write(
+        to: temporaryReleaseDirectory.appendingPathComponent("x-gateway-\(formulaSmokeVersion)-darwin-x64.tar.gz.sha256"),
+        atomically: true,
+        encoding: .utf8
+    )
+    let invalidFormulaSha = try runProcess(
+        executable: environmentExecutable,
+        arguments: ["bash", "scripts/render-homebrew-formula.sh", formulaSmokeVersion, "reader"],
+        environment: [
+            "RELEASE_BASE_URL": "https://example.com/releases",
+            "RELEASE_DIR": temporaryReleaseDirectory.path
+        ]
+    )
+    try assert(invalidFormulaSha.exitCode != 0, "formula renderer should reject invalid checksums")
+    try assert(invalidFormulaSha.stderr.contains("invalid sha256 for darwin-arm64"), "invalid checksum rejection should name the target")
+}
+
+func runRepliesAndMetadataSmokeTests() throws {
+    let readCli = XGatewayCLI(commandName: "x-gateway-reader", surface: .read)
+    let writeCli = XGatewayCLI(commandName: "x-gateway-writer", surface: .write)
 
     let invalidRepliesArgument = readCli.run(
         arguments: [
@@ -135,6 +236,24 @@ func runSmokeTests() throws {
     )
     try assert(invalidRepliesArgument.exitCode == 2, "invalid replies argument should fail validation")
     try assert(invalidRepliesArgument.stderr.contains("does not accept argument 'limit'"), "invalid replies argument should name unsupported argument")
+
+    let nestedReferencedReplies = readCli.run(
+        arguments: [
+            "graphql",
+            "query",
+            "query { post(id: \"post-1\") { referencedPosts { replies(limit: 10) { pageInfo { resultCount } } } } }",
+            "--json"
+        ],
+        environment: [:]
+    )
+    try assert(
+        nestedReferencedReplies.exitCode == 3,
+        "replies outside the requested post selection path should not drive root reply expansion validation"
+    )
+    try assert(
+        nestedReferencedReplies.stderr.contains("post requires X_GW_TOKEN"),
+        "non-target nested replies should keep post auth validation"
+    )
 
     let nestedRepliesMaxResultsIsScoped = readCli.run(
         arguments: [
@@ -191,6 +310,10 @@ func runSmokeTests() throws {
     )
     try assert(repliesCapability.exitCode == 0, "capability metadata should expose post.replies")
     try assert(repliesCapability.stdout.contains("Post.replies"), "post.replies should name the nested replies operation")
+}
+
+func runReadAuthSmokeTests() throws {
+    let readCli = XGatewayCLI(commandName: "x-gateway-reader", surface: .read)
 
     let accountMeMissingAuth = readCli.run(
         arguments: ["graphql", "query", "{ accountMe { id username name } }", "--json"],
@@ -247,6 +370,11 @@ func runSmokeTests() throws {
     )
     try assert(mentionsMissingAuth.exitCode == 3, "mentionsTimeline should reach auth validation")
     try assert(mentionsMissingAuth.stderr.contains("mentionsTimeline requires X_GW_TOKEN"), "mentionsTimeline should report missing auth")
+}
+
+func runGraphQLSelectionParsingSmokeTests() throws {
+    let readCli = XGatewayCLI(commandName: "x-gateway-reader", surface: .read)
+    let writeCli = XGatewayCLI(commandName: "x-gateway-writer", surface: .write)
 
     let createPostMissingAuth = writeCli.run(
         arguments: ["graphql", "query", "mutation { createPost(text: \"hi\") { id } }", "--json"],
@@ -283,12 +411,12 @@ func runSmokeTests() throws {
     try assert(searchQueryMentioningAccountMe.exitCode == 3, "field names inside strings should not select a different operation")
     try assert(searchQueryMentioningAccountMe.stderr.contains("searchPosts requires X_GW_TOKEN"), "searchPosts with spaced arguments should keep search auth validation")
 
-    let searchQueryVariableDefaultMentioningAccountMe = readCli.run(
+    let variableDefaultMentionsAccountMe = readCli.run(
         arguments: ["graphql", "query", "query Search($input: Input = { accountMe: \"literal\" }) { searchPosts(query: \"swift\", maxResults: 10) { posts { id } } }", "--json"],
         environment: [:]
     )
-    try assert(searchQueryVariableDefaultMentioningAccountMe.exitCode == 3, "field names inside variable defaults should not replace the root operation")
-    try assert(searchQueryVariableDefaultMentioningAccountMe.stderr.contains("searchPosts requires X_GW_TOKEN"), "searchPosts after variable definitions should keep search auth validation")
+    try assert(variableDefaultMentionsAccountMe.exitCode == 3, "field names inside variable defaults should not replace the root operation")
+    try assert(variableDefaultMentionsAccountMe.stderr.contains("searchPosts requires X_GW_TOKEN"), "searchPosts after variable definitions should keep search auth validation")
 
     let searchQueryMentioningFragmentInString = readCli.run(
         arguments: ["graphql", "query", "query { searchPosts(query: \"literal fragment text\", maxResults: 10) { posts { id } } }", "--json"],
@@ -360,6 +488,10 @@ func runSmokeTests() throws {
     try assert(searchQueryWithUnexpectedRootArgument.exitCode == 2, "unexpected root query arguments should fail validation")
     try assert(searchQueryWithUnexpectedRootArgument.stderr.contains("searchPosts"), "unexpected root query argument should name the public field")
     try assert(searchQueryWithUnexpectedRootArgument.stderr.contains("sinceId"), "unexpected root query argument should name the unsupported argument")
+}
+
+func runGraphQLArgumentSyntaxSmokeTests() throws {
+    let readCli = XGatewayCLI(commandName: "x-gateway-reader", surface: .read)
 
     let searchQueryWithMalformedIntegerArgument = readCli.run(
         arguments: ["graphql", "query", "query { searchPosts(query: \"swift\", maxResults: 10foo) { posts { id } } }", "--json"],
@@ -424,12 +556,12 @@ func runSmokeTests() throws {
     try assert(searchQueryWithAccountMeFragmentName.exitCode == 2, "fragment names should fail validation before auth")
     try assert(searchQueryWithAccountMeFragmentName.stderr.contains("fragments are not supported"), "fragment syntax should explain unsupported fragments")
 
-    let searchQueryWithSpacedAccountMeFragmentSpread = readCli.run(
+    let spacedAccountMeFragmentSpread = readCli.run(
         arguments: ["graphql", "query", "query { ... accountMe } fragment accountMe on Query { searchPosts(query: \"swift\", maxResults: 10) { posts { id } } }", "--json"],
         environment: [:]
     )
-    try assert(searchQueryWithSpacedAccountMeFragmentSpread.exitCode == 2, "fragment spreads with whitespace should fail validation before auth")
-    try assert(searchQueryWithSpacedAccountMeFragmentSpread.stderr.contains("fragments are not supported"), "spaced fragment spread should explain unsupported fragments")
+    try assert(spacedAccountMeFragmentSpread.exitCode == 2, "fragment spreads with whitespace should fail validation before auth")
+    try assert(spacedAccountMeFragmentSpread.stderr.contains("fragments are not supported"), "spaced fragment spread should explain unsupported fragments")
 
     let searchQueryWithUnusedFragmentDefinition = readCli.run(
         arguments: ["graphql", "query", "query { searchPosts(query: \"swift\", maxResults: 10) { posts { id } } } fragment F on Query { searchPosts(query: \"bad\", maxResults: 5) { posts { id } } }", "--json"],
@@ -468,9 +600,18 @@ func runSmokeTests() throws {
     )
     try assert(repliesWithIgnoredTokensAroundSyntax.exitCode == 3, "comments around replies syntax should not fail nested replies parsing")
     try assert(repliesWithIgnoredTokensAroundSyntax.stderr.contains("post requires X_GW_TOKEN"), "commented replies syntax should keep post auth validation")
+}
+
+func runMutationValidationSmokeTests() throws {
+    let writeCli = XGatewayCLI(commandName: "x-gateway-writer", surface: .write)
 
     let createAttachmentMissingOAuth = writeCli.run(
-        arguments: ["graphql", "query", "mutation { createPost(text: \"hi\", attachments: [{ kind: \"image\", filePath: \"/tmp/x-gateway-missing-swift-upload-fixture-a.png\", altText: \"example\" }]) { id } }", "--json"],
+        arguments: [
+            "graphql",
+            "query",
+            "mutation { createPost(text: \"hi\", attachments: [{ kind: \"image\", filePath: \"/tmp/x-gateway-missing-swift-upload-fixture-a.png\", altText: \"example\" }]) { id } }",
+            "--json"
+        ],
         environment: [:]
     )
     try assert(createAttachmentMissingOAuth.exitCode == 3, "createPost attachments without OAuth1 should fail auth before live posting")
@@ -478,7 +619,15 @@ func runSmokeTests() throws {
     try assert(createAttachmentMissingOAuth.stderr.contains("OAuth1"), "createPost attachment auth rejection should name OAuth1")
 
     let createAttachmentWithCommentedValues = writeCli.run(
-        arguments: ["graphql", "query", "mutation { createPost(text: \"hi\", attachments: # attachments value\n [{ kind: # kind value\n \"image\", filePath: # path value\n \"/tmp/x-gateway-missing-swift-upload-fixture-commented.png\", altText: # alt value\n \"example\" }]) { id } }", "--json"],
+        arguments: [
+            "graphql",
+            "query",
+            "mutation { createPost(text: \"hi\", attachments: # attachments value\n " +
+                "[{ kind: # kind value\n \"image\", filePath: # path value\n " +
+                "\"/tmp/x-gateway-missing-swift-upload-fixture-commented.png\", altText: # alt value\n " +
+                "\"example\" }]) { id } }",
+            "--json"
+        ],
         environment: [:]
     )
     try assert(createAttachmentWithCommentedValues.exitCode == 3, "comments inside attachment input should not fail attachment parsing")
@@ -571,7 +720,12 @@ func runSmokeTests() throws {
     try assert(mutationWithTrailingToken.stderr.contains("Unexpected GraphQL token 'trailing'"), "trailing mutation token diagnostic should name the unexpected token")
 
     let replyAttachmentMissingOAuth = writeCli.run(
-        arguments: ["graphql", "query", "mutation { replyToPost(text: \"hi\", replyToPostId: \"123\", attachments: [{ kind: \"image\", filePath: \"/tmp/x-gateway-missing-swift-upload-fixture-b.png\" }]) { id } }", "--json"],
+        arguments: [
+            "graphql",
+            "query",
+            "mutation { replyToPost(text: \"hi\", replyToPostId: \"123\", attachments: [{ kind: \"image\", filePath: \"/tmp/x-gateway-missing-swift-upload-fixture-b.png\" }]) { id } }",
+            "--json"
+        ],
         environment: [:]
     )
     try assert(replyAttachmentMissingOAuth.exitCode == 3, "replyToPost attachments without OAuth1 should fail auth before live posting")
@@ -585,7 +739,12 @@ func runSmokeTests() throws {
     try assert(quoteMissingAuth.stderr.contains("quotePost requires X_GW_TOKEN"), "quotePost should report missing auth")
 
     let quoteAttachmentMissingOAuth = writeCli.run(
-        arguments: ["graphql", "query", "mutation { quotePost(text: \"hi\", quotedPostId: \"123\", attachments: [{ kind: \"image\", filePath: \"/tmp/x-gateway-missing-swift-upload-fixture-c.png\" }]) { id } }", "--json"],
+        arguments: [
+            "graphql",
+            "query",
+            "mutation { quotePost(text: \"hi\", quotedPostId: \"123\", attachments: [{ kind: \"image\", filePath: \"/tmp/x-gateway-missing-swift-upload-fixture-c.png\" }]) { id } }",
+            "--json"
+        ],
         environment: [:]
     )
     try assert(quoteAttachmentMissingOAuth.exitCode == 3, "quotePost attachments without OAuth1 should fail auth before live posting")
@@ -604,7 +763,9 @@ func runSmokeTests() throws {
     )
     try assert(unrepostMissingAuth.exitCode == 3, "unrepostPost should reach auth validation")
     try assert(unrepostMissingAuth.stderr.contains("unrepostPost requires X_GW_TOKEN"), "unrepostPost should report missing auth")
+}
 
+func runProjectionSmokeTests() throws {
     let account = XGatewayResponseProjector.account([
         "data": ["id": "u1", "username": "alice", "name": "Alice"]
     ])
