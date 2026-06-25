@@ -4,19 +4,30 @@ This document defines the architecture for `x-gateway` as both CLI and library.
 
 ## Overview
 
-`x-gateway` is a dual-surface TypeScript system with two CLI binaries:
+`x-gateway` is a Swift Package Manager system with split CLI binaries and a
+shared Swift library:
 
-- Surface A1: AI-first full CLI (`x-gateway ...`) for the project-owned GraphQL contract plus local diagnostics and capability inspection
-- Surface A2: AI-first read-only CLI (`x-gateway-reader ...`) for query-only access to that same project-owned contract plus local diagnostics and capability inspection
-- Surface B: programmatic SDK/library API
+- Surface A1: AI-first read-only CLI (`x-gateway-read ...`) for query access
+  to the project-owned GraphQL contract plus local diagnostics and capability
+  inspection
+- Surface A2: AI-first write CLI (`x-gateway-write ...`) for mutation access
+  to that same project-owned contract plus local diagnostics and capability
+  inspection
+- Surface B: programmatic Swift library API through `XGatewayCore`
 
 Both surfaces share one core service layer so behavior is consistent for auth, retries, rate handling, and error semantics.
 
 Policy decision:
 
-- Write operations are enforced as unavailable in `x-gateway-reader` at command-dispatch time.
-- Rejected write operations return deterministic `UNSUPPORTED` errors with explicit remediation (`use x-gateway`).
-- The primary public interface is the project-owned GraphQL request path (`graphql query <query>` in CLI and `createXGatewayClient().graphqlQuery({ query })` in the SDK).
+- Write operations are enforced as unavailable in `x-gateway-read` at
+  command-dispatch time.
+- Read operations are enforced as unavailable in `x-gateway-write` at
+  command-dispatch time.
+- Rejected cross-surface operations return deterministic `UNSUPPORTED` errors
+  with explicit remediation naming the matching split command.
+- The primary public interface is the project-owned GraphQL request path
+  (`graphql query <query-or-mutation>` in CLI and `XGatewayCore` library
+  entrypoints for embedders).
 - Stable SDK helpers may remain when they dispatch through the same reviewed capability executor, but the public CLI no longer exposes transitional convenience command groups as peer surfaces.
 - Transport choice is internal: use REST where it is stable and compatible with configured auth, and use X web GraphQL only where a capability requires it.
 - Unsupported capabilities must be rejected at the boundary with explicit guidance instead of being advertised as generally available.
@@ -190,31 +201,37 @@ Each category provides:
 - retryability hint
 - retry policy context (whether retried, delays applied, reason retry stopped)
 
-## Module Boundaries (Planned)
+## Module Boundaries
 
-- `src/cli.ts` command definitions and output formatting
-- `src/lib.ts` public SDK exports, config resolution, diagnostics, shared stable-capability execution, and temporary adapter composition
-- `src/capability-metadata.ts` capability registry rows plus reviewed route-planning metadata
-- `src/public-graphql-parser.ts` project-owned GraphQL document parsing for the stable public contract
-- `src/public-graphql-contract.ts` project-owned GraphQL field registry, request-to-capability mapping, and response projection helpers
-- `src/capability-runtime.ts` reviewed route selection, auth-readiness derivation, and planner-to-adapter execution wiring
-- `src/stable-capability-executor.ts` stable capability execution registry plus shared dispatch used by direct SDK helpers and the project-owned GraphQL surface
-- `src/capability-adapters.ts` reviewed REST capability adapters plus transport-specific response-mapping helpers for the stable baseline
-- Current implementation note: the public contract, planner/runtime, stable execution, and reviewed REST adapter layer now have dedicated modules. `src/lib.ts` still composes them and owns shared retry/config/error helpers.
-- Current implementation note: the first hardening step kept one shared execution registry inside `src/lib.ts` so capability dispatch is not duplicated across CLI, SDK, and public GraphQL entrypoints.
-- Current implementation note: planner metadata, public-contract parsing, and the public request mapper now have dedicated modules.
-- Current implementation note: capability runtime planning now lives in `src/capability-runtime.ts`, so `src/lib.ts` no longer owns route selection and auth-readiness assembly directly.
-- Current implementation note: stable capability execution now lives in a dedicated module so `src/lib.ts` no longer owns the registry-driven dispatch layer directly.
-- Current implementation note: reviewed REST capability adapters now live in `src/capability-adapters.ts`.
-- Current implementation note: the public GraphQL parser now accepts list and object literals for project-owned input objects such as post attachments while still rejecting variables, fragments, aliases, directives, and multi-field documents.
-- Current implementation target: `followingTimeline` must complete the existing partial registry/schema work by adding the reviewed adapter and tests that prove the public GraphQL field, stable capability executor, capability metadata, SDK types, and PostPage projection all remain coherent.
-- Future extractions when complexity warrants:
-  - `src/public-contract/` for project-owned GraphQL parsing and projection
-  - `src/planner/` for capability planning and transport/auth routing
-  - `src/capabilities/` for stable use-case interfaces
-  - `src/adapters/` for REST/GraphQL capability adapters
-  - `src/gateway/x-api/` for shared transport concerns
-  - `src/errors/` and `src/config/` for focused infrastructure modules
+The current repository is a Swift package. The first Swift migration slices keep
+most core implementation in `Sources/XGatewayCore/XGatewayCore.swift`, but the
+architectural ownership boundaries are:
+
+- CLI command parsing, surface enforcement, output rendering, and early flag
+  validation for `x-gateway-read` and `x-gateway-write`.
+- `XGatewayCore` library entrypoints for configuration resolution, auth
+  diagnostics, capability metadata, project-owned GraphQL operation
+  classification, and live execution helpers.
+- Project-owned GraphQL request parsing that maps supported root query/mutation
+  fields onto reviewed capabilities instead of forwarding arbitrary upstream
+  GraphQL.
+- Root operation resolution that accepts exactly one executable operation
+  definition with exactly one top-level public field, scopes arguments to that
+  selected field, and does not infer the operation from operation names,
+  variable-default literals, nested projection fields, or unsupported sibling
+  operations.
+- Unsupported GraphQL syntax such as aliases, fragments, directives, and
+  variable argument values is rejected explicitly before auth or live execution
+  rather than being interpreted partially.
+- Bounded nested capability execution for reviewed child fields such as
+  `Post.replies(...)`.
+- Transport helpers for OAuth1 signing, bearer authorization, retry policy,
+  HTTP execution, media upload, response projection, and remediation-oriented
+  error envelopes.
+
+Future extractions should split these boundaries into focused Swift files or
+submodules when the implementation size makes ownership unclear. Extraction
+must preserve the public `XGatewayCore` API and the read/write product split.
 
 ## Swift Port Architecture
 
@@ -257,7 +274,7 @@ alt text when provided, and include uploaded `media_ids` in the v2 tweet body.
 
 Swift command output must preserve the existing structured `ok` envelope and
 remediation-oriented error payloads so AI agent callers receive the same
-operational diagnostics as the TypeScript CLI.
+operational diagnostics across the split Swift commands and library surface.
 
 ## Test Strategy (High Level)
 

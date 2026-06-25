@@ -1,19 +1,24 @@
 # Command Design
 
-This document defines the CLI contract for `x-gateway` and `x-gateway-reader`.
+This document defines the current Swift CLI contract for `x-gateway-read` and
+`x-gateway-write`.
 
 ## Overview
 
-The repository ships two AI-oriented command-line clients for X (Twitter) APIs:
+The repository ships two AI-oriented Swift command-line clients for X (Twitter)
+APIs:
 
-- `x-gateway`: project-owned GraphQL query/mutation access plus local diagnostics and capability inspection
-- `x-gateway-reader`: read-only project-owned GraphQL query access plus local diagnostics and capability inspection
+- `x-gateway-read`: read-only project-owned GraphQL query access plus local
+  diagnostics and capability inspection
+- `x-gateway-write`: project-owned GraphQL mutation access plus local
+  diagnostics and capability inspection
 
 Both CLIs must be scriptable, deterministic, and return structured diagnostics suitable for automated callers.
 
 Primary contract:
 
-- `graphql query <query>` is the primary CLI contract for reviewed capabilities.
+- `graphql query <query-or-mutation>` is the primary CLI contract for reviewed
+  capabilities.
 - `graphql schema` prints the owned public GraphQL schema.
 - The `graphql` namespace refers to the project-owned `x-gateway` contract, not direct upstream X GraphQL.
 - Unimplemented high-level commands must fail immediately with `UNSUPPORTED` and remediation that names the supported alternative.
@@ -21,7 +26,10 @@ Primary contract:
 
 ## Command Policy
 
-- `x-gateway-reader` must reject all write/mutation commands with a stable `UNSUPPORTED` error and remediation to use `x-gateway`.
+- `x-gateway-read` must reject all write/mutation documents with a stable
+  `UNSUPPORTED` error and remediation to use `x-gateway-write`.
+- `x-gateway-write` must reject read query documents with a stable
+  `UNSUPPORTED` error and remediation to use `x-gateway-read`.
 - Stable commands include the project-owned GraphQL contract, auth configuration diagnostics, capability inspection, and local system introspection.
 - `graphql query <query>` must accept only project-owned GraphQL fields; it must not forward user input directly to raw X GraphQL.
 - Commands must not expose raw X web GraphQL details through the public CLI surface.
@@ -31,17 +39,17 @@ Primary contract:
 
 ### Project-Owned GraphQL Contract
 
-- `x-gateway graphql query '<query>'`
-- `x-gateway-reader graphql query '<query>'` (query-only)
-- `x-gateway graphql schema`
-- `x-gateway-reader graphql schema`
+- `x-gateway-read graphql query '<query>'`
+- `x-gateway-write graphql query '<mutation>'`
+- `x-gateway-read graphql schema`
+- `x-gateway-write graphql schema`
 
 ### Auth and Session
 
-- `x-gateway auth verify`
-- `x-gateway auth scopes`
-- `x-gateway-reader auth verify`
-- `x-gateway-reader auth scopes`
+- `x-gateway-read auth verify`
+- `x-gateway-read auth scopes`
+- `x-gateway-write auth verify`
+- `x-gateway-write auth scopes`
 
 `auth verify` design rule:
 
@@ -51,10 +59,10 @@ Primary contract:
 
 ### System
 
-- `x-gateway health`
-- `x-gateway version`
-- `x-gateway-reader health`
-- `x-gateway-reader version`
+- `x-gateway-read health`
+- `x-gateway-read version`
+- `x-gateway-write health`
+- `x-gateway-write version`
 
 ## Flags and Options
 
@@ -134,15 +142,34 @@ Project-owned GraphQL rules:
 
 - `graphql query <query>` accepts the stable project-owned `x-gateway` GraphQL contract only.
 - `graphql schema` prints the stable project-owned `x-gateway` GraphQL contract.
-- The initial parser may support only one top-level field per request.
-- Variables, fragments, aliases, and directives may remain unsupported in the first slice if diagnostics are explicit.
+- The current parser accepts exactly one operation definition with exactly one
+  top-level field per request and rejects multi-operation or multi-field
+  documents before auth or live execution.
+- Non-ignored tokens before or after the single operation definition must fail
+  validation rather than being ignored while a supported root field executes.
+- Fragments, aliases, directives, and variable argument values remain
+  unsupported in the current parser and must fail with explicit validation
+  diagnostics instead of being ignored.
 - Supported top-level fields include `accountMe`, `apiUsage`, `post`, `searchPosts`, `homeTimeline`, `followingTimeline`, `userTimeline`, `mentionsTimeline`, `createPost`, `deletePost`, `replyToPost`, `quotePost`, `repostPost`, and `unrepostPost`.
 - Reviewed nested field arguments are supported for `Post.replies(maxResults:, paginationToken:, ...)`.
 - `followingTimeline(maxResults:, maxUsers:, maxResultsPerUser:, paginationToken:, includePromoted:, mediaRootDir:, downloadMedia:, forceDownload:)` is the canonical field for workflows that need latest posts from accounts followed by the authenticated user when `homeTimeline` is empty or unavailable for that account.
 - Canonical mutation arguments are `deletePost(postId: ID!)`, `repostPost(postId: ID!)`, and `unrepostPost(postId: ID!)`.
 - Canonical attachment arguments are supported on `createPost`, `replyToPost`, and `quotePost` with `attachments: [{ kind: "image", filePath: "...", altText: "..." }]`.
 - The current public GraphQL parser supports string/integer/boolean/null/list/object literals only.
-- `x-gateway-reader` must reject `graphql query` mutations.
+- Top-level GraphQL operation selection must be resolved from the root
+  query/mutation field when present; nested projection field names must not
+  change the selected operation or leak their arguments into top-level
+  validation.
+- Public root fields must reject unsupported root arguments before auth or live
+  execution, while nested input-object fields such as `PostAttachmentInput.kind`
+  remain scoped to their owning validator.
+- Operation signatures, including operation names and variable-definition
+  parentheses, must be skipped when locating the root selection set. Variables
+  remain unsupported as public argument values until reviewed explicitly.
+- Documents containing additional query/mutation operation definitions must not
+  be partially executed by selecting only the first supported operation.
+- `x-gateway-read` must reject `graphql query` mutations.
+- `x-gateway-write` must reject `graphql query` read documents.
 
 Capability adapter rules:
 
@@ -159,9 +186,12 @@ Capability adapter rules:
 - `post create` must prefer a stable public API adapter when public REST support is sufficient.
 - `post delete` must prefer a stable public API adapter when public REST support is sufficient.
 - `post reply`, `post quote`, `post repost`, and `post unrepost` must prefer stable public API adapters when public REST support is sufficient.
-- In the TypeScript CLI, when both bearer and OAuth1 credentials are configured, stable posting helpers must prefer OAuth1 instead of failing just because bearer is also present.
-- `x-gateway-reader` must reject write-oriented capability behavior such as `createPost`.
-- In the TypeScript CLI, stable posting helpers are currently an OAuth1-backed baseline only; bearer-token create/delete/reply/quote/repost flows must remain rejected until that surface has a reviewed user-context auth path. The Swift split-command port has a separate bearer-token baseline documented below.
+- When both bearer and OAuth1 credentials are configured, stable posting helpers
+  must prefer OAuth1 instead of failing just because bearer is also present.
+- `x-gateway-read` must reject write-oriented capability behavior such as
+  `createPost`.
+- Attachment-backed stable posting helpers require OAuth1 because media upload
+  and alt-text application use the OAuth1 media upload path.
 
 Retry behavior rules:
 
@@ -211,9 +241,10 @@ Current implementation note:
 - The current implementation exposes the project-owned GraphQL public request surface plus local auth diagnostics, capability inspection, health, and version commands.
 - The canonical path is the project-owned GraphQL public request surface, which resolves onto the same reviewed capabilities instead of leaking raw X transport details as the main contract.
 - `likes list` is intentionally withheld from the stable CLI, SDK, and public GraphQL contract until a reviewed live adapter route is verified.
-- In the TypeScript CLI, `account me` can use OAuth1 or a user-context bearer token; the stable posting helpers currently require OAuth1.
+- `account me` can use OAuth1 or a user-context bearer token; attachment-backed
+  stable posting helpers currently require OAuth1.
 - `post get` can use OAuth1 or bearer-token reads through the public lookup API, and it prefers OAuth1 when both are configured.
-- In the TypeScript CLI, stable posting helpers prefer OAuth1 whenever it is configured.
+- Stable posting helpers prefer OAuth1 whenever it is configured.
 - Stable `createPost`, `replyToPost`, and `quotePost` support inline image attachments through internal OAuth1 media upload and alt-text application; callers do not provide raw upload sequencing.
 - Stable `Post.replies(...)` allows recursive direct-reply traversal within one GraphQL request, subject to a bounded per-request expansion limit.
 - Stable `followingTimeline(...)` is the intended rielflow X digest read field for followed-account latest-post retrieval. The concrete downstream reference is `/Users/taco/gits/tacogips/rielflow/examples/x-follower-ai-business-digest/workflow.json`, whose `fetch-follower-posts` node runs `rielflow/x-gateway-read` through Docker image `ghcr.io/tacogips/x-gateway:latest` and queries `followingTimeline { posts { ... metrics { ... impressionCount } } pageInfo { ... } }`. Treat that workflow as a behavioral consumer reference only: implementation should preserve the `followingTimeline` -> `PostPage` -> nullable `metrics.impressionCount` data flow without copying code from the rielflow repository.

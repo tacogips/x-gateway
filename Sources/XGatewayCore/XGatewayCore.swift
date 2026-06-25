@@ -388,18 +388,46 @@ public struct XGatewayCLI: Sendable {
     }
 
     public static func classifyGraphQLOperation(_ document: String) throws -> XGatewayGraphQLOperationType {
-        let meaningfulLines = document
-            .split(separator: "\n", omittingEmptySubsequences: false)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty && !$0.hasPrefix("#") }
-        let trimmed = meaningfulLines.joined(separator: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let lowercased = trimmed.lowercased()
+        var index = skipGraphQLIgnored(in: document, from: document.startIndex)
+        guard index < document.endIndex else {
+            throw XGatewayErrorPayload(
+                code: .validationError,
+                summary: "GraphQL operation type could not be inferred",
+                details: "The document must start with 'query', 'mutation', or an anonymous query selection set.",
+                likelyCauses: ["Malformed GraphQL document", "Unsupported shorthand operation syntax"],
+                remediations: ["Pass a complete project-owned GraphQL query or mutation document."],
+                classification: "validation",
+                retryable: false,
+                traceId: nil
+            )
+        }
+        if document[index] == "{" {
+            return .query
+        }
+        guard isGraphQLNameStart(document[index]) else {
+            throw XGatewayErrorPayload(
+                code: .validationError,
+                summary: "GraphQL operation type could not be inferred",
+                details: "The document must start with 'query', 'mutation', or an anonymous query selection set.",
+                likelyCauses: ["Malformed GraphQL document", "Unsupported shorthand operation syntax"],
+                remediations: ["Pass a complete project-owned GraphQL query or mutation document."],
+                classification: "validation",
+                retryable: false,
+                traceId: nil
+            )
+        }
+        let start = index
+        index = document.index(after: index)
+        while index < document.endIndex,
+              isGraphQLIdentifierCharacter(document[index]) {
+            index = document.index(after: index)
+        }
 
-        if lowercased.hasPrefix("mutation") {
+        let token = String(document[start..<index])
+        if token == "mutation" {
             return .mutation
         }
-        if lowercased.hasPrefix("query") || lowercased.hasPrefix("{") {
+        if token == "query" {
             return .query
         }
         throw XGatewayErrorPayload(
@@ -2598,94 +2626,165 @@ private enum GraphQLInputValue {
     case null
 }
 
+private struct GraphQLRootField {
+    let name: String
+    let argumentLiteral: String
+}
+
+private struct ResolvedGraphQLRootOperation {
+    let fieldName: String?
+    let argumentLiteral: String
+}
+
+private let supportedQueryGraphQLFields = [
+    "accountMe",
+    "apiUsage",
+    "searchPosts",
+    "homeTimeline",
+    "followingTimeline",
+    "userTimeline",
+    "mentionsTimeline",
+    "post"
+]
+
+private let supportedMutationGraphQLFields = [
+    "createPost",
+    "deletePost",
+    "replyToPost",
+    "quotePost",
+    "unrepostPost",
+    "repostPost"
+]
+
 private func parseSupportedOperation(
     document: String,
     operationType: XGatewayGraphQLOperationType
 ) throws -> SupportedGraphQLOperation {
+    let resolvedOperation = try resolveSupportedGraphQLRootOperation(in: document, operationType: operationType)
+    let fieldName = resolvedOperation.fieldName
+    let arguments = resolvedOperation.argumentLiteral
     switch operationType {
     case .query:
-        if hasGraphQLField("accountMe", in: document) {
+        if fieldName == "accountMe" {
+            try validateGraphQLArguments(in: arguments, allowed: [], fieldName: "accountMe")
             return .accountMe
         }
-        if hasGraphQLField("apiUsage", in: document) {
-            return .apiUsage(days: try extractOptionalIntArgument("days", from: document, defaultValue: 1, minimum: 1, maximum: 90, fieldName: "apiUsage"))
+        if fieldName == "apiUsage" {
+            try validateGraphQLArguments(in: arguments, allowed: ["days"], fieldName: "apiUsage")
+            return .apiUsage(days: try extractOptionalIntArgument("days", from: arguments, defaultValue: 1, minimum: 1, maximum: 90, fieldName: "apiUsage"))
         }
-        if hasGraphQLField("searchPosts", in: document) {
+        if fieldName == "searchPosts" {
+            try validateGraphQLArguments(
+                in: arguments,
+                allowed: ["query", "maxResults", "paginationToken", "mediaRootDir", "downloadMedia", "forceDownload", "includePromoted"],
+                fieldName: "searchPosts"
+            )
             return .searchPosts(
-                query: try extractStringArgument("query", from: document, fieldName: "searchPosts"),
-                maxResults: try extractOptionalIntArgument("maxResults", from: document, defaultValue: 10, minimum: 10, maximum: 100, fieldName: "searchPosts"),
-                readOptions: try extractPostReadOptions(from: document, fieldName: "searchPosts"),
+                query: try extractStringArgument("query", from: arguments, fieldName: "searchPosts"),
+                maxResults: try extractOptionalIntArgument("maxResults", from: arguments, defaultValue: 10, minimum: 10, maximum: 100, fieldName: "searchPosts"),
+                readOptions: try extractPostReadOptions(from: arguments, fieldName: "searchPosts"),
                 replyExpansion: try extractReplyExpansion(from: document, selectionPath: "searchPosts.posts")
             )
         }
-        if hasGraphQLField("homeTimeline", in: document) {
+        if fieldName == "homeTimeline" {
+            try validateGraphQLArguments(
+                in: arguments,
+                allowed: ["maxResults", "paginationToken", "mediaRootDir", "downloadMedia", "forceDownload", "includePromoted"],
+                fieldName: "homeTimeline"
+            )
             return .homeTimeline(
-                maxResults: try extractOptionalIntArgument("maxResults", from: document, defaultValue: 10, minimum: 5, maximum: 100, fieldName: "homeTimeline"),
-                readOptions: try extractPostReadOptions(from: document, fieldName: "homeTimeline"),
+                maxResults: try extractOptionalIntArgument("maxResults", from: arguments, defaultValue: 10, minimum: 5, maximum: 100, fieldName: "homeTimeline"),
+                readOptions: try extractPostReadOptions(from: arguments, fieldName: "homeTimeline"),
                 replyExpansion: try extractReplyExpansion(from: document, selectionPath: "homeTimeline.posts")
             )
         }
-        if hasGraphQLField("followingTimeline", in: document) {
+        if fieldName == "followingTimeline" {
+            try validateGraphQLArguments(
+                in: arguments,
+                allowed: ["maxResults", "maxUsers", "maxResultsPerUser", "paginationToken", "mediaRootDir", "downloadMedia", "forceDownload", "includePromoted"],
+                fieldName: "followingTimeline"
+            )
             return .followingTimeline(
-                maxResults: try extractOptionalIntArgument("maxResults", from: document, defaultValue: 10, minimum: 1, maximum: 100, fieldName: "followingTimeline"),
-                maxUsers: try extractOptionalIntArgument("maxUsers", from: document, defaultValue: 25, minimum: 1, maximum: 100, fieldName: "followingTimeline"),
-                maxResultsPerUser: try extractOptionalIntArgument("maxResultsPerUser", from: document, defaultValue: 10, minimum: 5, maximum: 100, fieldName: "followingTimeline"),
-                readOptions: try extractPostReadOptions(from: document, fieldName: "followingTimeline"),
+                maxResults: try extractOptionalIntArgument("maxResults", from: arguments, defaultValue: 10, minimum: 1, maximum: 100, fieldName: "followingTimeline"),
+                maxUsers: try extractOptionalIntArgument("maxUsers", from: arguments, defaultValue: 25, minimum: 1, maximum: 100, fieldName: "followingTimeline"),
+                maxResultsPerUser: try extractOptionalIntArgument("maxResultsPerUser", from: arguments, defaultValue: 10, minimum: 5, maximum: 100, fieldName: "followingTimeline"),
+                readOptions: try extractPostReadOptions(from: arguments, fieldName: "followingTimeline"),
                 replyExpansion: try extractReplyExpansion(from: document, selectionPath: "followingTimeline.posts")
             )
         }
-        if hasGraphQLField("userTimeline", in: document) {
+        if fieldName == "userTimeline" {
+            try validateGraphQLArguments(
+                in: arguments,
+                allowed: ["userId", "maxResults", "paginationToken", "mediaRootDir", "downloadMedia", "forceDownload", "includePromoted"],
+                fieldName: "userTimeline"
+            )
             return .userTimeline(
-                userId: try extractStringArgument("userId", from: document, fieldName: "userTimeline"),
-                maxResults: try extractOptionalIntArgument("maxResults", from: document, defaultValue: 10, minimum: 5, maximum: 100, fieldName: "userTimeline"),
-                readOptions: try extractPostReadOptions(from: document, fieldName: "userTimeline"),
+                userId: try extractStringArgument("userId", from: arguments, fieldName: "userTimeline"),
+                maxResults: try extractOptionalIntArgument("maxResults", from: arguments, defaultValue: 10, minimum: 5, maximum: 100, fieldName: "userTimeline"),
+                readOptions: try extractPostReadOptions(from: arguments, fieldName: "userTimeline"),
                 replyExpansion: try extractReplyExpansion(from: document, selectionPath: "userTimeline.posts")
             )
         }
-        if hasGraphQLField("mentionsTimeline", in: document) {
+        if fieldName == "mentionsTimeline" {
+            try validateGraphQLArguments(
+                in: arguments,
+                allowed: ["userId", "maxResults", "paginationToken", "mediaRootDir", "downloadMedia", "forceDownload", "includePromoted"],
+                fieldName: "mentionsTimeline"
+            )
             return .mentionsTimeline(
-                userId: try extractStringArgument("userId", from: document, fieldName: "mentionsTimeline"),
-                maxResults: try extractOptionalIntArgument("maxResults", from: document, defaultValue: 10, minimum: 5, maximum: 100, fieldName: "mentionsTimeline"),
-                readOptions: try extractPostReadOptions(from: document, fieldName: "mentionsTimeline"),
+                userId: try extractStringArgument("userId", from: arguments, fieldName: "mentionsTimeline"),
+                maxResults: try extractOptionalIntArgument("maxResults", from: arguments, defaultValue: 10, minimum: 5, maximum: 100, fieldName: "mentionsTimeline"),
+                readOptions: try extractPostReadOptions(from: arguments, fieldName: "mentionsTimeline"),
                 replyExpansion: try extractReplyExpansion(from: document, selectionPath: "mentionsTimeline.posts")
             )
         }
-        if hasGraphQLField("post", in: document) {
+        if fieldName == "post" {
+            try validateGraphQLArguments(
+                in: arguments,
+                allowed: ["id", "mediaRootDir", "downloadMedia", "forceDownload", "includePromoted"],
+                fieldName: "post"
+            )
             return .post(
-                postId: try extractStringArgument("id", from: document, fieldName: "post"),
-                readOptions: try extractPostReadOptions(from: document, fieldName: "post"),
+                postId: try extractStringArgument("id", from: arguments, fieldName: "post"),
+                readOptions: try extractPostReadOptions(from: arguments, fieldName: "post"),
                 replyExpansion: try extractReplyExpansion(from: document, selectionPath: "post")
             )
         }
     case .mutation:
-        if hasGraphQLField("createPost", in: document) {
+        if fieldName == "createPost" {
+            try validateGraphQLArguments(in: arguments, allowed: ["text", "attachments"], fieldName: "createPost")
             return .createPost(
-                text: try extractStringArgument("text", from: document, fieldName: "createPost"),
-                attachments: try extractPostAttachmentsIfPresent(from: document, fieldName: "createPost")
+                text: try extractStringArgument("text", from: arguments, fieldName: "createPost"),
+                attachments: try extractPostAttachmentsIfPresent(from: arguments, fieldName: "createPost")
             )
         }
-        if hasGraphQLField("deletePost", in: document) {
-            return .deletePost(postId: try extractStringArgument("postId", from: document, fieldName: "deletePost"))
+        if fieldName == "deletePost" {
+            try validateGraphQLArguments(in: arguments, allowed: ["postId"], fieldName: "deletePost")
+            return .deletePost(postId: try extractStringArgument("postId", from: arguments, fieldName: "deletePost"))
         }
-        if hasGraphQLField("replyToPost", in: document) {
+        if fieldName == "replyToPost" {
+            try validateGraphQLArguments(in: arguments, allowed: ["text", "replyToPostId", "attachments"], fieldName: "replyToPost")
             return .replyToPost(
-                text: try extractStringArgument("text", from: document, fieldName: "replyToPost"),
-                replyToPostId: try extractStringArgument("replyToPostId", from: document, fieldName: "replyToPost"),
-                attachments: try extractPostAttachmentsIfPresent(from: document, fieldName: "replyToPost")
+                text: try extractStringArgument("text", from: arguments, fieldName: "replyToPost"),
+                replyToPostId: try extractStringArgument("replyToPostId", from: arguments, fieldName: "replyToPost"),
+                attachments: try extractPostAttachmentsIfPresent(from: arguments, fieldName: "replyToPost")
             )
         }
-        if hasGraphQLField("quotePost", in: document) {
+        if fieldName == "quotePost" {
+            try validateGraphQLArguments(in: arguments, allowed: ["text", "quotedPostId", "attachments"], fieldName: "quotePost")
             return .quotePost(
-                text: try extractStringArgument("text", from: document, fieldName: "quotePost"),
-                quotedPostId: try extractStringArgument("quotedPostId", from: document, fieldName: "quotePost"),
-                attachments: try extractPostAttachmentsIfPresent(from: document, fieldName: "quotePost")
+                text: try extractStringArgument("text", from: arguments, fieldName: "quotePost"),
+                quotedPostId: try extractStringArgument("quotedPostId", from: arguments, fieldName: "quotePost"),
+                attachments: try extractPostAttachmentsIfPresent(from: arguments, fieldName: "quotePost")
             )
         }
-        if hasGraphQLField("unrepostPost", in: document) {
-            return .unrepostPost(postId: try extractStringArgument("postId", from: document, fieldName: "unrepostPost"))
+        if fieldName == "unrepostPost" {
+            try validateGraphQLArguments(in: arguments, allowed: ["postId"], fieldName: "unrepostPost")
+            return .unrepostPost(postId: try extractStringArgument("postId", from: arguments, fieldName: "unrepostPost"))
         }
-        if hasGraphQLField("repostPost", in: document) {
-            return .repostPost(postId: try extractStringArgument("postId", from: document, fieldName: "repostPost"))
+        if fieldName == "repostPost" {
+            try validateGraphQLArguments(in: arguments, allowed: ["postId"], fieldName: "repostPost")
+            return .repostPost(postId: try extractStringArgument("postId", from: arguments, fieldName: "repostPost"))
         }
     }
 
@@ -2704,8 +2803,381 @@ private func parseSupportedOperation(
     )
 }
 
+private func resolveSupportedGraphQLRootOperation(
+    in document: String,
+    operationType: XGatewayGraphQLOperationType
+) throws -> ResolvedGraphQLRootOperation {
+    try validateSingleGraphQLExecutableDocument(in: document)
+
+    let supportedFields: [String]
+    switch operationType {
+    case .query:
+        supportedFields = supportedQueryGraphQLFields
+    case .mutation:
+        supportedFields = supportedMutationGraphQLFields
+    }
+    let supported = Set(supportedFields)
+
+    if let rootSelection = try graphQLRootSelectionLiteral(in: document, operationType: operationType) {
+        let rootFields = try graphQLRootFields(in: rootSelection)
+        if rootFields.isEmpty {
+            throw validation("Public GraphQL requests support exactly one top-level field; found none.")
+        }
+        if rootFields.count > 1 {
+            throw validation("Public GraphQL requests support exactly one top-level field; found \(rootFields.map(\.name).joined(separator: ", ")).")
+        }
+        if let field = rootFields.first,
+           supported.contains(field.name) {
+            return ResolvedGraphQLRootOperation(fieldName: field.name, argumentLiteral: field.argumentLiteral)
+        }
+        return ResolvedGraphQLRootOperation(fieldName: nil, argumentLiteral: "")
+    }
+
+    if let field = supportedFields.first(where: { hasGraphQLField($0, in: document) }) {
+        return ResolvedGraphQLRootOperation(
+            fieldName: field,
+            argumentLiteral: try graphQLFieldArgumentLiteral(field, in: document)
+        )
+    }
+    return ResolvedGraphQLRootOperation(fieldName: nil, argumentLiteral: "")
+}
+
+private func validateSingleGraphQLExecutableDocument(in source: String) throws {
+    var operationDefinitionCount = 0
+    var index = skipGraphQLIgnored(in: source, from: source.startIndex)
+    while index < source.endIndex {
+        if let nextIndex = indexAfterGraphQLComment(in: source, from: index) {
+            index = skipGraphQLIgnored(in: source, from: nextIndex)
+            continue
+        }
+        if source[index] == "{" {
+            operationDefinitionCount += 1
+            try validateSingleGraphQLOperationDefinitionCount(operationDefinitionCount)
+            index = try extractBalancedLiteral(
+                from: source,
+                startingAt: index,
+                opening: "{",
+                closing: "}",
+                context: "anonymous query selection"
+            ).nextIndex
+            index = skipGraphQLIgnored(in: source, from: index)
+            continue
+        }
+        guard isGraphQLNameStart(source[index]) else {
+            throw validation("Unexpected GraphQL token '\(source[index])' outside the operation definition. Public GraphQL requests support exactly one query or mutation operation definition.")
+        }
+
+        let start = index
+        index = source.index(after: index)
+        while index < source.endIndex,
+              isGraphQLIdentifierCharacter(source[index]) {
+            index = source.index(after: index)
+        }
+        let token = String(source[start..<index])
+        if token == "fragment" {
+            throw validation("Public GraphQL fragments are not supported yet.")
+        }
+        if token == "subscription" {
+            throw validation("Public GraphQL subscriptions are not supported.")
+        }
+        if token == "query" || token == "mutation" {
+            operationDefinitionCount += 1
+            try validateSingleGraphQLOperationDefinitionCount(operationDefinitionCount)
+            index = try indexAfterGraphQLOperationDefinition(
+                in: source,
+                from: index,
+                operationLabel: token
+            )
+            index = skipGraphQLIgnored(in: source, from: index)
+            continue
+        }
+        throw validation("Unexpected GraphQL token '\(token)' outside the operation definition. Public GraphQL requests support exactly one query or mutation operation definition.")
+    }
+}
+
+private func validateSingleGraphQLOperationDefinitionCount(_ count: Int) throws {
+    if count > 1 {
+        throw validation("Public GraphQL requests support exactly one operation definition.")
+    }
+}
+
 private func hasGraphQLField(_ name: String, in source: String) -> Bool {
     return rangeOfGraphQLField(name, in: source) != nil
+}
+
+private func graphQLRootSelectionLiteral(
+    in source: String,
+    operationType: XGatewayGraphQLOperationType
+) throws -> String? {
+    let firstToken = skipGraphQLIgnored(in: source, from: source.startIndex)
+    if operationType == .query,
+       firstToken < source.endIndex,
+       source[firstToken] == "{" {
+        return try extractBalancedLiteral(
+            from: source,
+            startingAt: firstToken,
+            opening: "{",
+            closing: "}",
+            context: "root selection"
+        ).literal
+    }
+
+    var inString = false
+    var escaping = false
+    var index = firstToken
+
+    while index < source.endIndex {
+        let character = source[index]
+        if inString {
+            if escaping {
+                escaping = false
+            } else if character == "\\" {
+                escaping = true
+            } else if character == "\"" {
+                inString = false
+            }
+            index = source.index(after: index)
+            continue
+        }
+
+        if character == "\"" {
+            inString = true
+            index = source.index(after: index)
+            continue
+        }
+        if let nextIndex = indexAfterGraphQLComment(in: source, from: index) {
+            index = nextIndex
+            continue
+        }
+        if character == "{" {
+            index = try extractBalancedLiteral(
+                from: source,
+                startingAt: index,
+                opening: "{",
+                closing: "}",
+                context: "non-operation selection"
+            ).nextIndex
+            continue
+        }
+        guard isGraphQLNameStart(character) else {
+            index = source.index(after: index)
+            continue
+        }
+
+        let start = index
+        index = source.index(after: index)
+        while index < source.endIndex,
+              isGraphQLIdentifierCharacter(source[index]) {
+            index = source.index(after: index)
+        }
+        if source[start..<index] == operationType.rawValue[...] {
+            if let rootSelection = try graphQLRootSelectionLiteralAfterOperationKeyword(
+                in: source,
+                from: index,
+                operationType: operationType
+            ) {
+                return rootSelection
+            }
+        }
+    }
+
+    return nil
+}
+
+private func graphQLRootSelectionLiteralAfterOperationKeyword(
+    in source: String,
+    from keywordEnd: String.Index,
+    operationType: XGatewayGraphQLOperationType
+) throws -> String? {
+    return try graphQLOperationRootSelection(
+        in: source,
+        from: keywordEnd,
+        operationLabel: operationType.rawValue
+    )?.literal
+}
+
+private func indexAfterGraphQLOperationDefinition(
+    in source: String,
+    from keywordEnd: String.Index,
+    operationLabel: String
+) throws -> String.Index {
+    return try graphQLOperationRootSelection(
+        in: source,
+        from: keywordEnd,
+        operationLabel: operationLabel
+    )?.nextIndex ?? keywordEnd
+}
+
+private func graphQLOperationRootSelection(
+    in source: String,
+    from keywordEnd: String.Index,
+    operationLabel: String
+) throws -> (literal: String, nextIndex: String.Index)? {
+    var index = skipGraphQLIgnored(in: source, from: keywordEnd)
+    if index < source.endIndex,
+       isGraphQLNameStart(source[index]) {
+        index = source.index(after: index)
+        while index < source.endIndex,
+              isGraphQLIdentifierCharacter(source[index]) {
+            index = source.index(after: index)
+        }
+        index = skipGraphQLIgnored(in: source, from: index)
+    }
+    if index < source.endIndex,
+       source[index] == "(" {
+        index = try extractBalancedLiteral(
+            from: source,
+            startingAt: index,
+            opening: "(",
+            closing: ")",
+            context: "\(operationLabel) variable definitions"
+        ).nextIndex
+    }
+    index = try rejectGraphQLDirectivesIfPresent(in: source, from: index)
+    index = skipGraphQLIgnored(in: source, from: index)
+    guard index < source.endIndex,
+          source[index] == "{" else {
+        return nil
+    }
+    return try extractBalancedLiteral(
+        from: source,
+        startingAt: index,
+        opening: "{",
+        closing: "}",
+        context: "root selection"
+    )
+}
+
+private func graphQLRootFields(in selectionLiteral: String) throws -> [GraphQLRootField] {
+    var fields: [GraphQLRootField] = []
+    var inString = false
+    var escaping = false
+    var depth = 0
+    var index = selectionLiteral.startIndex
+
+    while index < selectionLiteral.endIndex {
+        let character = selectionLiteral[index]
+        if inString {
+            if escaping {
+                escaping = false
+            } else if character == "\\" {
+                escaping = true
+            } else if character == "\"" {
+                inString = false
+            }
+            index = selectionLiteral.index(after: index)
+            continue
+        }
+
+        if character == "\"" {
+            inString = true
+            index = selectionLiteral.index(after: index)
+            continue
+        }
+        if let nextIndex = indexAfterGraphQLComment(in: selectionLiteral, from: index) {
+            index = nextIndex
+            continue
+        }
+        if selectionLiteral[index...].hasPrefix("...") {
+            throw validation("Public GraphQL fragments are not supported yet.")
+        }
+        if character == "@" {
+            throw validation("Public GraphQL directives are not supported yet.")
+        }
+        if character == "{" {
+            depth += 1
+            index = selectionLiteral.index(after: index)
+            continue
+        }
+        if character == "}" {
+            depth -= 1
+            index = selectionLiteral.index(after: index)
+            continue
+        }
+        guard depth == 1,
+              isGraphQLNameStart(character) else {
+            index = selectionLiteral.index(after: index)
+            continue
+        }
+
+        let firstNameStart = index
+        index = selectionLiteral.index(after: index)
+        while index < selectionLiteral.endIndex,
+              isGraphQLIdentifierCharacter(selectionLiteral[index]) {
+            index = selectionLiteral.index(after: index)
+        }
+        if firstNameStart > selectionLiteral.startIndex,
+           selectionLiteral[selectionLiteral.index(before: firstNameStart)] == "@" {
+            throw validation("Public GraphQL directives are not supported yet.")
+        }
+        if firstNameStart > selectionLiteral.startIndex,
+           selectionLiteral[selectionLiteral.index(before: firstNameStart)] == "$" {
+            continue
+        }
+        let hasFragmentSpread = hasGraphQLFragmentSpreadBeforeName(in: selectionLiteral, before: firstNameStart)
+        if hasFragmentSpread {
+            throw validation("Public GraphQL fragments are not supported yet.")
+        }
+        let fieldName = String(selectionLiteral[firstNameStart..<index])
+        let afterFirstName = skipGraphQLIgnored(in: selectionLiteral, from: index)
+        if afterFirstName < selectionLiteral.endIndex,
+           selectionLiteral[afterFirstName] == ":" {
+            throw validation("Public GraphQL aliases are not supported yet.")
+        }
+        let tail = try skipGraphQLRootFieldTail(in: selectionLiteral, from: index)
+        fields.append(GraphQLRootField(name: fieldName, argumentLiteral: tail.argumentLiteral))
+        index = tail.nextIndex
+    }
+
+    return fields
+}
+
+private func skipGraphQLRootFieldTail(
+    in selectionLiteral: String,
+    from startIndex: String.Index
+) throws -> (argumentLiteral: String, nextIndex: String.Index) {
+    var index = skipGraphQLIgnored(in: selectionLiteral, from: startIndex)
+    var argumentLiteral = ""
+    if index < selectionLiteral.endIndex,
+       selectionLiteral[index] == "(" {
+        let extracted = try extractBalancedLiteral(
+            from: selectionLiteral,
+            startingAt: index,
+            opening: "(",
+            closing: ")",
+            context: "root field arguments"
+        )
+        argumentLiteral = extracted.literal
+        index = extracted.nextIndex
+    }
+    return (argumentLiteral, try rejectGraphQLDirectivesIfPresent(in: selectionLiteral, from: index))
+}
+
+private func rejectGraphQLDirectivesIfPresent(in selectionLiteral: String, from startIndex: String.Index) throws -> String.Index {
+    let index = skipGraphQLIgnored(in: selectionLiteral, from: startIndex)
+    if index < selectionLiteral.endIndex,
+       selectionLiteral[index] == "@" {
+        throw validation("Public GraphQL directives are not supported yet.")
+    }
+    return index
+}
+
+private func graphQLFieldArgumentLiteral(_ name: String, in source: String) throws -> String {
+    guard let fieldRange = rangeOfGraphQLField(name, in: source) else {
+        throw validation("Public GraphQL field '\(name)' was not found.")
+    }
+    let index = skipGraphQLIgnored(in: source, from: fieldRange.upperBound)
+    guard index < source.endIndex,
+          source[index] == "(" else {
+        return ""
+    }
+    return try extractBalancedLiteral(
+        from: source,
+        startingAt: index,
+        opening: "(",
+        closing: ")",
+        context: "\(name) arguments"
+    ).literal
 }
 
 private func extractPostAttachmentsIfPresent(
@@ -2794,10 +3266,18 @@ private func extractReplyExpansion(from document: String, selectionPath: String)
     )
 }
 
+private func validateGraphQLArguments(in argumentLiteral: String, allowed: Set<String>, fieldName: String) throws {
+    for argumentName in graphQLArgumentNames(in: argumentLiteral) where !allowed.contains(argumentName) {
+        throw validation("Public GraphQL field '\(fieldName)' does not accept argument '\(argumentName)'.")
+    }
+}
+
 private func rangeOfGraphQLArgument(_ name: String, in source: String) -> Range<String.Index>? {
     var inString = false
     var escaping = false
     var index = source.startIndex
+    var nestingDepth = 0
+    let targetDepth = graphQLTopLevelArgumentDepth(in: source)
 
     while index < source.endIndex {
         let character = source[index]
@@ -2822,8 +3302,19 @@ private func rangeOfGraphQLArgument(_ name: String, in source: String) -> Range<
             index = nextIndex
             continue
         }
+        if character == "(" || character == "[" || character == "{" {
+            nestingDepth += 1
+            index = source.index(after: index)
+            continue
+        }
+        if character == ")" || character == "]" || character == "}" {
+            nestingDepth = max(0, nestingDepth - 1)
+            index = source.index(after: index)
+            continue
+        }
 
-        guard isGraphQLNameStart(character) else {
+        guard nestingDepth == targetDepth,
+              isGraphQLNameStart(character) else {
             index = source.index(after: index)
             continue
         }
@@ -2917,6 +3408,8 @@ private func graphQLArgumentNames(in argumentLiteral: String) -> [String] {
     var inString = false
     var escaping = false
     var index = argumentLiteral.startIndex
+    var nestingDepth = 0
+    let targetDepth = graphQLTopLevelArgumentDepth(in: argumentLiteral)
 
     while index < argumentLiteral.endIndex {
         let character = argumentLiteral[index]
@@ -2941,8 +3434,19 @@ private func graphQLArgumentNames(in argumentLiteral: String) -> [String] {
             index = nextIndex
             continue
         }
+        if character == "(" || character == "[" || character == "{" {
+            nestingDepth += 1
+            index = argumentLiteral.index(after: index)
+            continue
+        }
+        if character == ")" || character == "]" || character == "}" {
+            nestingDepth = max(0, nestingDepth - 1)
+            index = argumentLiteral.index(after: index)
+            continue
+        }
 
-        guard isGraphQLNameStart(character) else {
+        guard nestingDepth == targetDepth,
+              isGraphQLNameStart(character) else {
             index = argumentLiteral.index(after: index)
             continue
         }
@@ -2962,6 +3466,15 @@ private func graphQLArgumentNames(in argumentLiteral: String) -> [String] {
     }
 
     return names
+}
+
+private func graphQLTopLevelArgumentDepth(in source: String) -> Int {
+    let firstToken = skipGraphQLIgnored(in: source, from: source.startIndex)
+    if firstToken < source.endIndex,
+       source[firstToken] == "(" {
+        return 1
+    }
+    return 0
 }
 
 private func isGraphQLNameStart(_ character: Character) -> Bool {
@@ -3258,7 +3771,11 @@ private func extractOptionalIntArgument(
         index = document.index(after: index)
     }
     let digits = document[digitStart..<index]
-    guard let parsed = Int(digits), parsed >= minimum, parsed <= maximum else {
+    guard digitStart < index,
+          isGraphQLValueTerminated(in: document, at: index),
+          let parsed = Int(digits),
+          parsed >= minimum,
+          parsed <= maximum else {
         throw validation("\(fieldName).\(name) must be an integer between \(minimum) and \(maximum).")
     }
     return parsed
@@ -3277,10 +3794,12 @@ private func extractOptionalBoolArgument(
     guard index < document.endIndex else {
         throw validation("\(fieldName).\(name) must be a boolean literal.")
     }
-    if document[index...].hasPrefix("true") {
+    if document[index...].hasPrefix("true"),
+       isGraphQLValueTerminated(in: document, at: document.index(index, offsetBy: 4)) {
         return true
     }
-    if document[index...].hasPrefix("false") {
+    if document[index...].hasPrefix("false"),
+       isGraphQLValueTerminated(in: document, at: document.index(index, offsetBy: 5)) {
         return false
     }
     throw validation("\(fieldName).\(name) must be a boolean literal.")
@@ -3296,6 +3815,9 @@ private func extractOptionalStringArgument(_ name: String, from document: String
         throw validation("\(fieldName).\(name) must be a string literal.")
     }
     let parsed = try parseStringLiteral(from: document, at: index, context: "\(fieldName).\(name)")
+    guard isGraphQLValueTerminated(in: document, at: parsed.nextIndex) else {
+        throw validation("\(fieldName).\(name) must be a string literal.")
+    }
     return nonBlank(parsed.value)
 }
 
@@ -3334,6 +3856,9 @@ private func extractStringArgument(_ name: String, from document: String, fieldN
             if value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 throw validation("\(fieldName).\(name) must not be empty.")
             }
+            guard isGraphQLValueTerminated(in: document, at: document.index(after: index)) else {
+                throw validation("\(fieldName).\(name) must be a string literal.")
+            }
             return value
         } else {
             value.append(character)
@@ -3342,6 +3867,14 @@ private func extractStringArgument(_ name: String, from document: String, fieldN
     }
 
     throw validation("\(fieldName).\(name) string literal is unterminated.")
+}
+
+private func isGraphQLValueTerminated(in source: String, at index: String.Index) -> Bool {
+    let next = skipGraphQLIgnored(in: source, from: index)
+    guard next < source.endIndex else {
+        return true
+    }
+    return source[next] == "," || source[next] == ")" || source[next] == "]" || source[next] == "}"
 }
 
 private func validateReplyLookupPostId(_ value: String) throws -> String {

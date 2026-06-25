@@ -55,6 +55,14 @@ func runSmokeTests() throws {
     let mutation = try XGatewayCLI.classifyGraphQLOperation("mutation { createPost(text: \"hi\") { id } }")
     try assert(mutation == .mutation, "mutation document should classify as mutation")
 
+    var invalidOperationKeywordRejected = false
+    do {
+        _ = try XGatewayCLI.classifyGraphQLOperation("queryName { accountMe { id } }")
+    } catch {
+        invalidOperationKeywordRejected = true
+    }
+    try assert(invalidOperationKeywordRejected, "operation classifier should require exact query/mutation keywords")
+
     let readCli = XGatewayCLI(commandName: "x-gateway-read", surface: .read)
     let readReject = readCli.run(
         arguments: ["graphql", "query", "mutation { createPost(text: \"hi\") { id } }", "--json"],
@@ -127,6 +135,18 @@ func runSmokeTests() throws {
     )
     try assert(invalidRepliesArgument.exitCode == 2, "invalid replies argument should fail validation")
     try assert(invalidRepliesArgument.stderr.contains("does not accept argument 'limit'"), "invalid replies argument should name unsupported argument")
+
+    let nestedRepliesMaxResultsIsScoped = readCli.run(
+        arguments: [
+            "graphql",
+            "query",
+            "query { homeTimeline { posts { replies(maxResults: 3) { pageInfo { resultCount } } } } }",
+            "--json"
+        ],
+        environment: [:]
+    )
+    try assert(nestedRepliesMaxResultsIsScoped.exitCode == 2, "nested replies maxResults should be validated as a nested argument")
+    try assert(nestedRepliesMaxResultsIsScoped.stderr.contains("homeTimeline.posts.replies.maxResults"), "nested maxResults should not be treated as top-level homeTimeline.maxResults")
 
     let oauthFlagAuth = readCli.run(
         arguments: [
@@ -263,6 +283,105 @@ func runSmokeTests() throws {
     try assert(searchQueryMentioningAccountMe.exitCode == 3, "field names inside strings should not select a different operation")
     try assert(searchQueryMentioningAccountMe.stderr.contains("searchPosts requires X_GW_TOKEN"), "searchPosts with spaced arguments should keep search auth validation")
 
+    let searchQueryVariableDefaultMentioningAccountMe = readCli.run(
+        arguments: ["graphql", "query", "query Search($input: Input = { accountMe: \"literal\" }) { searchPosts(query: \"swift\", maxResults: 10) { posts { id } } }", "--json"],
+        environment: [:]
+    )
+    try assert(searchQueryVariableDefaultMentioningAccountMe.exitCode == 3, "field names inside variable defaults should not replace the root operation")
+    try assert(searchQueryVariableDefaultMentioningAccountMe.stderr.contains("searchPosts requires X_GW_TOKEN"), "searchPosts after variable definitions should keep search auth validation")
+
+    let searchQueryMentioningFragmentInString = readCli.run(
+        arguments: ["graphql", "query", "query { searchPosts(query: \"literal fragment text\", maxResults: 10) { posts { id } } }", "--json"],
+        environment: [:]
+    )
+    try assert(searchQueryMentioningFragmentInString.exitCode == 3, "fragment keyword inside string literals should not fail validation")
+    try assert(searchQueryMentioningFragmentInString.stderr.contains("searchPosts requires X_GW_TOKEN"), "fragment keyword inside search text should keep search auth validation")
+
+    let searchQuerySelectingFragmentFieldName = readCli.run(
+        arguments: ["graphql", "query", "query { searchPosts(query: \"swift\", maxResults: 10) { posts { fragment } } }", "--json"],
+        environment: [:]
+    )
+    try assert(searchQuerySelectingFragmentFieldName.exitCode == 3, "nested fields named fragment should not be rejected as fragment definitions")
+    try assert(searchQuerySelectingFragmentFieldName.stderr.contains("searchPosts requires X_GW_TOKEN"), "fragment-like nested fields should keep search auth validation")
+
+    let searchQuerySelectingAccountMeProjection = readCli.run(
+        arguments: ["graphql", "query", "query { searchPosts(query: \"swift\", maxResults: 10) { posts { accountMe } } }", "--json"],
+        environment: [:]
+    )
+    try assert(searchQuerySelectingAccountMeProjection.exitCode == 3, "nested projection field names should not replace the root operation")
+    try assert(searchQuerySelectingAccountMeProjection.stderr.contains("searchPosts requires X_GW_TOKEN"), "nested accountMe projection should keep search auth validation")
+
+    let multiFieldQuery = readCli.run(
+        arguments: ["graphql", "query", "query { accountMe { id } searchPosts(query: \"swift\", maxResults: 10) { posts { id } } }", "--json"],
+        environment: [:]
+    )
+    try assert(multiFieldQuery.exitCode == 2, "multiple top-level query fields should fail validation")
+    try assert(multiFieldQuery.stderr.contains("exactly one top-level field"), "multiple top-level query fields should explain the public contract limit")
+
+    let emptyRootQuery = readCli.run(
+        arguments: ["graphql", "query", "query { }", "--json"],
+        environment: [:]
+    )
+    try assert(emptyRootQuery.exitCode == 2, "empty top-level query selection should fail validation")
+    try assert(emptyRootQuery.stderr.contains("found none"), "empty query selection should explain that one top-level field is required")
+
+    let multiOperationQuery = readCli.run(
+        arguments: ["graphql", "query", "query First { searchPosts(query: \"swift\", maxResults: 10) { posts { id } } } query Second { accountMe { id } }", "--json"],
+        environment: [:]
+    )
+    try assert(multiOperationQuery.exitCode == 2, "multiple query operation definitions should fail validation")
+    try assert(multiOperationQuery.stderr.contains("exactly one operation definition"), "multiple operation definitions should explain the public contract limit")
+
+    let anonymousQueryWithTrailingOperation = readCli.run(
+        arguments: ["graphql", "query", "{ accountMe { id } } query Extra { accountMe { id } }", "--json"],
+        environment: [:]
+    )
+    try assert(anonymousQueryWithTrailingOperation.exitCode == 2, "anonymous query plus named operation should fail validation")
+    try assert(anonymousQueryWithTrailingOperation.stderr.contains("exactly one operation definition"), "mixed anonymous and named operations should explain the public contract limit")
+
+    let queryWithTrailingToken = readCli.run(
+        arguments: ["graphql", "query", "query { accountMe { id } } trailing", "--json"],
+        environment: [:]
+    )
+    try assert(queryWithTrailingToken.exitCode == 2, "trailing query tokens should fail validation before auth or execution")
+    try assert(queryWithTrailingToken.stderr.contains("Unexpected GraphQL token 'trailing'"), "trailing query token diagnostic should name the unexpected token")
+
+    let supportedNameAsUnsupportedArgument = readCli.run(
+        arguments: ["graphql", "query", "query { unsupported(post: \"123\") { id } }", "--json"],
+        environment: [:]
+    )
+    try assert(supportedNameAsUnsupportedArgument.exitCode == 10, "supported field names inside unsupported root arguments should not select an operation")
+    try assert(supportedNameAsUnsupportedArgument.stderr.contains("UNSUPPORTED"), "unsupported root field should keep the unsupported-field diagnostic")
+
+    let searchQueryWithUnexpectedRootArgument = readCli.run(
+        arguments: ["graphql", "query", "query { searchPosts(query: \"swift\", maxResults: 10, sinceId: \"1\") { posts { id } } }", "--json"],
+        environment: [:]
+    )
+    try assert(searchQueryWithUnexpectedRootArgument.exitCode == 2, "unexpected root query arguments should fail validation")
+    try assert(searchQueryWithUnexpectedRootArgument.stderr.contains("searchPosts"), "unexpected root query argument should name the public field")
+    try assert(searchQueryWithUnexpectedRootArgument.stderr.contains("sinceId"), "unexpected root query argument should name the unsupported argument")
+
+    let searchQueryWithMalformedIntegerArgument = readCli.run(
+        arguments: ["graphql", "query", "query { searchPosts(query: \"swift\", maxResults: 10foo) { posts { id } } }", "--json"],
+        environment: [:]
+    )
+    try assert(searchQueryWithMalformedIntegerArgument.exitCode == 2, "integer arguments should reject trailing identifier characters")
+    try assert(searchQueryWithMalformedIntegerArgument.stderr.contains("searchPosts.maxResults"), "malformed integer diagnostic should name the argument")
+
+    let searchQueryWithMalformedBooleanArgument = readCli.run(
+        arguments: ["graphql", "query", "query { searchPosts(query: \"swift\", maxResults: 10, includePromoted: trueish) { posts { id } } }", "--json"],
+        environment: [:]
+    )
+    try assert(searchQueryWithMalformedBooleanArgument.exitCode == 2, "boolean arguments should reject trailing identifier characters")
+    try assert(searchQueryWithMalformedBooleanArgument.stderr.contains("searchPosts.includePromoted"), "malformed boolean diagnostic should name the argument")
+
+    let searchQueryWithMalformedStringArgument = readCli.run(
+        arguments: ["graphql", "query", "query { searchPosts(query: \"swift\"suffix, maxResults: 10) { posts { id } } }", "--json"],
+        environment: [:]
+    )
+    try assert(searchQueryWithMalformedStringArgument.exitCode == 2, "string arguments should reject trailing identifier characters")
+    try assert(searchQueryWithMalformedStringArgument.stderr.contains("searchPosts.query"), "malformed string diagnostic should name the argument")
+
     let searchQueryWithCommentedArgumentValues = readCli.run(
         arguments: ["graphql", "query", "query { searchPosts(query: # query value\n \"swift\", maxResults: # result count\n 10, downloadMedia: # boolean value\n false) { posts { id } } }", "--json"],
         environment: [:]
@@ -281,8 +400,8 @@ func runSmokeTests() throws {
         arguments: ["graphql", "query", "query { accountMe: searchPosts(query: \"swift\", maxResults: 10) { posts { id } } }", "--json"],
         environment: [:]
     )
-    try assert(searchQueryAliasedAsAccountMe.exitCode == 3, "field aliases should not select a different operation")
-    try assert(searchQueryAliasedAsAccountMe.stderr.contains("searchPosts requires X_GW_TOKEN"), "aliased searchPosts should keep search auth validation")
+    try assert(searchQueryAliasedAsAccountMe.exitCode == 2, "field aliases should fail validation before auth")
+    try assert(searchQueryAliasedAsAccountMe.stderr.contains("aliases are not supported"), "aliased searchPosts should explain unsupported alias syntax")
 
     let searchQueryWithAccountMeOperationName = readCli.run(
         arguments: ["graphql", "query", "query accountMe { searchPosts(query: \"swift\", maxResults: 10) { posts { id } } }", "--json"],
@@ -295,29 +414,36 @@ func runSmokeTests() throws {
         arguments: ["graphql", "query", "query { accountMe # alias comment\n : searchPosts(query: \"swift\", maxResults: 10) { posts { id } } }", "--json"],
         environment: [:]
     )
-    try assert(searchQueryAliasWithCommentedColon.exitCode == 3, "comments between alias names and colons should not select the alias")
-    try assert(searchQueryAliasWithCommentedColon.stderr.contains("searchPosts requires X_GW_TOKEN"), "commented aliased searchPosts should keep search auth validation")
+    try assert(searchQueryAliasWithCommentedColon.exitCode == 2, "comments between alias names and colons should still fail as aliases")
+    try assert(searchQueryAliasWithCommentedColon.stderr.contains("aliases are not supported"), "commented aliases should explain unsupported alias syntax")
 
     let searchQueryWithAccountMeFragmentName = readCli.run(
         arguments: ["graphql", "query", "query { ...accountMe } fragment accountMe on Query { searchPosts(query: \"swift\", maxResults: 10) { posts { id } } }", "--json"],
         environment: [:]
     )
-    try assert(searchQueryWithAccountMeFragmentName.exitCode == 3, "fragment names should not select a different field")
-    try assert(searchQueryWithAccountMeFragmentName.stderr.contains("searchPosts requires X_GW_TOKEN"), "fragment searchPosts query should keep search auth validation")
+    try assert(searchQueryWithAccountMeFragmentName.exitCode == 2, "fragment names should fail validation before auth")
+    try assert(searchQueryWithAccountMeFragmentName.stderr.contains("fragments are not supported"), "fragment syntax should explain unsupported fragments")
 
     let searchQueryWithSpacedAccountMeFragmentSpread = readCli.run(
         arguments: ["graphql", "query", "query { ... accountMe } fragment accountMe on Query { searchPosts(query: \"swift\", maxResults: 10) { posts { id } } }", "--json"],
         environment: [:]
     )
-    try assert(searchQueryWithSpacedAccountMeFragmentSpread.exitCode == 3, "fragment spreads with whitespace should not select a different field")
-    try assert(searchQueryWithSpacedAccountMeFragmentSpread.stderr.contains("searchPosts requires X_GW_TOKEN"), "spaced fragment spread searchPosts query should keep search auth validation")
+    try assert(searchQueryWithSpacedAccountMeFragmentSpread.exitCode == 2, "fragment spreads with whitespace should fail validation before auth")
+    try assert(searchQueryWithSpacedAccountMeFragmentSpread.stderr.contains("fragments are not supported"), "spaced fragment spread should explain unsupported fragments")
+
+    let searchQueryWithUnusedFragmentDefinition = readCli.run(
+        arguments: ["graphql", "query", "query { searchPosts(query: \"swift\", maxResults: 10) { posts { id } } } fragment F on Query { searchPosts(query: \"bad\", maxResults: 5) { posts { id } } }", "--json"],
+        environment: [:]
+    )
+    try assert(searchQueryWithUnusedFragmentDefinition.exitCode == 2, "unused fragment definitions should fail validation before auth")
+    try assert(searchQueryWithUnusedFragmentDefinition.stderr.contains("fragments are not supported"), "unused fragment definitions should explain unsupported fragments")
 
     let searchQueryWithAccountMeDirectiveName = readCli.run(
         arguments: ["graphql", "query", "query { searchPosts(query: \"swift\", maxResults: 10) @accountMe { posts { id } } }", "--json"],
         environment: [:]
     )
-    try assert(searchQueryWithAccountMeDirectiveName.exitCode == 3, "directive names should not select a different field")
-    try assert(searchQueryWithAccountMeDirectiveName.stderr.contains("searchPosts requires X_GW_TOKEN"), "directed searchPosts query should keep search auth validation")
+    try assert(searchQueryWithAccountMeDirectiveName.exitCode == 2, "directive names should fail validation before auth")
+    try assert(searchQueryWithAccountMeDirectiveName.stderr.contains("directives are not supported"), "directive syntax should explain unsupported directives")
 
     let repliesCommentMentioningInvalidArgument = readCli.run(
         arguments: [
@@ -380,6 +506,14 @@ func runSmokeTests() throws {
     try assert(createAttachmentUnexpectedField.exitCode == 2, "unexpected attachment fields should fail validation")
     try assert(createAttachmentUnexpectedField.stderr.contains("upstreamId"), "unexpected attachment field should be named")
 
+    let createPostWithUnexpectedRootArgument = writeCli.run(
+        arguments: ["graphql", "query", "mutation { createPost(text: \"hi\", upstream: { text: \"nested\" }) { id } }", "--json"],
+        environment: [:]
+    )
+    try assert(createPostWithUnexpectedRootArgument.exitCode == 2, "unexpected root mutation arguments should fail validation")
+    try assert(createPostWithUnexpectedRootArgument.stderr.contains("createPost"), "unexpected root mutation argument should name the public field")
+    try assert(createPostWithUnexpectedRootArgument.stderr.contains("upstream"), "unexpected root mutation argument should name the unsupported argument")
+
     let createAttachmentEmptyList = writeCli.run(
         arguments: ["graphql", "query", "mutation { createPost(text: \"hi\", attachments: []) { id } }", "--json"],
         environment: [:]
@@ -405,8 +539,8 @@ func runSmokeTests() throws {
         arguments: ["graphql", "query", "mutation { createPost: replyToPost(text: \"hi\", replyToPostId: \"123\") { id } }", "--json"],
         environment: [:]
     )
-    try assert(replyAliasedAsCreatePost.exitCode == 3, "mutation aliases should not select a different operation")
-    try assert(replyAliasedAsCreatePost.stderr.contains("replyToPost requires X_GW_TOKEN"), "aliased replyToPost should keep reply auth validation")
+    try assert(replyAliasedAsCreatePost.exitCode == 2, "mutation aliases should fail validation before auth")
+    try assert(replyAliasedAsCreatePost.stderr.contains("aliases are not supported"), "aliased replyToPost should explain unsupported alias syntax")
 
     let replyWithCreatePostOperationName = writeCli.run(
         arguments: ["graphql", "query", "mutation createPost { replyToPost(text: \"hi\", replyToPostId: \"123\") { id } }", "--json"],
@@ -414,6 +548,27 @@ func runSmokeTests() throws {
     )
     try assert(replyWithCreatePostOperationName.exitCode == 3, "mutation operation names should not select a different field")
     try assert(replyWithCreatePostOperationName.stderr.contains("replyToPost requires X_GW_TOKEN"), "named replyToPost mutation should keep reply auth validation")
+
+    let multiFieldMutation = writeCli.run(
+        arguments: ["graphql", "query", "mutation { createPost(text: \"hi\") { id } deletePost(postId: \"123\") { id } }", "--json"],
+        environment: [:]
+    )
+    try assert(multiFieldMutation.exitCode == 2, "multiple top-level mutation fields should fail validation")
+    try assert(multiFieldMutation.stderr.contains("exactly one top-level field"), "multiple top-level mutation fields should explain the public contract limit")
+
+    let emptyRootMutation = writeCli.run(
+        arguments: ["graphql", "query", "mutation { }", "--json"],
+        environment: [:]
+    )
+    try assert(emptyRootMutation.exitCode == 2, "empty top-level mutation selection should fail validation")
+    try assert(emptyRootMutation.stderr.contains("found none"), "empty mutation selection should explain that one top-level field is required")
+
+    let mutationWithTrailingToken = writeCli.run(
+        arguments: ["graphql", "query", "mutation { createPost(text: \"hi\") { id } } trailing", "--json"],
+        environment: [:]
+    )
+    try assert(mutationWithTrailingToken.exitCode == 2, "trailing mutation tokens should fail validation before auth or execution")
+    try assert(mutationWithTrailingToken.stderr.contains("Unexpected GraphQL token 'trailing'"), "trailing mutation token diagnostic should name the unexpected token")
 
     let replyAttachmentMissingOAuth = writeCli.run(
         arguments: ["graphql", "query", "mutation { replyToPost(text: \"hi\", replyToPostId: \"123\", attachments: [{ kind: \"image\", filePath: \"/tmp/x-gateway-missing-swift-upload-fixture-b.png\" }]) { id } }", "--json"],

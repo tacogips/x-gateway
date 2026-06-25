@@ -132,10 +132,16 @@ Planner implementation rule:
 
 The first implementation slice may keep the parser intentionally small:
 
-- one top-level field per request
+- one executable operation definition per request
+- one top-level field in that operation definition
+- no non-ignored tokens outside that single operation definition
 - string, integer, boolean, null, list, and object argument literals
 - nested field arguments for reviewed child fields such as `Post.replies`
-- no variables, fragments, aliases, or directives yet
+- operation names and variable-definition parentheses may be skipped while
+  locating the root selection set, but variables remain unsupported as public
+  argument values
+- no variable argument values, fragments, aliases, or directives yet; unsupported
+  syntax must fail validation before auth or live execution
 
 These limits are acceptable as long as diagnostics are explicit and the contract remains project-owned.
 
