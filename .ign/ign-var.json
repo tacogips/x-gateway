@@ -13,12 +13,12 @@
     "SWIFT_COMMAND_TYPE": "XGatewayCLI",
     "SWIFT_EXECUTABLE_TARGET": "XGatewayRead",
     "SWIFT_LIBRARY_TARGET": "XGatewayCore",
-    "SWIFT_READ_EXECUTABLE_NAME": "x-gateway-read",
-    "SWIFT_READ_EXECUTABLE_TARGET": "XGatewayRead",
+    "SWIFT_READER_EXECUTABLE_NAME": "x-gateway-reader",
+    "SWIFT_READER_EXECUTABLE_TARGET": "XGatewayRead",
     "SWIFT_SMOKE_TEST_TARGET": "XGatewaySwiftSmokeTests",
     "SWIFT_TOOLS_VERSION": "5.8",
-    "SWIFT_WRITE_EXECUTABLE_NAME": "x-gateway-write",
-    "SWIFT_WRITE_EXECUTABLE_TARGET": "XGatewayWrite",
-    "VERSION": "0.1.1"
+    "SWIFT_WRITER_EXECUTABLE_NAME": "x-gateway-writer",
+    "SWIFT_WRITER_EXECUTABLE_TARGET": "XGatewayWrite",
+    "VERSION": "0.1.2"
   }
 }

@@ -7,7 +7,7 @@ import Glibc
 import Darwin
 #endif
 
-let cli = XGatewayCLI(commandName: "x-gateway-write", surface: .write)
+let cli = XGatewayCLI(commandName: "x-gateway-writer", surface: .write)
 let result = cli.run(
     arguments: Array(CommandLine.arguments.dropFirst()),
     environment: ProcessInfo.processInfo.environment

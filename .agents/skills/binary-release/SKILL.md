@@ -1,6 +1,6 @@
 ---
 name: binary-release
-description: Build multi-platform compiled binaries and distributable archives for x-gateway CLI executables.
+description: Build macOS Swift binary archives for the x-gateway reader and writer CLI executables.
 allowed-tools: Bash, Read, Write, Grep, Glob
 user-invocable: true
 argument-hint: [target matrix or default all]
@@ -8,50 +8,30 @@ argument-hint: [target matrix or default all]
 
 # Binary Release Skill
 
-Use this skill to build compiled binaries for x-gateway and x-gateway-reader.
+Use this skill to build compiled Swift binaries for `x-gateway-reader` and `x-gateway-writer`.
 
 ## Target Matrix (Default)
 
-- `bun-darwin-arm64` -> `darwin-arm64`
-- `bun-darwin-x64` -> `darwin-x64`
-- `bun-linux-x64` -> `linux-x64`
-- `bun-linux-arm64` -> `linux-arm64`
+- `darwin-arm64`
+- `darwin-x64`
 
 ## Build Prerequisites
 
-1. Install dependencies:
-```bash
-bun install --frozen-lockfile
-```
-2. Quality gates before packaging:
+1. Quality gates before packaging:
 ```bash
 task ci
 ```
-3. Resolve version:
+2. Resolve version:
 ```bash
-VERSION=$(bun -e "const p = await Bun.file('./package.json').json(); console.log(p.version)")
+VERSION=$(tr -d '[:space:]' < VERSION)
 ```
 
 ## Build Commands
 
-For each target/suffix pair, build both CLIs and archive them:
+Build macOS Homebrew archives containing both remaining binaries:
 
 ```bash
-mkdir -p "release/x-gateway-v${VERSION}-${SUFFIX}/dist"
-bun build src/main.ts --compile --target "$TARGET" --outfile "release/x-gateway-v${VERSION}-${SUFFIX}/x-gateway"
-bun build src/main-reader.ts --compile --target "$TARGET" --outfile "release/x-gateway-v${VERSION}-${SUFFIX}/x-gateway-reader"
-cp -r dist "release/x-gateway-v${VERSION}-${SUFFIX}/dist"
-(
-  cd release &&
-  tar -czf "x-gateway-v${VERSION}-${SUFFIX}.tar.gz" "x-gateway-v${VERSION}-${SUFFIX}"
-)
-```
-
-Also build npm tarball artifact:
-```bash
-rm -rf release/npm && mkdir -p release/npm
-bun run build
-bun pm pack --destination release
+task build:homebrew -- darwin-arm64 darwin-x64
 ```
 
 ## Integrity File
@@ -59,23 +39,23 @@ bun pm pack --destination release
 Generate checksums:
 ```bash
 (
-  cd release &&
-  sha256sum *.tar.gz *.tgz > SHA256SUMS.txt
+  cd dist/homebrew &&
+  shasum -a 256 x-gateway-"${VERSION}"-*.tar.gz
 )
 ```
 
 ## Verification
 
-1. Ensure all archives exist under `release/`.
+1. Ensure both archives and `.sha256` files exist under `dist/homebrew/`.
 2. Run local smoke test on host-compatible artifact:
 ```bash
-./release/x-gateway-v${VERSION}-<host-suffix>/x-gateway version
-./release/x-gateway-v${VERSION}-<host-suffix>/x-gateway-reader version
+tar -tzf "dist/homebrew/x-gateway-${VERSION}-darwin-arm64.tar.gz" | grep './bin/x-gateway-reader'
+tar -tzf "dist/homebrew/x-gateway-${VERSION}-darwin-arm64.tar.gz" | grep './bin/x-gateway-writer'
 ```
-3. Ensure checksums file exists and is non-empty.
+3. Ensure checksum files exist and are non-empty.
 
 ## Failure Handling
 
-1. If `--compile` target fails, report unsupported target and continue with remaining targets only if user allows partial release.
+1. If a Swift cross-build target fails, report the target and do not publish a partial release unless explicitly requested.
 2. If binary runs but `version` fails, stop and mark artifact invalid.
-3. If `bun pm pack` fails, stop before GitHub/npm publish.
+3. If archive contents do not include both binaries, stop before GitHub publish.

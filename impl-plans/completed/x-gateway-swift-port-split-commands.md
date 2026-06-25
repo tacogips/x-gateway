@@ -26,7 +26,7 @@ first slice. The follow-up OAuth1 signing baseline is tracked in
 #### Package.swift
 
 ```typescript
-type SwiftProduct = "XGatewayCore" | "x-gateway-read" | "x-gateway-write";
+type SwiftProduct = "XGatewayCore" | "x-gateway-reader" | "x-gateway-writer";
 ```
 
 **Status**: Completed
@@ -65,7 +65,7 @@ interface XGatewayCommandResult {
 #### Sources/XGatewayRead/main.swift, Sources/XGatewayWrite/main.swift
 
 ```typescript
-type SwiftExecutable = "x-gateway-read" | "x-gateway-write";
+type SwiftExecutable = "x-gateway-reader" | "x-gateway-writer";
 ```
 
 **Status**: Completed
@@ -100,7 +100,7 @@ interface SwiftCliTestCase {
 #### Taskfile.yml, README.md
 
 ```typescript
-type InstallTask = "swift:install-read" | "swift:install-write";
+type InstallTask = "swift:install-reader" | "swift:install-writer";
 ```
 
 **Status**: Completed

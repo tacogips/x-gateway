@@ -1,6 +1,6 @@
 ---
 name: homebrew-release
-description: Use when building, validating, publishing, or tap-rendering Homebrew formula tarball releases for this Swift project, including scripts/build-homebrew-release.sh, scripts/render-homebrew-formula.sh, and task build:homebrew, homebrew:formula-read, or homebrew:formula-write commands.
+description: Use when building, validating, publishing, or tap-rendering Homebrew formula tarball releases for this Swift project, including scripts/build-homebrew-release.sh, scripts/render-homebrew-formula.sh, and task build:homebrew, homebrew:formula-reader, or homebrew:formula-writer commands.
 ---
 
 # Homebrew Release
@@ -9,19 +9,19 @@ Use this skill for Formula releases installed with:
 
 ```bash
 brew tap tacogips/homebrew-tap
-brew install x-gateway-read
-brew install x-gateway-write
+brew install x-gateway-reader
+brew install x-gateway-writer
 ```
 
 The release archive contains both command products:
 
-- `x-gateway-read`
-- `x-gateway-write`
+- `x-gateway-reader`
+- `x-gateway-writer`
 
 Render two formulae from the same archive:
 
-- `x-gateway-read`: installs only `x-gateway-read`
-- `x-gateway-write`: installs only `x-gateway-write`
+- `x-gateway-reader`: installs only `x-gateway-reader`
+- `x-gateway-writer`: installs only `x-gateway-writer`
 
 ## Release Contract
 
@@ -56,24 +56,24 @@ Render locally:
 
 ```bash
 version="$(tr -d '[:space:]' < VERSION)"
-task homebrew:formula-read -- "$version"
-task homebrew:formula-write -- "$version"
+task homebrew:formula-reader -- "$version"
+task homebrew:formula-writer -- "$version"
 ```
 
 Render into the default sibling tap:
 
 ```bash
 version="$(tr -d '[:space:]' < VERSION)"
-task homebrew:tap-formula-read -- "$version"
-task homebrew:tap-formula-write -- "$version"
+task homebrew:tap-formula-reader -- "$version"
+task homebrew:tap-formula-writer -- "$version"
 ```
 
 For a custom tap path:
 
 ```bash
 version="$(tr -d '[:space:]' < VERSION)"
-scripts/render-homebrew-formula.sh "$version" read /path/to/homebrew-tap/Formula/x-gateway-read.rb
-scripts/render-homebrew-formula.sh "$version" write /path/to/homebrew-tap/Formula/x-gateway-write.rb
+scripts/render-homebrew-formula.sh "$version" reader /path/to/homebrew-tap/Formula/x-gateway-reader.rb
+scripts/render-homebrew-formula.sh "$version" writer /path/to/homebrew-tap/Formula/x-gateway-writer.rb
 ```
 
 ## Publishing Notes
@@ -92,7 +92,9 @@ If publishing is explicitly requested:
 version="$(tr -d '[:space:]' < VERSION)"
 gh release upload "v${version}" \
   "dist/homebrew/x-gateway-${version}-darwin-arm64.tar.gz" \
+  "dist/homebrew/x-gateway-${version}-darwin-arm64.tar.gz.sha256" \
   "dist/homebrew/x-gateway-${version}-darwin-x64.tar.gz" \
+  "dist/homebrew/x-gateway-${version}-darwin-x64.tar.gz.sha256" \
   --repo tacogips/x-gateway \
   --clobber
 ```
@@ -102,18 +104,18 @@ gh release upload "v${version}" \
 From the tap checkout:
 
 ```bash
-ruby -c Formula/x-gateway-read.rb
-ruby -c Formula/x-gateway-write.rb
-brew audit --strict x-gateway-read || brew audit --strict --formula x-gateway-read
-brew audit --strict x-gateway-write || brew audit --strict --formula x-gateway-write
-brew fetch --formula tacogips/homebrew-tap/x-gateway-read
-brew fetch --formula tacogips/homebrew-tap/x-gateway-write
-brew install tacogips/homebrew-tap/x-gateway-read
-x-gateway-read version
-brew test tacogips/homebrew-tap/x-gateway-read
-brew install tacogips/homebrew-tap/x-gateway-write
-x-gateway-write version
-brew test tacogips/homebrew-tap/x-gateway-write
+ruby -c Formula/x-gateway-reader.rb
+ruby -c Formula/x-gateway-writer.rb
+brew audit --strict x-gateway-reader || brew audit --strict --formula x-gateway-reader
+brew audit --strict x-gateway-writer || brew audit --strict --formula x-gateway-writer
+brew fetch --formula tacogips/homebrew-tap/x-gateway-reader
+brew fetch --formula tacogips/homebrew-tap/x-gateway-writer
+brew install tacogips/homebrew-tap/x-gateway-reader
+x-gateway-reader version
+brew test tacogips/homebrew-tap/x-gateway-reader
+brew install tacogips/homebrew-tap/x-gateway-writer
+x-gateway-writer version
+brew test tacogips/homebrew-tap/x-gateway-writer
 ```
 
 If online audit fails because of local GitHub credentials or rate limits, run a

@@ -136,7 +136,7 @@ This is x-gateway - a Swift Package Manager project with Nix flake development e
 - `x-gateway` is a command-line client that enables X (Twitter) API usage through the `x-gateway` command.
 - Primary usage assumes invocation from AI agents/tools, so operational errors must be highly explanatory and remediation-oriented.
 - The same repository must provide both:
-  - CLI interface through the split Swift executables (`x-gateway-read ...` and `x-gateway-write ...`)
+  - CLI interface through the split Swift executables (`x-gateway-reader ...` and `x-gateway-writer ...`)
   - Swift library interface (`import XGatewayCore`)
 - API/auth configuration must be accepted by both:
   - environment variables

@@ -4,8 +4,8 @@ AI-oriented command-line and Swift library gateway for X API operations.
 
 The Swift package exposes two executable products:
 
-- `x-gateway-read`: read-only command surface for account, post, search, timeline, and usage queries
-- `x-gateway-write`: write command surface for posting, replies, quotes, reposts, unreposts, and deletions
+- `x-gateway-reader`: read-only command surface for account, post, search, timeline, and usage queries
+- `x-gateway-writer`: write command surface for posting, replies, quotes, reposts, unreposts, and deletions
 
 It also exposes the `XGatewayCore` Swift library:
 
@@ -19,8 +19,8 @@ import XGatewayCore
 nix develop
 task build
 task test
-swift run x-gateway-read -- help
-swift run x-gateway-write -- help
+swift run x-gateway-reader -- help
+swift run x-gateway-writer -- help
 ```
 
 The package uses Swift Package Manager with:
@@ -28,18 +28,18 @@ The package uses Swift Package Manager with:
 - Library target: `XGatewayCore`
 - Read executable target: `XGatewayRead`
 - Write executable target: `XGatewayWrite`
-- Installed executables: `x-gateway-read`, `x-gateway-write`
+- Installed executables: `x-gateway-reader`, `x-gateway-writer`
 
 Build or install each command independently:
 
 ```bash
-swift build -c release --product x-gateway-read
-swift build -c release --product x-gateway-write
+swift build -c release --product x-gateway-reader
+swift build -c release --product x-gateway-writer
 ```
 
 ```bash
-task install-read PREFIX="$HOME/.local"
-task install-write PREFIX="$HOME/.local"
+task install-reader PREFIX="$HOME/.local"
+task install-writer PREFIX="$HOME/.local"
 ```
 
 Swift smoke tests run through an executable harness:
@@ -94,14 +94,14 @@ OAuth1 credentials are required for OAuth1-backed posting and attachment upload.
 
 ## Read-Only GraphQL
 
-Use `x-gateway-read graphql query` for reviewed read operations:
+Use `x-gateway-reader graphql query` for reviewed read operations:
 
 ```bash
-x-gateway-read graphql query 'query { accountMe { id username name } }' --json
+x-gateway-reader graphql query 'query { accountMe { id username name } }' --json
 ```
 
 ```bash
-x-gateway-read graphql query 'query { followingTimeline(maxResults: 10, maxUsers: 25, maxResultsPerUser: 5) { posts { id text createdAt author { username name } metrics { impressionCount likeCount replyCount repostCount quoteCount bookmarkCount } } pageInfo { resultCount newestId oldestId nextToken } } }' --json
+x-gateway-reader graphql query 'query { followingTimeline(maxResults: 10, maxUsers: 25, maxResultsPerUser: 5) { posts { id text createdAt author { username name } metrics { impressionCount likeCount replyCount repostCount quoteCount bookmarkCount } } pageInfo { resultCount newestId oldestId nextToken } } }' --json
 ```
 
 `followingTimeline(...)` is the stable field for fetching recent posts from
@@ -121,14 +121,14 @@ aggregation with no upstream cursor passthrough.
 
 ## Write GraphQL
 
-Use `x-gateway-write graphql query` for reviewed write operations:
+Use `x-gateway-writer graphql query` for reviewed write operations:
 
 ```bash
-x-gateway-write graphql query 'mutation { createPost(text: "hello") { id text } }' --json
+x-gateway-writer graphql query 'mutation { createPost(text: "hello") { id text } }' --json
 ```
 
 ```bash
-x-gateway-write graphql query 'mutation { replyToPost(text: "reply", replyToPostId: "123") { id text } }' --json
+x-gateway-writer graphql query 'mutation { replyToPost(text: "reply", replyToPostId: "123") { id text } }' --json
 ```
 
 The write executable rejects read queries, and the read executable rejects
@@ -146,23 +146,23 @@ task build:homebrew -- darwin-arm64 darwin-x64
 Render formulae after both platform archives exist:
 
 ```bash
-task homebrew:formula-read -- 0.1.1
-task homebrew:formula-write -- 0.1.1
+task homebrew:formula-reader -- 0.1.2
+task homebrew:formula-writer -- 0.1.2
 ```
 
 Render directly into the default sibling tap checkout:
 
 ```bash
-task homebrew:tap-formula-read -- 0.1.1
-task homebrew:tap-formula-write -- 0.1.1
+task homebrew:tap-formula-reader -- 0.1.2
+task homebrew:tap-formula-writer -- 0.1.2
 ```
 
 Install from the tap after the formula is published:
 
 ```bash
 brew tap tacogips/homebrew-tap
-brew install tacogips/homebrew-tap/x-gateway-read
-brew install tacogips/homebrew-tap/x-gateway-write
+brew install tacogips/homebrew-tap/x-gateway-reader
+brew install tacogips/homebrew-tap/x-gateway-writer
 ```
 
 ## Nix
@@ -170,13 +170,13 @@ brew install tacogips/homebrew-tap/x-gateway-write
 Install commands:
 
 ```bash
-nix profile install github:tacogips/x-gateway#x-gateway-read
-nix profile install github:tacogips/x-gateway#x-gateway-write
+nix profile install github:tacogips/x-gateway#x-gateway-reader
+nix profile install github:tacogips/x-gateway#x-gateway-writer
 ```
 
 Run without installing:
 
 ```bash
-nix run github:tacogips/x-gateway#x-gateway-read -- version
-nix run github:tacogips/x-gateway#x-gateway-write -- version
+nix run github:tacogips/x-gateway#x-gateway-reader -- version
+nix run github:tacogips/x-gateway#x-gateway-writer -- version
 ```

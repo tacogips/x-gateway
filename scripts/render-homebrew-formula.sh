@@ -8,7 +8,7 @@ artifact_name="x-gateway"
 usage() {
   cat <<EOF
 Usage:
-  scripts/render-homebrew-formula.sh <version> <read|write> [output-file]
+  scripts/render-homebrew-formula.sh <version> <reader|writer> [output-file]
 
 Reads archive checksums from:
   dist/homebrew/$artifact_name-<version>-<target>.tar.gz.sha256
@@ -19,12 +19,12 @@ Environment:
 
 Example:
   scripts/build-homebrew-release.sh darwin-arm64 darwin-x64
-  scripts/render-homebrew-formula.sh 0.1.1 read Formula/x-gateway-read.rb
-  scripts/render-homebrew-formula.sh 0.1.1 write Formula/x-gateway-write.rb
+  scripts/render-homebrew-formula.sh 0.1.2 reader Formula/x-gateway-reader.rb
+  scripts/render-homebrew-formula.sh 0.1.2 writer Formula/x-gateway-writer.rb
 
 This renderer expects Swift macOS release archives. Linux archives are
 unsupported until the project defines a reviewed Swift Linux build contract.
-Each archive must contain x-gateway-read and x-gateway-write.
+Each archive must contain x-gateway-reader and x-gateway-writer.
 EOF
 }
 
@@ -61,10 +61,10 @@ main() {
   release_base_url="${RELEASE_BASE_URL:-https://github.com/tacogips/x-gateway/releases/download/v$version}"
 
   case "$variant" in
-    read | write) ;;
+    reader | writer) ;;
     *)
       printf 'unsupported formula variant: %s\n' "$variant" >&2
-      printf 'expected one of: read, write\n' >&2
+      printf 'expected one of: reader, writer\n' >&2
       return 2
       ;;
   esac
@@ -75,17 +75,17 @@ main() {
 
   local class_name desc install_body test_body
   case "$variant" in
-    read)
-      class_name="XGatewayRead"
+    reader)
+      class_name="XGatewayReader"
       desc="Read-only X API gateway CLI"
-      install_body='    bin.install "bin/x-gateway-read"'
-      test_body="    assert_match \"$version\", shell_output(\"#{bin}/x-gateway-read version\")"
+      install_body='    bin.install "bin/x-gateway-reader"'
+      test_body="    assert_match \"$version\", shell_output(\"#{bin}/x-gateway-reader version\")"
       ;;
-    write)
-      class_name="XGatewayWrite"
+    writer)
+      class_name="XGatewayWriter"
       desc="Write-capable X API gateway CLI"
-      install_body='    bin.install "bin/x-gateway-write"'
-      test_body="    assert_match \"$version\", shell_output(\"#{bin}/x-gateway-write version\")"
+      install_body='    bin.install "bin/x-gateway-writer"'
+      test_body="    assert_match \"$version\", shell_output(\"#{bin}/x-gateway-writer version\")"
       ;;
   esac
 

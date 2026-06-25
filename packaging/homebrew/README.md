@@ -2,8 +2,8 @@
 
 This project ships command-specific Homebrew Formula releases:
 
-- Formula: unsigned tarballs containing `bin/x-gateway-read` and
-  `bin/x-gateway-write`.
+- Formula: unsigned tarballs containing `bin/x-gateway-reader` and
+  `bin/x-gateway-writer`.
 
 Swift formula archives are macOS-only by default. Add Linux archives only after
 the project has a reviewed Swift Linux build and runtime contract.
@@ -29,11 +29,11 @@ Publish those assets to the GitHub release named `v<version>`, then render the
 formulae into a tap checkout:
 
 ```bash
-scripts/render-homebrew-formula.sh <version> read ../homebrew-tap/Formula/x-gateway-read.rb
-scripts/render-homebrew-formula.sh <version> write ../homebrew-tap/Formula/x-gateway-write.rb
+scripts/render-homebrew-formula.sh <version> reader ../homebrew-tap/Formula/x-gateway-reader.rb
+scripts/render-homebrew-formula.sh <version> writer ../homebrew-tap/Formula/x-gateway-writer.rb
 ```
 
-The command-specific `x-gateway-read` and `x-gateway-write` formulae reuse the
+The command-specific `x-gateway-reader` and `x-gateway-writer` formulae reuse the
 same release archive but install only their matching executable.
 
 ## Verification
@@ -41,12 +41,12 @@ same release archive but install only their matching executable.
 From the tap checkout:
 
 ```bash
-ruby -c Formula/x-gateway-read.rb
-ruby -c Formula/x-gateway-write.rb
-brew audit --strict x-gateway-read || brew audit --strict --formula x-gateway-read
-brew audit --strict x-gateway-write || brew audit --strict --formula x-gateway-write
-brew fetch --formula tacogips/homebrew-tap/x-gateway-read
-brew fetch --formula tacogips/homebrew-tap/x-gateway-write
+ruby -c Formula/x-gateway-reader.rb
+ruby -c Formula/x-gateway-writer.rb
+brew audit --strict x-gateway-reader || brew audit --strict --formula x-gateway-reader
+brew audit --strict x-gateway-writer || brew audit --strict --formula x-gateway-writer
+brew fetch --formula tacogips/homebrew-tap/x-gateway-reader
+brew fetch --formula tacogips/homebrew-tap/x-gateway-writer
 ```
 
 If online audit fails due local GitHub credentials or rate limits, run the

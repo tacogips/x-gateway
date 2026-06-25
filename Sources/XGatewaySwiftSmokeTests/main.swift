@@ -63,7 +63,7 @@ func runSmokeTests() throws {
     }
     try assert(invalidOperationKeywordRejected, "operation classifier should require exact query/mutation keywords")
 
-    let readCli = XGatewayCLI(commandName: "x-gateway-read", surface: .read)
+    let readCli = XGatewayCLI(commandName: "x-gateway-reader", surface: .read)
     let readReject = readCli.run(
         arguments: ["graphql", "query", "mutation { createPost(text: \"hi\") { id } }", "--json"],
         environment: [:]
@@ -72,7 +72,7 @@ func runSmokeTests() throws {
     try assert(readReject.stderr.contains("\"ok\""), "read rejection should use JSON envelope")
     try assert(readReject.stderr.contains("read-only"), "read rejection should explain read-only surface")
 
-    let writeCli = XGatewayCLI(commandName: "x-gateway-write", surface: .write)
+    let writeCli = XGatewayCLI(commandName: "x-gateway-writer", surface: .write)
     let writeReject = writeCli.run(
         arguments: ["graphql", "query", "{ accountMe { id } }", "--json"],
         environment: [:]

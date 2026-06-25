@@ -20,21 +20,19 @@ gh auth status
 ```bash
 git status --short
 ```
-3. Version is resolved from `package.json` unless user explicitly sets tag:
+3. Version is resolved from `VERSION` unless user explicitly sets tag:
 ```bash
-VERSION=$(bun -e "const p = await Bun.file('./package.json').json(); console.log(p.version)")
+VERSION=$(tr -d '[:space:]' < VERSION)
 TAG="v${VERSION}"
 ```
 
 ## Required Artifacts
 
 Expected assets for release upload:
-- `release/x-gateway-v<version>-darwin-arm64.tar.gz`
-- `release/x-gateway-v<version>-darwin-x64.tar.gz`
-- `release/x-gateway-v<version>-linux-x64.tar.gz`
-- `release/x-gateway-v<version>-linux-arm64.tar.gz`
-- `release/x-gateway-<version>.tgz` (npm package tarball)
-- `release/SHA256SUMS.txt`
+- `dist/homebrew/x-gateway-<version>-darwin-arm64.tar.gz`
+- `dist/homebrew/x-gateway-<version>-darwin-x64.tar.gz`
+- `dist/homebrew/x-gateway-<version>-darwin-arm64.tar.gz.sha256`
+- `dist/homebrew/x-gateway-<version>-darwin-x64.tar.gz.sha256`
 
 If artifacts are missing, invoke `binary-release` first.
 
@@ -60,7 +58,7 @@ gh release view "$TAG" >/dev/null 2>&1 || \
 
 3. Upload or overwrite assets:
 ```bash
-gh release upload "$TAG" release/* --clobber
+gh release upload "$TAG" dist/homebrew/x-gateway-"$VERSION"-darwin-*.tar.gz* --clobber
 ```
 
 ## Verification

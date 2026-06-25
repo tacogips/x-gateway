@@ -54,11 +54,11 @@
         releaseArtifacts = {
           aarch64-darwin = {
             target = "darwin-arm64";
-            hash = "sha256-niLEPE6GQWHof7Cjtms9cOqko0q9XCvYOOPXgUSgQwY=";
+            hash = "sha256-hMOS1aCqXmciAtcVE8sAZePmSn/MbOsQYwIBM4tFkME=";
           };
           x86_64-darwin = {
             target = "darwin-x64";
-            hash = "sha256-xesyhDFdAg8GpMeUPztMnDM9hUJ6qMWkQjttiEAsa90=";
+            hash = "sha256-B049DTRmGm+i5kw9KAwRZ0+dZZNph/rVGZve4Q/R45I=";
           };
         };
         hasReleaseArtifact = builtins.hasAttr system releaseArtifacts;
@@ -88,7 +88,7 @@
 
             meta = {
               description =
-                if command == "x-gateway-read" then
+                if command == "x-gateway-reader" then
                   "Read-only X API gateway CLI"
                 else
                   "Write-capable X API gateway CLI";
@@ -101,22 +101,22 @@
         commandPackages =
           if hasReleaseArtifact then
             {
-              x-gateway-read = mkCommandPackage "x-gateway-read";
-              x-gateway-write = mkCommandPackage "x-gateway-write";
+              x-gateway-reader = mkCommandPackage "x-gateway-reader";
+              x-gateway-writer = mkCommandPackage "x-gateway-writer";
             }
           else
             { };
         commandApps =
           if hasReleaseArtifact then
             {
-              x-gateway-read = {
+              x-gateway-reader = {
                 type = "app";
-                program = "${commandPackages.x-gateway-read}/bin/x-gateway-read";
+                program = "${commandPackages.x-gateway-reader}/bin/x-gateway-reader";
                 meta.description = "Run the read-only X API gateway CLI";
               };
-              x-gateway-write = {
+              x-gateway-writer = {
                 type = "app";
-                program = "${commandPackages.x-gateway-write}/bin/x-gateway-write";
+                program = "${commandPackages.x-gateway-writer}/bin/x-gateway-writer";
                 meta.description = "Run the write-capable X API gateway CLI";
               };
             }

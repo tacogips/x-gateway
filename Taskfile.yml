@@ -4,7 +4,7 @@ vars:
   PROJECT_NAME: x-gateway
   TAP_DIR: ../homebrew-tap
   VERSION:
-    sh: tr -d '[:space:]' < VERSION 2>/dev/null || git describe --tags --always --dirty 2>/dev/null || echo 0.1.1
+    sh: tr -d '[:space:]' < VERSION 2>/dev/null || git describe --tags --always --dirty 2>/dev/null || echo 0.1.2
 
 tasks:
   default:
@@ -17,15 +17,15 @@ tasks:
     cmds:
       - swift build -c release
 
-  build-read:
+  build-reader:
     desc: Build the Swift read-only command product
     cmds:
-      - swift build -c release --product x-gateway-read
+      - swift build -c release --product x-gateway-reader
 
-  build-write:
+  build-writer:
     desc: Build the Swift write command product
     cmds:
-      - swift build -c release --product x-gateway-write
+      - swift build -c release --product x-gateway-writer
 
   test:
     desc: Run Swift smoke tests
@@ -48,69 +48,69 @@ tasks:
     cmds:
       - swiftlint
 
-  install-read:
+  install-reader:
     desc: Install only the Swift read-only command
     vars:
       INSTALL_PREFIX: '{{default "/usr/local" .PREFIX}}'
     cmds:
-      - swift build -c release --product x-gateway-read
+      - swift build -c release --product x-gateway-reader
       - mkdir -p "{{.INSTALL_PREFIX}}/bin"
-      - install .build/release/x-gateway-read "{{.INSTALL_PREFIX}}/bin/x-gateway-read"
+      - install .build/release/x-gateway-reader "{{.INSTALL_PREFIX}}/bin/x-gateway-reader"
 
-  install-write:
+  install-writer:
     desc: Install only the Swift write command
     vars:
       INSTALL_PREFIX: '{{default "/usr/local" .PREFIX}}'
     cmds:
-      - swift build -c release --product x-gateway-write
+      - swift build -c release --product x-gateway-writer
       - mkdir -p "{{.INSTALL_PREFIX}}/bin"
-      - install .build/release/x-gateway-write "{{.INSTALL_PREFIX}}/bin/x-gateway-write"
+      - install .build/release/x-gateway-writer "{{.INSTALL_PREFIX}}/bin/x-gateway-writer"
 
   build:homebrew:
     desc: Build Homebrew formula archives containing read and write commands
     cmds:
       - scripts/build-homebrew-release.sh {{.CLI_ARGS}}
 
-  homebrew:formula-read:
-    desc: Render Formula/x-gateway-read.rb from dist/homebrew checksums
+  homebrew:formula-reader:
+    desc: Render Formula/x-gateway-reader.rb from dist/homebrew checksums
     cmds:
       - |
         set -euo pipefail
         if [ -z "{{.CLI_ARGS}}" ]; then
-          echo "usage: task homebrew:formula-read -- <version>" >&2
+          echo "usage: task homebrew:formula-reader -- <version>" >&2
           exit 2
         fi
-        scripts/render-homebrew-formula.sh "{{.CLI_ARGS}}" read "Formula/x-gateway-read.rb"
+        scripts/render-homebrew-formula.sh "{{.CLI_ARGS}}" reader "Formula/x-gateway-reader.rb"
 
-  homebrew:formula-write:
-    desc: Render Formula/x-gateway-write.rb from dist/homebrew checksums
+  homebrew:formula-writer:
+    desc: Render Formula/x-gateway-writer.rb from dist/homebrew checksums
     cmds:
       - |
         set -euo pipefail
         if [ -z "{{.CLI_ARGS}}" ]; then
-          echo "usage: task homebrew:formula-write -- <version>" >&2
+          echo "usage: task homebrew:formula-writer -- <version>" >&2
           exit 2
         fi
-        scripts/render-homebrew-formula.sh "{{.CLI_ARGS}}" write "Formula/x-gateway-write.rb"
+        scripts/render-homebrew-formula.sh "{{.CLI_ARGS}}" writer "Formula/x-gateway-writer.rb"
 
-  homebrew:tap-formula-read:
+  homebrew:tap-formula-reader:
     desc: Render the read-only formula into the default sibling Homebrew tap checkout
     cmds:
       - |
         set -euo pipefail
         if [ -z "{{.CLI_ARGS}}" ]; then
-          echo "usage: task homebrew:tap-formula-read -- <version>" >&2
+          echo "usage: task homebrew:tap-formula-reader -- <version>" >&2
           exit 2
         fi
-        scripts/render-homebrew-formula.sh "{{.CLI_ARGS}}" read "{{.TAP_DIR}}/Formula/x-gateway-read.rb"
+        scripts/render-homebrew-formula.sh "{{.CLI_ARGS}}" reader "{{.TAP_DIR}}/Formula/x-gateway-reader.rb"
 
-  homebrew:tap-formula-write:
+  homebrew:tap-formula-writer:
     desc: Render the write formula into the default sibling Homebrew tap checkout
     cmds:
       - |
         set -euo pipefail
         if [ -z "{{.CLI_ARGS}}" ]; then
-          echo "usage: task homebrew:tap-formula-write -- <version>" >&2
+          echo "usage: task homebrew:tap-formula-writer -- <version>" >&2
           exit 2
         fi
-        scripts/render-homebrew-formula.sh "{{.CLI_ARGS}}" write "{{.TAP_DIR}}/Formula/x-gateway-write.rb"
+        scripts/render-homebrew-formula.sh "{{.CLI_ARGS}}" writer "{{.TAP_DIR}}/Formula/x-gateway-writer.rb"

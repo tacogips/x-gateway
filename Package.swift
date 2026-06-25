@@ -13,11 +13,11 @@ let package = Package(
             targets: ["XGatewayCore"]
         ),
         .executable(
-            name: "x-gateway-read",
+            name: "x-gateway-reader",
             targets: ["XGatewayRead"]
         ),
         .executable(
-            name: "x-gateway-write",
+            name: "x-gateway-writer",
             targets: ["XGatewayWrite"]
         ),
         .executable(

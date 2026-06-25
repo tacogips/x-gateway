@@ -326,7 +326,7 @@ public struct XGatewayCLI: Sendable {
         if group == "version" {
             return [
                 "name": "x-gateway",
-                "version": "0.1.1",
+                "version": "0.1.2",
                 "runtime": "swift"
             ]
         }
@@ -449,7 +449,7 @@ public struct XGatewayCLI: Sendable {
                 summary: "\(commandName) supports read-only commands only",
                 details: "The command 'graphql query' contains a mutation and is disabled for \(commandName).",
                 remediations: [
-                    "Use x-gateway-write for mutation operations.",
+                    "Use x-gateway-writer for mutation operations.",
                     "Re-run with a read-only project-owned GraphQL query if the workflow should remain read-only."
                 ],
                 traceId: nil
@@ -459,7 +459,7 @@ public struct XGatewayCLI: Sendable {
                 summary: "\(commandName) supports write commands only",
                 details: "The command 'graphql query' contains a read query and is disabled for \(commandName).",
                 remediations: [
-                    "Use x-gateway-read for read-only operations.",
+                    "Use x-gateway-reader for read-only operations.",
                     "Re-run with a project-owned GraphQL mutation if the workflow should perform a write."
                 ],
                 traceId: nil

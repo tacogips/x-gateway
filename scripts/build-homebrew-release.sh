@@ -4,7 +4,7 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd "$script_dir/.." && pwd)"
 artifact_name="x-gateway"
-products=("x-gateway-read" "x-gateway-write")
+products=("x-gateway-reader" "x-gateway-writer")
 
 usage() {
   cat <<EOF
@@ -28,7 +28,7 @@ Examples:
 
 This builder stages Swift macOS archives for a Homebrew formula. It does not
 publish release assets, mutate a tap, render a formula, or push commits.
-Each archive contains x-gateway-read and x-gateway-write.
+Each archive contains x-gateway-reader and x-gateway-writer.
 EOF
 }
 
@@ -265,8 +265,9 @@ main() {
     fi
   done
 
-  printf '\nRender a formula after all platform archives exist:\n'
-  printf '  scripts/render-homebrew-formula.sh %s\n' "$version"
+  printf '\nRender formulae after all platform archives exist:\n'
+  printf '  scripts/render-homebrew-formula.sh %s reader\n' "$version"
+  printf '  scripts/render-homebrew-formula.sh %s writer\n' "$version"
 }
 
 main "$@"
