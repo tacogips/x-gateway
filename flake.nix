@@ -54,11 +54,11 @@
         releaseArtifacts = {
           aarch64-darwin = {
             target = "darwin-arm64";
-            hash = "sha256-hMOS1aCqXmciAtcVE8sAZePmSn/MbOsQYwIBM4tFkME=";
+            hash = "sha256-jUUh8KdXANb7N8nunWcXxyRz9/LBs9DU4xK3WmaCjHg=";
           };
           x86_64-darwin = {
             target = "darwin-x64";
-            hash = "sha256-B049DTRmGm+i5kw9KAwRZ0+dZZNph/rVGZve4Q/R45I=";
+            hash = "sha256-x1XHJ7yrcqJznSv6ZBESs7yxXAAqoBR+mtWcjom9cwE=";
           };
         };
         hasReleaseArtifact = builtins.hasAttr system releaseArtifacts;
