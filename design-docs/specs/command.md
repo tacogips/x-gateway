@@ -131,8 +131,13 @@ The current MCP-parity read fields include:
   `mediaAnalytics`, `mediaUploadStatus`, insights reads, personalized trends,
   public keys, affiliates, reposts-of-me, OpenAPI spec lookup, webhooks,
   activity/account-activity subscriptions, and raw Chat conversation/event
-  reads, plus Chat and DM media download-to-file helpers. Spaces, stream links,
-  and stream connection management are excluded.
+  reads, finite filtered-stream rule counts, plus Chat and DM media
+  download-to-file helpers. Spaces lookup/search fields return `SpacePage` or
+  `Space`, and Space buyers/posts return `UserPage` and `PostPage`.
+  Filtered-stream rule reads and updates return `StreamRulePage` and
+  `StreamRuleUpdateResult`.
+  Long-running stream connection consumption is handled by the separate
+  `stream` command, not by short-lived GraphQL queries.
 
 The current MCP-parity write mutations include:
 
@@ -145,14 +150,15 @@ The current MCP-parity write mutations include:
   add/remove, list follow/unfollow, and list pin/unpin mutations
 - `createDirectMessage(...)`, `createDirectMessageInConversation(...)`,
   `createDirectMessageConversation(...)`, and `deleteDirectMessage(...)`
-- `createArticleDraft(title: String!, text: String!)`
+- `createArticleDraft(title: String!, text: String, contentStateJSON: String)`
 - `publishArticle(articleId: ID!)`
 - OpenAPI parity mutations returning `OpenAPIResult`: compliance job creation,
   Community Notes create/delete/evaluate, reply hiding, DM block/unblock, media
   upload initialize/finalize plus metadata/subtitles, user public-key
   registration, webhooks, activity and account-activity subscriptions, raw
   encrypted Chat primitives, media one-shot upload/append, and Chat media upload
-  initialization/append/finalization.
+  initialization/append/finalization. Filtered-stream rule updates return
+  `StreamRuleUpdateResult`.
 
 Example post engagement reads:
 
@@ -208,6 +214,41 @@ Example Article writes:
 x-gateway-writer graphql query 'mutation { createArticleDraft(title: "Release notes", text: "Draft body") { id title } }' --json
 ```
 
+```bash
+x-gateway-writer graphql query 'mutation { createArticleDraft(title: "Release notes", contentStateJSON: "{\"blocks\":[{\"key\":\"a\",\"text\":\"Bold\",\"type\":\"unstyled\",\"inline_style_ranges\":[{\"offset\":0,\"length\":4,\"style\":\"BOLD\"}],\"entity_ranges\":[],\"data\":{}}],\"entities\":[]}") { id title } }' --json
+```
+
+Example Spaces and finite stream-rule operations:
+
+```bash
+x-gateway-reader graphql query 'query { searchSpaces(query: "swift", state: "live", maxResults: 10) { spaces { id title state creatorId hostIds speakerIds } pageInfo { resultCount nextToken } } }' --json
+```
+
+```bash
+x-gateway-reader graphql query 'query { streamRules(maxResults: 10) { rules { id value tag } pageInfo { resultCount nextToken } } }' --json
+```
+
+```bash
+x-gateway-writer graphql query 'mutation { updateStreamRules(addJSON: "[{\"value\":\"from:xdev\",\"tag\":\"xdev\"}]") { rules { id value tag } summary { created valid } } }' --json
+```
+
+## Streaming Commands
+
+`x-gateway-reader stream sample` and `x-gateway-reader stream filtered` open
+bounded X stream sessions. They require bearer credentials and stop when
+`--max-events` is reached or `--duration-seconds` expires. They are intentionally
+read-command only and are rejected by `x-gateway-writer`. In normal output mode,
+the reader executable writes each received event immediately as one NDJSON line;
+with `--json`, it buffers events and returns one final JSON summary.
+
+```bash
+x-gateway-reader stream sample --max-events 10 --duration-seconds 30 --json
+```
+
+```bash
+x-gateway-reader stream filtered --max-events 10 --duration-seconds 30 --reconnect true --json
+```
+
 `followingTimeline(...)` is the stable command surface for bounded followed
 account aggregation:
 
@@ -235,10 +276,13 @@ Command behavior and validation:
 - `searchAllPosts.sortOrder` must be `recency` or `relevancy` when provided.
 - `searchNews.maxResults` accepts 1...100 and `searchNews.maxAgeHours` accepts
   1...720.
-- `searchAllPosts`, `searchUsers`, `searchNews`, `news`, `trendsByWoeid`,
-  bookmark read/write operations, Lists, DMs, likes, mutes, and blocks require a
-  bearer token in the Swift transport slice because the current X endpoints
-  require OAuth2 user context.
+- `searchUsers`, `searchNews`, `news`, `trendsByWoeid`, bookmark read/write
+  operations, Lists, DMs, likes, mutes, and blocks require a user-context bearer
+  token in the Swift transport slice because the current X endpoints require
+  OAuth2 user context.
+- `searchAllPosts`, tweet counts, stream rules, and `openAPISpec` prefer
+  `X_GW_APP_TOKEN` app-only bearer credentials because those public endpoints
+  reject OAuth2 user-context tokens. `--token` remains an explicit override.
 - Bookmark reads use the reader command, bookmark mutations use the writer
   command, and both act on the authenticated user's bookmarks.
 - DM writes can still fail with upstream 403 if the token, X app settings, or

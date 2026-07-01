@@ -7,7 +7,13 @@ import Glibc
 import Darwin
 #endif
 
-let cli = XGatewayCLI(commandName: "x-gateway-reader", surface: .read)
+let cli = XGatewayCLI(
+    commandName: "x-gateway-reader",
+    surface: .read,
+    streamEventSink: { line in
+        FileHandle.standardOutput.write(Data((line + "\n").utf8))
+    }
+)
 let result = cli.run(
     arguments: Array(CommandLine.arguments.dropFirst()),
     environment: ProcessInfo.processInfo.environment

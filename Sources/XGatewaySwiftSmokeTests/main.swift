@@ -62,6 +62,7 @@ func runSmokeTests() throws {
     try runMCPParitySmokeTests()
     try runOAuth2SmokeTests()
     try runReadAuthSmokeTests()
+    try runStreamCommandSmokeTests()
     try runGraphQLSelectionParsingSmokeTests()
     try runGraphQLArgumentSyntaxSmokeTests()
     try runMutationValidationSmokeTests()

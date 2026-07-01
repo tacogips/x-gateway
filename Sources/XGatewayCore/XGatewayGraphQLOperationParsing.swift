@@ -70,7 +70,7 @@ enum SupportedGraphQLOperation {
     case createDirectMessageInConversation(conversationId: String, text: String, attachments: [PostAttachmentInput]?)
     case createDirectMessageConversation(participantIds: [String], text: String, attachments: [PostAttachmentInput]?)
     case deleteDirectMessage(eventId: String)
-    case createArticleDraft(title: String, text: String)
+    case createArticleDraft(title: String, text: String?, contentStateJSON: String?)
     case publishArticle(articleId: String)
     case openAPIQuery(OpenAPIParityRequest)
     case openAPIMutation(OpenAPIParityRequest)
@@ -263,6 +263,24 @@ enum SupportedGraphQLOperation {
             return false
         }
     }
+
+    var prefersAppOnlyAuthorization: Bool {
+        switch self {
+        case .searchAllPosts, .recentPostCounts:
+            return true
+        case .openAPIQuery(let request):
+            return [
+                "allPostCounts",
+                "openAPISpec",
+                "streamRules",
+                "streamRuleCounts"
+            ].contains(request.fieldName)
+        case .openAPIMutation(let request):
+            return request.fieldName == "updateStreamRules"
+        default:
+            return false
+        }
+    }
 }
 
 struct PostCountsRequestOptions {
@@ -430,7 +448,7 @@ private enum SupportedGraphQLFieldArguments {
     static let replyToPost: Set<String> = ["text", "replyToPostId", "attachments"]
     static let quotePost: Set<String> = ["text", "quotedPostId", "attachments"]
     static let repostPost = deletePost
-    static let createArticleDraft: Set<String> = ["title", "text"]
+    static let createArticleDraft: Set<String> = ["title", "text", "contentStateJSON"]
     static let publishArticle: Set<String> = ["articleId"]
 }
 
@@ -536,9 +554,18 @@ func parseSupportedOperation(
         }
         if fieldName == "createArticleDraft" {
             try validateGraphQLArguments(in: arguments, allowed: SupportedGraphQLFieldArguments.createArticleDraft, fieldName: "createArticleDraft")
+            let text = try extractOptionalStringArgument("text", from: arguments, fieldName: "createArticleDraft")
+            let contentStateJSON = try extractOptionalStringArgument("contentStateJSON", from: arguments, fieldName: "createArticleDraft")
+            guard text != nil || contentStateJSON != nil else {
+                throw validation("createArticleDraft requires text or contentStateJSON.")
+            }
+            if let contentStateJSON {
+                _ = try XGatewayArticleRequestBuilder.draftBody(title: "validation", contentStateJSON: contentStateJSON)
+            }
             return .createArticleDraft(
                 title: try extractStringArgument("title", from: arguments, fieldName: "createArticleDraft"),
-                text: try extractStringArgument("text", from: arguments, fieldName: "createArticleDraft")
+                text: text,
+                contentStateJSON: contentStateJSON
             )
         }
         if fieldName == "publishArticle" {

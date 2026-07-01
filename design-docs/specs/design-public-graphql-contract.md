@@ -56,11 +56,14 @@ Provide a stable GraphQL-shaped public contract that expresses user intent witho
 
 `PostAttachmentInput` is project-owned and intentionally smaller than upstream X media contracts.
 
-- `kind: "image"` only in the current reviewed slice
+- `kind: "image"`, `"gif"`, or `"video"` in the current reviewed slice
 - `filePath: String!`
 - `altText: String`
-- `attachments` may contain 1 to 4 items when provided
-- unsupported media kinds or extra object fields must fail validation explicitly
+- `attachments` may contain 1 to 4 images, 1 gif, or 1 video when provided
+- unsupported media kinds, mismatched file extensions, or extra object fields
+  must fail validation explicitly
+- local media files must be non-empty and must fit the reviewed X upload size
+  limits before upload: images <= 5 MB, gifs <= 15 MB, videos <= 512 MB
 
 Example canonical mutations:
 
@@ -161,10 +164,13 @@ These limits are acceptable as long as diagnostics are explicit and the contract
 - Stable liked-post lookup is currently deferred from the public GraphQL contract until a reviewed live adapter route is verified.
 - Attachment validation must reject:
   - unknown attachment object fields
-  - `kind` values other than `"image"`
+  - `kind` values other than `"image"`, `"gif"`, or `"video"`
+  - file extensions that do not match the declared `kind`
+  - mixed image/gif/video attachment sets
   - empty `filePath`
   - empty `altText`
   - more than four attachments
+  - local files that exceed the reviewed size limits for their attachment kind
 
 ## Response Shaping
 

@@ -130,30 +130,38 @@ stable GraphQL patterns:
 - `createDirectMessage(...)`, `createDirectMessageInConversation(...)`,
   `createDirectMessageConversation(...)`, and `deleteDirectMessage(...)` map to
   Direct Message write/delete endpoints.
-- `createArticleDraft(title:text:)` maps a plain text body into the documented
-  DraftJS `content_state` shape and calls `POST /2/articles/draft`.
+- `createArticleDraft(title:text:contentStateJSON:)` maps either plain text or
+  caller-provided DraftJS `content_state` JSON into `POST /2/articles/draft`.
 - `publishArticle(articleId:)` maps to `POST /2/articles/{article_id}/publish`.
-- OpenAPI parity `OpenAPIResult` fields map the remaining non-Spaces,
-  non-streaming JSON-compatible X API families that do not have stable
-  high-level project objects yet: compliance jobs, Communities, Community Notes,
-  analytics, insights, post repost object reads, media lookup/upload
-  initialization/finalization/metadata, user public-key and affiliate reads,
-  user public-key registration, reposts-of-me, OpenAPI spec lookup, webhooks,
-  activity subscriptions, account-activity subscriptions, raw encrypted Chat
-  conversation primitives, media one-shot upload/append, Chat media upload
-  initialization/append/finalization, and Chat/DM media download-to-file
-  helpers.
+- OpenAPI parity `OpenAPIResult` fields map JSON-compatible X API families that
+  do not have stable high-level project objects yet: compliance jobs,
+  Communities, Community Notes, analytics, insights, finite filtered-stream rule
+  counts, post repost
+  object reads, media lookup/upload initialization/finalization/metadata, user
+  public-key and affiliate reads, user public-key registration, reposts-of-me,
+  OpenAPI spec lookup, webhooks, activity subscriptions, account-activity
+  subscriptions, raw encrypted Chat conversation primitives, media one-shot
+  upload/append, Chat media upload initialization/append/finalization, and
+  Chat/DM media download-to-file helpers.
+- Spaces lookup/search fields are projected into typed `SpacePage` or `Space`
+  results. Space buyers and posts reuse the existing typed `UserPage` and
+  `PostPage` shapes.
+- Filtered-stream rule reads and updates are projected into typed
+  `StreamRulePage` and `StreamRuleUpdateResult` results.
 
 ## Known Gaps
 
-Spaces and streaming endpoints are intentionally excluded from this parity
-slice, including stream connection management and search stream link endpoints.
-Binary media endpoints are exposed as file-path operations: uploads read local
-files and downloads write raw response bytes to an explicit `outputPath`. The
-official MCP page describes Articles at a capability level. This Swift slice
-implements draft creation for plain text Article bodies only; richer DraftJS
-entities, media, and formatting should be added as explicit schema fields after
-their payload contracts are reviewed.
+Long-running stream consumption remains outside the short-lived GraphQL query
+slice and is exposed through `x-gateway-reader stream sample|filtered`, which
+uses bounded session lifecycle controls, cancellation through event/time limits,
+retry-backed reconnects when requested, and NDJSON event output in normal CLI
+mode. Finite stream rule reads and updates are typed; the rule-count endpoint is
+exposed as a GraphQL `OpenAPIResult` field. Binary media
+endpoints are exposed as file-path operations: uploads read local files and
+downloads write raw response bytes to an explicit `outputPath`. Rich Article
+bodies are supported through a validated `contentStateJSON` escape hatch; a
+friendlier rich-text DSL can be added later without changing the underlying
+payload support.
 
 Live verification on 2026-06-30 showed Direct Message reads working for the
 available token, while sending a DM to `landfall1793482` returned upstream 403

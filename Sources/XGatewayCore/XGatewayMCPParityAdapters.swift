@@ -66,8 +66,15 @@ extension XGatewayLiveExecutor {
             return [operation.fieldName: try bookmarkPost(postId: postId, authorization: authorization)]
         case .removeBookmark(let postId):
             return [operation.fieldName: try removeBookmark(postId: postId, authorization: authorization)]
-        case .createArticleDraft(let title, let text):
-            return [operation.fieldName: try createArticleDraft(title: title, text: text, authorization: authorization)]
+        case .createArticleDraft(let title, let text, let contentStateJSON):
+            return [
+                operation.fieldName: try createArticleDraft(
+                    title: title,
+                    text: text,
+                    contentStateJSON: contentStateJSON,
+                    authorization: authorization
+                )
+            ]
         case .publishArticle(let articleId):
             return [operation.fieldName: try publishArticle(articleId: articleId, authorization: authorization)]
         default:
@@ -383,14 +390,21 @@ extension XGatewayLiveExecutor {
 
     func createArticleDraft(
         title: String,
-        text: String,
+        text: String?,
+        contentStateJSON: String?,
         authorization: XGatewayRequestAuthorization
     ) throws -> [String: Any] {
+        let body: [String: Any]
+        if let contentStateJSON {
+            body = try XGatewayArticleRequestBuilder.draftBody(title: title, contentStateJSON: contentStateJSON)
+        } else {
+            body = XGatewayArticleRequestBuilder.draftBody(title: title, text: text ?? "")
+        }
         let payload = try performJSONRequest(
             method: "POST",
             url: try xArticleAPIURL(path: "/2/articles/draft"),
             authorization: authorization,
-            body: XGatewayArticleRequestBuilder.draftBody(title: title, text: text)
+            body: body
         )
         return XGatewayResponseProjector.articleDraft(payload)
     }

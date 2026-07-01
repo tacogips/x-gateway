@@ -108,14 +108,9 @@ extension XGatewayLiveExecutor {
 }
 
 private func readDirectMessageAttachmentData(_ attachment: PostAttachmentInput) throws -> Data {
-    let expandedPath = NSString(string: attachment.filePath).expandingTildeInPath
-    var isDirectory: ObjCBool = false
-    guard FileManager.default.fileExists(atPath: expandedPath, isDirectory: &isDirectory),
-          !isDirectory.boolValue else {
-        throw validation("attachments.filePath must point to a readable media file.")
-    }
+    let url = try validateAttachmentFileAndReturnURL(attachment)
     do {
-        let data = try Data(contentsOf: URL(fileURLWithPath: expandedPath), options: [.mappedIfSafe])
+        let data = try Data(contentsOf: url, options: [.mappedIfSafe])
         guard !data.isEmpty else {
             throw validation("attachments.filePath must point to a non-empty media file.")
         }

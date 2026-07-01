@@ -7,6 +7,9 @@ private enum GraphQLInputValue {
 
 private let supportedPostAttachmentFields: Set<String> = ["kind", "filePath", "altText"]
 private let supportedPostAttachmentKinds: Set<String> = ["image", "gif", "video"]
+private let imageAttachmentExtensions: Set<String> = ["jpg", "jpeg", "png", "webp"]
+private let gifAttachmentExtensions: Set<String> = ["gif"]
+private let videoAttachmentExtensions: Set<String> = ["mp4", "mov", "webm"]
 
 func extractPostAttachmentsIfPresent(
     from document: String,
@@ -67,6 +70,7 @@ private func parsePostAttachmentList(_ literal: String, fieldName: String) throw
           attachments.count <= 4 else {
         throw validation("attachments must contain between 1 and 4 items when provided.")
     }
+    try validatePostAttachmentComposition(attachments)
 
     return attachments
 }
@@ -121,6 +125,7 @@ private func parsePostAttachmentObject(_ literal: String, index attachmentIndex:
           !filePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
         throw validation("attachments[\(attachmentIndex)].filePath must be a non-empty string.")
     }
+    try validateAttachmentExtension(kind: kind, filePath: filePath, attachmentIndex: attachmentIndex)
 
     let altText: String?
     switch fields["altText"] {
@@ -140,6 +145,28 @@ private func parsePostAttachmentObject(_ literal: String, index attachmentIndex:
     }
 
     return PostAttachmentInput(kind: kind, filePath: filePath, altText: altText)
+}
+
+private func validateAttachmentExtension(kind: String, filePath: String, attachmentIndex: Int) throws {
+    let fileExtension = URL(fileURLWithPath: filePath).pathExtension.lowercased()
+    guard !fileExtension.isEmpty else {
+        throw validation("attachments[\(attachmentIndex)].filePath must include a supported media extension.")
+    }
+    let supportedExtensions: Set<String>
+    switch kind {
+    case "image":
+        supportedExtensions = imageAttachmentExtensions
+    case "gif":
+        supportedExtensions = gifAttachmentExtensions
+    case "video":
+        supportedExtensions = videoAttachmentExtensions
+    default:
+        supportedExtensions = []
+    }
+    guard supportedExtensions.contains(fileExtension) else {
+        let extensions = supportedExtensions.sorted().joined(separator: ", ")
+        throw validation("attachments[\(attachmentIndex)].filePath extension must match kind '\(kind)' (\(extensions)).")
+    }
 }
 
 private func parseGraphQLInputValue(

@@ -14,7 +14,7 @@ extension XGatewayLiveExecutor {
                 authorization: authorization,
                 body: request.body
             )
-            return [request.fieldName: XGatewayOpenAPIParityProjector.result(payload)]
+            return [request.fieldName: try XGatewayOpenAPIParityProjector.result(fieldName: request.fieldName, payload: payload)]
         case .openAPIFileUpload(let request):
             let payload = try performOpenAPIFileUpload(request, authorization: authorization)
             return [request.fieldName: XGatewayOpenAPIParityProjector.result(payload)]
@@ -72,6 +72,25 @@ extension XGatewayLiveExecutor {
 }
 
 enum XGatewayOpenAPIParityProjector {
+    static func result(fieldName: String, payload: Any) throws -> [String: Any] {
+        switch fieldName {
+        case "spaces", "spacesByCreatorIds", "searchSpaces":
+            return XGatewayResponseProjector.spacePage(payload)
+        case "space":
+            return XGatewayResponseProjector.space(payload)
+        case "spaceBuyers":
+            return XGatewayResponseProjector.userPage(payload)
+        case "spacePosts":
+            return try XGatewayResponseProjector.postPage(payload)
+        case "streamRules":
+            return XGatewayResponseProjector.streamRulePage(payload)
+        case "updateStreamRules":
+            return XGatewayResponseProjector.streamRuleUpdateResult(payload)
+        default:
+            return result(payload)
+        }
+    }
+
     static func result(_ payload: Any) -> [String: Any] {
         return [
             "ok": true,

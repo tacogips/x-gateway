@@ -60,9 +60,10 @@ private func listObject(_ list: [String: Any]) -> [String: Any] {
 }
 
 private func dmEventObject(_ event: [String: Any]) -> [String: Any] {
+    let eventId = stringValue(event["id"], fallback: stringValue(event["dm_event_id"]))
     var projected: [String: Any] = [
-        "id": stringValue(event["id"]),
-        "eventType": stringValue(event["event_type"])
+        "id": eventId,
+        "eventType": stringValue(event["event_type"], fallback: eventId.isEmpty ? "" : "MessageCreate")
     ]
     copyString(event, from: "created_at", to: "createdAt", into: &projected)
     copyString(event, from: "dm_conversation_id", to: "conversationId", into: &projected)

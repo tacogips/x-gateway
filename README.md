@@ -62,17 +62,22 @@ project-owned GraphQL fields: `accountMe`, `apiUsage`, `user`,
 `quotePost`, `repostPost`, `unrepostPost`, `bookmarkPost`, `removeBookmark`,
 `createArticleDraft`, and `publishArticle`.
 
-The Swift GraphQL surface also includes OpenAPI-backed parity fields for
-non-Spaces, non-streaming X API families that are not naturally represented by
-the higher-level post/social objects. These return `OpenAPIResult { ok payload }`
-and cover compliance jobs, Communities, Community Notes, all-time counts,
-analytics, insights, media lookup/upload initialization/finalization/metadata,
-personalized trends, public keys, affiliates, reposts-of-me, webhooks, activity
-subscriptions, account-activity subscriptions, OpenAPI spec lookup, post repost
-object reads, user public-key registration, raw encrypted Chat conversation
-primitives, media one-shot upload/append, Chat media upload append/finalize, and
-Chat/DM media download-to-file helpers. Spaces, stream links, and stream
-connection management remain intentionally outside this GraphQL slice.
+The Swift GraphQL surface also includes OpenAPI-backed parity fields that are
+not naturally represented by the higher-level post/social objects. These return
+`OpenAPIResult { ok payload }` and cover compliance jobs, Communities, Community
+Notes, all-time counts, analytics, insights, finite filtered-stream rule
+counts, media lookup/upload
+initialization/finalization/metadata, personalized trends, public keys,
+affiliates, reposts-of-me, webhooks, activity subscriptions, account-activity
+subscriptions, OpenAPI spec lookup, post repost object reads, user public-key
+registration, raw encrypted Chat conversation primitives, media one-shot
+upload/append, Chat media upload append/finalize, and Chat/DM media
+download-to-file helpers. Long-running stream consumption is exposed through
+the separate bounded `stream` command rather than through GraphQL.
+Spaces lookup/search fields return typed `SpacePage`/`Space` objects; Space
+buyers and posts use the existing typed `UserPage` and `PostPage` surfaces.
+Filtered-stream rule reads and updates return typed `StreamRulePage` and
+`StreamRuleUpdateResult` objects.
 
 Nested `Post.replies(...)` selections are hydrated through bounded recent-search
 reply lookups and are exposed in capability metadata as `post.replies`.
@@ -83,10 +88,12 @@ search/news/trends, and bookmark operations remain bearer-token only because the
 current X API endpoints require OAuth2 user context. Attachment-backed
 `createPost`, `replyToPost`, and `quotePost` mutations prefer OAuth2 bearer
 credentials with `media.write`, fall back to OAuth1 when no bearer token is
-configured, upload image attachments through the X media upload API, apply alt
-text when provided, and post with `media.media_ids`. Direct Message mutations
-also accept the same local `attachments` input and upload files as DM media with
-OAuth2 `media.write` before sending `attachments { media_id }` to X.
+configured, validate `image`, `gif`, and `video` attachment file extensions,
+media mix limits, and local file size limits before upload, upload attachments
+through the X media upload API, apply alt text for image/GIF attachments when
+provided, and post with `media.media_ids`. Direct Message mutations also accept
+the same local `attachments` input and upload files as DM media with OAuth2
+`media.write` before sending `attachments { media_id }` to X.
 
 Swift read projections include stable post metrics, authors, media asset URLs,
 and referenced-post shortcuts when those expansions are present in X API
@@ -102,7 +109,8 @@ Configuration can come from environment variables or explicit CLI flags.
 
 Common environment variables:
 
-- `X_GW_TOKEN`: bearer token for bearer-compatible reads
+- `X_GW_TOKEN`: OAuth2 user-context bearer token for user/private endpoints
+- `X_GW_APP_TOKEN`: app-only bearer token for public app-context endpoints
 - `X_GW_CONSUMER_KEY`
 - `X_GW_CONSUMER_SECRET`
 - `X_GW_ACCESS_TOKEN`
@@ -117,9 +125,12 @@ Common environment variables:
   `media.write` for media upload)
 
 OAuth1 credentials are required for OAuth1-backed posting and attachment upload.
-OAuth2 bearer credentials are required for bearer-only endpoints such as
-bookmarks, search/news/trends, usage, Lists, DMs, likes, mutes, blocks,
-OpenAPI parity operations, and other user-context social mutations.
+OAuth2 user-context bearer credentials are required for user/private endpoints
+such as bookmarks, search users/news/trends, usage, Lists, DMs, likes, mutes,
+blocks, OpenAPI parity user operations, and other user-context social
+mutations. App-only bearer credentials are preferred for public app-context
+endpoints such as full-archive search, tweet counts, stream rules, and the
+OpenAPI spec. `--token` remains an explicit override for either token family.
 
 Generate an OAuth2 bearer token with the built-in loopback callback server:
 
@@ -268,7 +279,7 @@ x-gateway-writer graphql query 'mutation { updateList(listId: "123", description
 ```
 
 ```bash
-x-gateway-writer graphql query 'mutation { createDirectMessage(participantId: "123", text: "hello", attachments: [{ kind: "image", filePath: "./image.gif" }]) { id eventType conversationId attachmentMediaKeys } }' --json
+x-gateway-writer graphql query 'mutation { createDirectMessage(participantId: "123", text: "hello", attachments: [{ kind: "gif", filePath: "./image.gif" }]) { id eventType conversationId attachmentMediaKeys } }' --json
 ```
 
 ```bash
@@ -277,6 +288,23 @@ x-gateway-writer graphql query 'mutation { createArticleDraft(title: "Release no
 
 ```bash
 x-gateway-writer graphql query 'mutation { publishArticle(articleId: "123") { postId } }' --json
+```
+
+## Streaming
+
+Use `x-gateway-reader stream sample` or `x-gateway-reader stream filtered` for
+bounded stream sessions. These commands require bearer credentials and stop when
+`--max-events` is reached or `--duration-seconds` expires. `--reconnect true`
+allows retry-backed reconnects within that same bounded session. In normal
+output mode, the reader executable writes each received event immediately as one
+NDJSON line. With `--json`, it buffers events and returns a final JSON summary.
+
+```bash
+x-gateway-reader stream sample --max-events 10 --duration-seconds 30 --json
+```
+
+```bash
+x-gateway-reader stream filtered --max-events 10 --duration-seconds 30 --reconnect true --json
 ```
 
 The write executable rejects read queries, and the read executable rejects

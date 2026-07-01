@@ -18,6 +18,7 @@ private let maxReplyExpansions = 25
 
 struct XGatewayLiveExecutor {
     let token: String?
+    let appToken: String?
     let oauth1Credentials: XGatewayOAuth1SigningCredentials?
     let mediaRootDir: String?
     let traceId: String?
@@ -58,6 +59,9 @@ extension XGatewayLiveExecutor {
            let token,
            !token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return .bearer(token)
+        }
+        if operation.prefersAppOnlyAuthorization {
+            return try requireAppBearerAuthorization(operation: operation)
         }
         if !operation.supportsOAuth1 {
             return try requireBearerAuthorization(operation: operation, oauth1Supported: false)
@@ -101,6 +105,33 @@ extension XGatewayLiveExecutor {
             )
         }
         return .bearer(token.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    private func requireAppBearerAuthorization(operation: SupportedGraphQLOperation) throws -> XGatewayRequestAuthorization {
+        if let appToken,
+           !appToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return .bearer(appToken.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        if let token,
+           !token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return .bearer(token.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        throw XGatewayErrorPayload(
+            code: .authMissing,
+            summary: "Authentication configuration missing",
+            details: "\(operation.fieldName) requires X_GW_APP_TOKEN, X_GW_TOKEN, or --token for the current Swift transport slice.",
+            likelyCauses: [
+                "No app-only bearer token was configured",
+                "No fallback bearer token was configured"
+            ],
+            remediations: [
+                "Set X_GW_APP_TOKEN to an app-only bearer token for public app-context X endpoints.",
+                "Use --token for one-off app-only endpoint verification."
+            ],
+            classification: "auth",
+            retryable: false,
+            traceId: traceId
+        )
     }
 
     private func execute(operation: SupportedGraphQLOperation, authorization: XGatewayRequestAuthorization) throws -> [String: Any] {
@@ -654,7 +685,7 @@ extension XGatewayLiveExecutor {
         throw mapHTTPError(statusCode: http.statusCode, payload: parsed)
     }
 
-    private func applyAuthorizationHeader(
+    func applyAuthorizationHeader(
         to request: inout URLRequest,
         method: String,
         url: URL,
@@ -715,7 +746,7 @@ extension XGatewayLiveExecutor {
         }
     }
 
-    private func mapHTTPError(statusCode: Int, payload: Any) -> XGatewayErrorPayload {
+    func mapHTTPError(statusCode: Int, payload: Any) -> XGatewayErrorPayload {
         let detail = jsonString(payload, pretty: false)
         if statusCode == 401 {
             return XGatewayErrorPayload(

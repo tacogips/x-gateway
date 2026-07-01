@@ -46,6 +46,10 @@ let package = Package(
         .executableTarget(
             name: "XGatewaySwiftSmokeTests",
             dependencies: ["XGatewayCore"]
+        ),
+        .testTarget(
+            name: "XGatewayCoreTests",
+            dependencies: ["XGatewayCore"]
         )
     ]
 )

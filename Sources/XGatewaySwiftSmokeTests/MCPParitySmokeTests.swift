@@ -50,7 +50,7 @@ private func assertMCPParitySchema(readCli: XGatewayCLI) throws {
     try assert(schema.stdout.contains("followUser(targetUserId: ID!): FollowResult!"), "schema should expose follow creation")
     try assert(schema.stdout.contains("createList(name: String!"), "schema should expose List creation")
     try assert(schema.stdout.contains("createDirectMessage(participantId: ID!, text: String!, attachments:"), "schema should expose one-to-one DM attachments")
-    try assert(schema.stdout.contains("createArticleDraft(title: String!"), "schema should expose Article draft creation")
+    try assert(schema.stdout.contains("createArticleDraft(title: String!, text: String, contentStateJSON: String)"), "schema should expose Article draft creation")
     try assert(schema.stdout.contains("publishArticle(articleId: ID!): ArticlePublishResult!"), "schema should expose Article publishing")
     try assert(schema.stdout.contains("complianceJobs(type: String"), "schema should expose compliance job listing")
     try assert(schema.stdout.contains("communitiesSearch(query: String!"), "schema should expose Community search")
@@ -65,6 +65,12 @@ private func assertMCPParitySchema(readCli: XGatewayCLI) throws {
     try assert(schema.stdout.contains("uploadMedia(filePath: String!"), "schema should expose one-shot media upload")
     try assert(schema.stdout.contains("appendMediaUpload(mediaId: ID!"), "schema should expose media upload append")
     try assert(schema.stdout.contains("appendChatMediaUpload(id: ID!"), "schema should expose Chat media upload append")
+    try assert(schema.stdout.contains("spaces(ids: [ID!]!): SpacePage!"), "schema should expose typed Spaces lookup")
+    try assert(schema.stdout.contains("searchSpaces(query: String!"), "schema should expose Spaces search")
+    try assert(schema.stdout.contains("type Space"), "schema should expose Space result type")
+    try assert(schema.stdout.contains("streamRules(ids: [ID!], maxResults: Int, paginationToken: String): StreamRulePage!"), "schema should expose typed finite stream rule reads")
+    try assert(schema.stdout.contains("updateStreamRules(addJSON: String"), "schema should expose finite stream rule updates")
+    try assert(schema.stdout.contains("StreamRuleUpdateResult!"), "schema should expose typed stream rule update result")
     try assert(schema.stdout.contains("downloadChatMedia(id: ID!"), "schema should expose Chat media download")
     try assert(schema.stdout.contains("downloadDirectMessageMedia(dmId: ID!"), "schema should expose DM media download")
     try assert(schema.stdout.contains("type OpenAPIResult"), "schema should expose raw OpenAPI result envelope")
@@ -127,7 +133,7 @@ private func assertMCPParityReadAuth(readCli: XGatewayCLI) throws {
         ),
         fieldName: "postQuotes"
     )
-    try assertAuthMissing(
+    try assertAppAuthMissing(
         readCli.run(
             arguments: ["graphql", "query", "{ searchAllPosts(query: \"swift\", maxResults: 10) { posts { id } } }", "--json"],
             environment: [:]
@@ -310,6 +316,30 @@ private func assertOpenAPIParityReadAuth(readCli: XGatewayCLI) throws {
         ),
         fieldName: "downloadDirectMessageMedia"
     )
+    try assertAuthMissing(
+        readCli.run(
+            arguments: [
+                "graphql",
+                "query",
+                "{ spaces(ids: [\"1SLjjRYNejbKM\"]) { spaces { id title creatorId } pageInfo { resultCount nextToken } } }",
+                "--json"
+            ],
+            environment: [:]
+        ),
+        fieldName: "spaces"
+    )
+    try assertAppAuthMissing(
+        readCli.run(
+            arguments: [
+                "graphql",
+                "query",
+                "{ streamRules(maxResults: 10) { rules { id value tag } pageInfo { resultCount nextToken } } }",
+                "--json"
+            ],
+            environment: [:]
+        ),
+        fieldName: "streamRules"
+    )
 }
 
 private func assertMCPParityBookmarkAuth(readCli: XGatewayCLI, writeCli: XGatewayCLI) throws {
@@ -363,6 +393,8 @@ private func assertMCPParityBookmarkAuth(readCli: XGatewayCLI, writeCli: XGatewa
 }
 
 private func assertMCPParityWriteAuth(writeCli: XGatewayCLI) throws {
+    let articleContentState = #"{"blocks":[{"key":"a","text":"Body","type":"unstyled","inline_style_ranges":[],"entity_ranges":[],"data":{}}],"entities":[]}"#
+
     try assertAuthMissing(
         writeCli.run(
             arguments: ["graphql", "query", "mutation { createArticleDraft(title: \"Draft\", text: \"Body\") { id title } }", "--json"],
@@ -370,6 +402,29 @@ private func assertMCPParityWriteAuth(writeCli: XGatewayCLI) throws {
         ),
         fieldName: "createArticleDraft"
     )
+    try assertAuthMissing(
+        writeCli.run(
+            arguments: [
+                "graphql",
+                "query",
+                "mutation { createArticleDraft(title: \"Draft\", contentStateJSON: \"\(escapedGraphQLString(articleContentState))\") { id title } }",
+                "--json"
+            ],
+            environment: [:]
+        ),
+        fieldName: "createArticleDraft"
+    )
+    let invalidArticleContentState = writeCli.run(
+        arguments: [
+            "graphql",
+            "query",
+            #"mutation { createArticleDraft(title: "Draft", contentStateJSON: "{\"blocks\":[]}") { id title } }"#,
+            "--json"
+        ],
+        environment: [:]
+    )
+    try assert(invalidArticleContentState.exitCode == 2, "Article rich content should validate non-empty DraftJS blocks")
+    try assert(invalidArticleContentState.stderr.contains("contentStateJSON"), "Article rich content validation should name contentStateJSON")
     try assertAuthMissing(
         writeCli.run(
             arguments: ["graphql", "query", "mutation { publishArticle(articleId: \"123\") { postId } }", "--json"],
@@ -410,7 +465,7 @@ private func assertMCPParityWriteAuth(writeCli: XGatewayCLI) throws {
             arguments: [
                 "graphql",
                 "query",
-                "mutation { createDirectMessage(participantId: \"123\", text: \"hello\", attachments: [{ kind: \"image\", filePath: \"/tmp/x-gateway-missing-dm.gif\" }]) { id } }",
+                "mutation { createDirectMessage(participantId: \"123\", text: \"hello\", attachments: [{ kind: \"gif\", filePath: \"/tmp/x-gateway-missing-dm.gif\" }]) { id } }",
                 "--json"
             ],
             environment: [:]
@@ -421,7 +476,7 @@ private func assertMCPParityWriteAuth(writeCli: XGatewayCLI) throws {
         arguments: [
             "graphql",
             "query",
-            "mutation { createDirectMessage(participantId: \"123\", text: \"hello\", attachments: [{ kind: \"image\", filePath: \"/tmp/x-gateway-missing-dm.gif\" }]) { id } }",
+            "mutation { createDirectMessage(participantId: \"123\", text: \"hello\", attachments: [{ kind: \"gif\", filePath: \"/tmp/x-gateway-missing-dm.gif\" }]) { id } }",
             "--json"
         ],
         environment: ["X_GW_TOKEN": "token"]
@@ -496,6 +551,18 @@ private func assertMCPParityWriteAuth(writeCli: XGatewayCLI) throws {
             environment: [:]
         ),
         fieldName: "appendChatMediaUpload"
+    )
+    try assertAppAuthMissing(
+        writeCli.run(
+            arguments: [
+                "graphql",
+                "query",
+                #"mutation { updateStreamRules(addJSON: "[{\"value\":\"from:xdev\",\"tag\":\"xdev\"}]") { rules { id value tag } summary { created valid } } }"#,
+                "--json"
+            ],
+            environment: [:]
+        ),
+        fieldName: "updateStreamRules"
     )
 }
 
@@ -608,11 +675,24 @@ private func assertMCPParityCapabilities(readCli: XGatewayCLI, writeCli: XGatewa
         readCli.run(arguments: ["capabilities", "get", "--id", "dm.media.download", "--json"], environment: [:]),
         label: "dm.media.download"
     )
+    try assertBearerCapability(
+        readCli.run(arguments: ["capabilities", "get", "--id", "spaces.search", "--json"], environment: [:]),
+        label: "spaces.search"
+    )
+    try assertAppBearerCapability(
+        writeCli.run(arguments: ["capabilities", "get", "--id", "stream.rules.update", "--json"], environment: [:]),
+        label: "stream.rules.update"
+    )
 }
 
 private func assertAuthMissing(_ result: XGatewayCommandResult, fieldName: String) throws {
     try assert(result.exitCode == 3, "\(fieldName) should reach auth validation")
     try assert(result.stderr.contains("\(fieldName) requires X_GW_TOKEN"), "\(fieldName) should report missing auth")
+}
+
+private func assertAppAuthMissing(_ result: XGatewayCommandResult, fieldName: String) throws {
+    try assert(result.exitCode == 3, "\(fieldName) should reach app auth validation")
+    try assert(result.stderr.contains("\(fieldName) requires X_GW_APP_TOKEN"), "\(fieldName) should report missing app auth")
 }
 
 private func assertOAuth1OnlyBookmarkRejection(_ result: XGatewayCommandResult, fieldName: String) throws {
@@ -624,6 +704,17 @@ private func assertOAuth1OnlyBookmarkRejection(_ result: XGatewayCommandResult, 
 private func assertBearerCapability(_ result: XGatewayCommandResult, label: String) throws {
     try assert(result.exitCode == 0, "capability metadata should expose \(label)")
     try assert(result.stdout.contains("swift-bearer-baseline"), "\(label) should advertise bearer-only routing")
+}
+
+private func assertAppBearerCapability(_ result: XGatewayCommandResult, label: String) throws {
+    try assert(result.exitCode == 0, "capability metadata should expose \(label)")
+    try assert(result.stdout.contains("swift-app-bearer-preferred"), "\(label) should advertise app-bearer routing")
+}
+
+private func escapedGraphQLString(_ value: String) -> String {
+    value
+        .replacingOccurrences(of: "\\", with: "\\\\")
+        .replacingOccurrences(of: "\"", with: "\\\"")
 }
 
 private func assertArticleRequestBuilder() throws {
@@ -638,4 +729,13 @@ private func assertArticleRequestBuilder() throws {
     try assert(block?["inline_style_ranges"] != nil, "Article draft block should include inline style ranges")
     try assert(block?["entity_ranges"] != nil, "Article draft block should include entity ranges")
     try assert(contentState?["entities"] != nil, "Article draft content_state should include entities")
+
+    let richBody = try XGatewayArticleRequestBuilder.draftBody(
+        title: "Rich",
+        contentStateJSON: #"{"blocks":[{"key":"r1","text":"Bold","type":"unstyled","inline_style_ranges":[{"offset":0,"length":4,"style":"BOLD"}],"entity_ranges":[],"data":{}}],"entities":[]}"#
+    )
+    let richContentState = richBody["content_state"] as? [String: Any]
+    let richBlocks = richContentState?["blocks"] as? [[String: Any]]
+    let richRanges = richBlocks?.first?["inline_style_ranges"] as? [[String: Any]]
+    try assert(richRanges?.first?["style"] as? String == "BOLD", "Article rich content state should preserve inline style ranges")
 }

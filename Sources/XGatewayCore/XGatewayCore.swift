@@ -19,6 +19,8 @@ public struct XGatewayCommandResult: Sendable {
     public let stderr: String
 }
 
+public typealias XGatewayStreamEventSink = @Sendable (String) -> Void
+
 public enum XGatewayErrorCode: String, Sendable {
     case validationError = "VALIDATION_ERROR"
     case authMissing = "AUTH_MISSING"
@@ -77,6 +79,7 @@ private struct GlobalFlags {
     let pretty: Bool
     let traceId: String?
     let token: String?
+    let appToken: String?
     let mediaRootDir: String?
     let consumerKey: String?
     let consumerSecret: String?
@@ -127,10 +130,12 @@ private let globalFlagNames: Set<String> = [
 public struct XGatewayCLI: Sendable {
     private let commandName: String
     private let surface: XGatewaySurface
+    private let streamEventSink: XGatewayStreamEventSink?
 
-    public init(commandName: String, surface: XGatewaySurface) {
+    public init(commandName: String, surface: XGatewaySurface, streamEventSink: XGatewayStreamEventSink? = nil) {
         self.commandName = commandName
         self.surface = surface
+        self.streamEventSink = streamEventSink
     }
 
     public func run(arguments: [String], environment: [String: String]) -> XGatewayCommandResult {
@@ -146,10 +151,16 @@ public struct XGatewayCLI: Sendable {
             asJson = globals.asJson || asJson
             pretty = globals.pretty
             traceId = globals.traceId
-            let payload = try execute(parsed: parsed, globalFlags: globals, environment: environment)
+            let payload = try execute(
+                parsed: parsed,
+                globalFlags: globals,
+                environment: environment,
+                streamEventSink: asJson ? nil : streamEventSink
+            )
+            let suppressStdout = parsed.positionals.first == "stream" && streamEventSink != nil && !asJson
             return XGatewayCommandResult(
                 exitCode: 0,
-                stdout: formatSuccess(payload, asJson: asJson, pretty: pretty),
+                stdout: suppressStdout ? "" : formatSuccess(payload, asJson: asJson, pretty: pretty),
                 stderr: ""
             )
         } catch let error as XGatewayErrorPayload {
@@ -180,7 +191,8 @@ public struct XGatewayCLI: Sendable {
     private func execute(
         parsed: ParsedArgs,
         globalFlags: GlobalFlags,
-        environment: [String: String]
+        environment: [String: String],
+        streamEventSink: XGatewayStreamEventSink?
     ) throws -> Any {
         let group = parsed.positionals.first
         let action = parsed.positionals.dropFirst().first
@@ -220,6 +232,7 @@ public struct XGatewayCLI: Sendable {
                 try enforceSurface(operationType: operationType)
                 return try XGatewayLiveExecutor(
                     token: globalFlags.token ?? environment["X_GW_TOKEN"],
+                    appToken: globalFlags.appToken ?? environment["X_GW_APP_TOKEN"],
                     oauth1Credentials: resolveOAuth1Credentials(globalFlags: globalFlags, environment: environment),
                     mediaRootDir: resolveMediaRootDir(globalFlags: globalFlags, environment: environment),
                     traceId: globalFlags.traceId,
@@ -240,6 +253,24 @@ public struct XGatewayCLI: Sendable {
                 return try authOAuth2(parsed: parsed, globalFlags: globalFlags, environment: environment)
             }
             throw unknownCommand("\(group) \(action ?? "")".trimmingCharacters(in: .whitespaces))
+        }
+
+        if group == "stream" {
+            guard surface == .read else {
+                throw unsupported(
+                    summary: "\(commandName) supports write commands only",
+                    details: "Stream consumption is a read-only long-running command and is disabled for \(commandName).",
+                    remediations: ["Use x-gateway-reader for stream commands."],
+                    traceId: globalFlags.traceId
+                )
+            }
+            return try streamCommand(
+                parsed: parsed,
+                action: action,
+                globalFlags: globalFlags,
+                environment: environment,
+                eventSink: streamEventSink
+            )
         }
 
         if group == "capabilities" {
@@ -363,6 +394,7 @@ public struct XGatewayCLI: Sendable {
             "  \(commandName) auth oauth2 --client-id <id> [--client-secret <secret>] [--store kinko]",
             graphQLLine,
             "  \(commandName) graphql schema",
+            surface == .read ? "  \(commandName) stream sample|filtered [--max-events 100] [--duration-seconds 30]" : nil,
             "  \(commandName) capabilities list",
             "  \(commandName) capabilities get --id <capabilityId>",
             "  \(commandName) health",
@@ -372,7 +404,7 @@ public struct XGatewayCLI: Sendable {
             "  - Swift read and write commands are separate installable products.",
             "  - 'graphql' refers to the owned x-gateway contract, not direct upstream X GraphQL.",
             "  - Live X API execution is ported behind XGatewayCore capability adapters."
-        ].joined(separator: "\n")
+        ].compactMap { $0 }.joined(separator: "\n")
     }
 }
 
@@ -426,6 +458,7 @@ private func readGlobalFlags(_ parsed: ParsedArgs, environment: [String: String]
         pretty: try booleanFlag(parsed, key: "pretty"),
         traceId: try optionalStringFlag(parsed, key: "trace-id"),
         token: try optionalStringFlag(parsed, key: "token"),
+        appToken: try optionalStringFlag(parsed, key: "token"),
         mediaRootDir: try optionalStringFlag(parsed, key: "media-root-dir"),
         consumerKey: try optionalStringFlag(parsed, key: "consumer-key"),
         consumerSecret: try optionalStringFlag(parsed, key: "consumer-secret"),
@@ -529,6 +562,13 @@ private func assertAllowedFlags(_ parsed: ParsedArgs, group: String?, action: St
             "timeout-seconds"
         ])
     }
+    if group == "stream" {
+        allowed.formUnion([
+            "max-events",
+            "duration-seconds",
+            "reconnect"
+        ])
+    }
 
     for key in parsed.flags.keys where !allowed.contains(key) {
         throw validation("Unknown flag --\(key).")
@@ -536,7 +576,7 @@ private func assertAllowedFlags(_ parsed: ParsedArgs, group: String?, action: St
 }
 
 private func assertSupportedCommand(group: String, action: String?) throws {
-    let supported: Set<String> = ["health", "version", "graphql", "auth", "capabilities"]
+    let supported: Set<String> = ["health", "version", "graphql", "auth", "capabilities", "stream"]
     if supported.contains(group) {
         return
     }
@@ -738,8 +778,9 @@ private func unknownCommand(_ attempted: String) -> XGatewayErrorPayload {
 
 private func authVerify(globalFlags: GlobalFlags, environment: [String: String]) -> [String: Any] {
     let hasBearer = nonBlank(globalFlags.token ?? environment["X_GW_TOKEN"]) != nil
+    let hasAppBearer = nonBlank(globalFlags.appToken ?? environment["X_GW_APP_TOKEN"]) != nil
     let hasOAuth1 = resolveOAuth1Credentials(globalFlags: globalFlags, environment: environment) != nil
-    let modes = authModes(hasBearer: hasBearer, hasOAuth1: hasOAuth1)
+    let modes = authModes(hasBearer: hasBearer, hasAppBearer: hasAppBearer, hasOAuth1: hasOAuth1)
     let authMode = modes.count > 1 ? "mixed" : (modes.first ?? "none")
     let message: String
     if modes.isEmpty {
@@ -759,12 +800,14 @@ private func authVerify(globalFlags: GlobalFlags, environment: [String: String])
 
 private func authScopes(globalFlags: GlobalFlags, environment: [String: String]) -> [String: Any] {
     let hasBearer = nonBlank(globalFlags.token ?? environment["X_GW_TOKEN"]) != nil
+    let hasAppBearer = nonBlank(globalFlags.appToken ?? environment["X_GW_APP_TOKEN"]) != nil
     let hasOAuth1 = resolveOAuth1Credentials(globalFlags: globalFlags, environment: environment) != nil
     return [
-        "authMode": authModes(hasBearer: hasBearer, hasOAuth1: hasOAuth1).joined(separator: ", "),
+        "authMode": authModes(hasBearer: hasBearer, hasAppBearer: hasAppBearer, hasOAuth1: hasOAuth1).joined(separator: ", "),
         "notes": [
             "Swift auth diagnostics only inspect configured credential families.",
             "OAuth1 signing is available only for operations that support OAuth1; usage, search/news/trends, and bookmark operations remain bearer-only.",
+            "X_GW_APP_TOKEN is preferred for app-only public endpoints such as full-archive search, counts, stream rules, and OpenAPI spec reads.",
             "Live scope verification still requires an upstream X API request."
         ]
     ]
@@ -822,10 +865,63 @@ private func authOAuth2(
     ).run()
 }
 
-private func authModes(hasBearer: Bool, hasOAuth1: Bool) -> [String] {
+private func streamCommand(
+    parsed: ParsedArgs,
+    action: String?,
+    globalFlags: GlobalFlags,
+    environment: [String: String],
+    eventSink: XGatewayStreamEventSink?
+) throws -> [String: Any] {
+    guard let action else {
+        throw validation("stream requires an action: sample or filtered.")
+    }
+    let endpoint: XGatewayStreamEndpoint
+    switch action {
+    case "sample":
+        endpoint = .sample
+    case "filtered":
+        endpoint = .filtered
+    default:
+        throw unknownCommand("stream \(action)")
+    }
+    try assertNoExtraPositionals(parsed, expectedCount: 2, commandLabel: "stream \(action)")
+
+    let options = XGatewayStreamOptions(
+        endpoint: endpoint,
+        maxEvents: try optionalIntFlag(parsed, key: "max-events", defaultValue: 100, minimum: 1, maximum: 1_000),
+        durationSeconds: try optionalIntFlag(parsed, key: "duration-seconds", defaultValue: 30, minimum: 1, maximum: 86_400),
+        reconnect: try optionalBooleanFlag(parsed, key: "reconnect", defaultValue: false)
+    )
+
+    guard let token = nonBlank(globalFlags.token ?? environment["X_GW_APP_TOKEN"] ?? environment["X_GW_TOKEN"]) else {
+        throw XGatewayErrorPayload(
+            code: .authMissing,
+            summary: "Authentication configuration missing",
+            details: "stream \(action) requires X_GW_APP_TOKEN, X_GW_TOKEN, or --token for bearer-token stream consumption.",
+            likelyCauses: ["No bearer token was configured"],
+            remediations: ["Set X_GW_APP_TOKEN to an app-only bearer token with access to the requested X stream endpoint."],
+            classification: "auth",
+            retryable: false,
+            traceId: globalFlags.traceId
+        )
+    }
+    return try XGatewayLiveExecutor(
+        token: token,
+        appToken: nil,
+        oauth1Credentials: nil,
+        mediaRootDir: nil,
+        traceId: globalFlags.traceId,
+        transport: globalFlags.transport
+    ).executeStream(options: options, authorization: .bearer(token), eventSink: eventSink)
+}
+
+private func authModes(hasBearer: Bool, hasAppBearer: Bool, hasOAuth1: Bool) -> [String] {
     var modes: [String] = []
     if hasOAuth1 {
         modes.append("oauth1")
+    }
+    if hasAppBearer {
+        modes.append("app-bearer")
     }
     if hasBearer {
         modes.append("bearer")

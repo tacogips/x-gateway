@@ -2,6 +2,7 @@ import Foundation
 
 func capabilityRows() -> [[String: Any]] {
     let oauth1PreferredStatus = "swift-oauth1-preferred-bearer-fallback"
+    let appBearerPreferredStatus = "swift-app-bearer-preferred"
     let bearerStatus = "swift-bearer-baseline"
     return [
         capabilityRow(id: "account.me", operation: "accountMe", access: "read", status: oauth1PreferredStatus),
@@ -22,12 +23,12 @@ func capabilityRows() -> [[String: Any]] {
         capabilityRow(id: "post.likingUsers", operation: "postLikingUsers", access: "read", status: oauth1PreferredStatus),
         capabilityRow(id: "post.repostingUsers", operation: "postRepostingUsers", access: "read", status: oauth1PreferredStatus),
         capabilityRow(id: "post.quotes", operation: "postQuotes", access: "read", status: oauth1PreferredStatus),
-        capabilityRow(id: "search.posts.all", operation: "searchAllPosts", access: "read", status: bearerStatus),
+        capabilityRow(id: "search.posts.all", operation: "searchAllPosts", access: "read", status: appBearerPreferredStatus),
         capabilityRow(id: "search.users", operation: "searchUsers", access: "read", status: bearerStatus),
         capabilityRow(id: "search.news", operation: "searchNews", access: "read", status: bearerStatus),
         capabilityRow(id: "news.get", operation: "news", access: "read", status: bearerStatus),
         capabilityRow(id: "trends.woeid", operation: "trendsByWoeid", access: "read", status: bearerStatus),
-        capabilityRow(id: "post.counts.recent", operation: "recentPostCounts", access: "read", status: oauth1PreferredStatus),
+        capabilityRow(id: "post.counts.recent", operation: "recentPostCounts", access: "read", status: appBearerPreferredStatus),
         capabilityRow(id: "bookmarks.list", operation: "bookmarks", access: "read", status: bearerStatus),
         capabilityRow(id: "bookmarks.folders.list", operation: "bookmarkFolders", access: "read", status: bearerStatus),
         capabilityRow(id: "bookmarks.folders.posts", operation: "bookmarksByFolder", access: "read", status: bearerStatus),
@@ -102,7 +103,7 @@ func capabilityRows() -> [[String: Any]] {
         capabilityRow(id: "media.metadata.create", operation: "createMediaMetadata", access: "write", status: bearerStatus),
         capabilityRow(id: "media.subtitles.create", operation: "createMediaSubtitles", access: "write", status: bearerStatus),
         capabilityRow(id: "media.subtitles.delete", operation: "deleteMediaSubtitles", access: "write", status: bearerStatus),
-        capabilityRow(id: "post.counts.all", operation: "allPostCounts", access: "read", status: bearerStatus),
+        capabilityRow(id: "post.counts.all", operation: "allPostCounts", access: "read", status: appBearerPreferredStatus),
         capabilityRow(id: "post.hide-reply", operation: "hideReply", access: "write", status: bearerStatus),
         capabilityRow(id: "users.personalized-trends", operation: "personalizedTrends", access: "read", status: bearerStatus),
         capabilityRow(id: "users.public-keys", operation: "publicKeys", access: "read", status: bearerStatus),
@@ -122,7 +123,7 @@ func capabilityRows() -> [[String: Any]] {
         capabilityRow(id: "activity.subscriptions.update", operation: "updateActivitySubscription", access: "write", status: bearerStatus),
         capabilityRow(id: "activity.subscriptions.delete", operation: "deleteActivitySubscription", access: "write", status: bearerStatus),
         capabilityRow(id: "activity.subscriptions.delete.bulk", operation: "deleteActivitySubscriptions", access: "write", status: bearerStatus),
-        capabilityRow(id: "openapi.spec", operation: "openAPISpec", access: "read", status: bearerStatus),
+        capabilityRow(id: "openapi.spec", operation: "openAPISpec", access: "read", status: appBearerPreferredStatus),
         capabilityRow(id: "account-activity.subscriptions.count", operation: "accountActivitySubscriptionCount", access: "read", status: bearerStatus),
         capabilityRow(id: "account-activity.subscriptions.list", operation: "accountActivitySubscriptions", access: "read", status: bearerStatus),
         capabilityRow(id: "account-activity.subscriptions.validate", operation: "validateAccountActivitySubscription", access: "read", status: bearerStatus),
@@ -131,6 +132,15 @@ func capabilityRows() -> [[String: Any]] {
         capabilityRow(id: "chat.conversations.list", operation: "chatConversations", access: "read", status: bearerStatus),
         capabilityRow(id: "chat.conversations.get", operation: "chatConversation", access: "read", status: bearerStatus),
         capabilityRow(id: "chat.conversations.events", operation: "chatConversationEvents", access: "read", status: bearerStatus),
+        capabilityRow(id: "spaces.lookup", operation: "spaces", access: "read", status: bearerStatus),
+        capabilityRow(id: "spaces.lookupByCreator", operation: "spacesByCreatorIds", access: "read", status: bearerStatus),
+        capabilityRow(id: "spaces.search", operation: "searchSpaces", access: "read", status: bearerStatus),
+        capabilityRow(id: "spaces.get", operation: "space", access: "read", status: bearerStatus),
+        capabilityRow(id: "spaces.buyers", operation: "spaceBuyers", access: "read", status: bearerStatus),
+        capabilityRow(id: "spaces.posts", operation: "spacePosts", access: "read", status: bearerStatus),
+        capabilityRow(id: "stream.rules", operation: "streamRules", access: "read", status: appBearerPreferredStatus),
+        capabilityRow(id: "stream.rules.counts", operation: "streamRuleCounts", access: "read", status: appBearerPreferredStatus),
+        capabilityRow(id: "stream.rules.update", operation: "updateStreamRules", access: "write", status: appBearerPreferredStatus),
         capabilityRow(id: "chat.conversations.keys.initialize", operation: "initializeChatConversationKeys", access: "write", status: bearerStatus),
         capabilityRow(id: "chat.group.members.add", operation: "addChatGroupMembers", access: "write", status: bearerStatus),
         capabilityRow(id: "chat.messages.encrypted.create", operation: "sendEncryptedChatMessage", access: "write", status: bearerStatus),

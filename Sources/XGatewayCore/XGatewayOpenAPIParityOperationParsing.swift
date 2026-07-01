@@ -120,7 +120,29 @@ private let openAPIParityQueryDefinitions: [OpenAPIParityDefinition] = [
     get("openAPISpec", "/2/openapi.json"),
     get("chatConversations", "/2/chat/conversations", query: commonPageParameters),
     get("chatConversation", "/2/chat/conversations/{id}", path: ["id"]),
-    get("chatConversationEvents", "/2/chat/conversations/{id}/events", path: ["id"], query: commonPageParameters)
+    get("chatConversationEvents", "/2/chat/conversations/{id}/events", path: ["id"], query: commonPageParameters),
+    get("spaces", "/2/spaces", query: [
+        stringArrayParam("ids", required: true, maximum: 100)
+    ]),
+    get("spacesByCreatorIds", "/2/spaces/by/creator_ids", query: [
+        stringArrayParam("userIds", upstream: "user_ids", required: true, maximum: 100)
+    ]),
+    get("searchSpaces", "/2/spaces/search", query: [
+        stringParam("query", required: true),
+        stringParam("state"),
+        intParam("maxResults", upstream: "max_results", defaultValue: nil, minimum: 1, maximum: 100)
+    ]),
+    get("space", "/2/spaces/{id}", path: ["id"]),
+    get("spaceBuyers", "/2/spaces/{id}/buyers", path: ["id"], query: commonPageParameters),
+    get("spacePosts", "/2/spaces/{id}/tweets", path: ["id"], query: [
+        intParam("maxResults", upstream: "max_results", defaultValue: nil, minimum: 1, maximum: 100)
+    ]),
+    get("streamRules", "/2/tweets/search/stream/rules", query: [
+        stringArrayParam("ids", required: false, maximum: 1_000),
+        intParam("maxResults", upstream: "max_results", defaultValue: nil, minimum: 1, maximum: 1_000),
+        stringParam("paginationToken", upstream: "pagination_token")
+    ]),
+    get("streamRuleCounts", "/2/tweets/search/stream/rules/counts")
 ]
 
 private let openAPIParityMutationDefinitions: [OpenAPIParityDefinition] = [
@@ -240,7 +262,14 @@ private let openAPIParityMutationDefinitions: [OpenAPIParityDefinition] = [
         stringParam("messageId", upstream: "message_id"),
         stringParam("numParts", upstream: "num_parts"),
         stringParam("ttlMsec", upstream: "ttl_msec")
-    ])
+    ]),
+    post("updateStreamRules", "/2/tweets/search/stream/rules", query: [
+        boolParam("dryRun", upstream: "dry_run"),
+        boolParam("deleteAll", upstream: "delete_all")
+    ], body: [
+        stringParam("addJSON"),
+        stringParam("deleteJSON")
+    ], bodyBuilder: streamRulesBody)
 ]
 
 func parseOpenAPIParityQueryOperation(fieldName: String?, arguments: String) throws -> SupportedGraphQLOperation? {
@@ -411,6 +440,20 @@ private func encryptedChatGroupBody(arguments: String, fieldName: String) throws
     try copyOptionalStringArgument("groupDescription", upstream: "group_description", from: arguments, fieldName: fieldName, into: &body)
     try copyOptionalStringArgument("groupAvatarUrl", upstream: "group_avatar_url", from: arguments, fieldName: fieldName, into: &body)
     try copyOptionalStringArgument("ttlMsec", upstream: "ttl_msec", from: arguments, fieldName: fieldName, into: &body)
+    return body
+}
+
+private func streamRulesBody(arguments: String, fieldName: String) throws -> [String: Any]? {
+    var body: [String: Any] = [:]
+    if let add = try optionalJSONArgument("addJSON", from: arguments, fieldName: fieldName) {
+        body["add"] = add
+    }
+    if let delete = try optionalJSONArgument("deleteJSON", from: arguments, fieldName: fieldName) {
+        body["delete"] = delete
+    }
+    guard !body.isEmpty else {
+        throw validation("\(fieldName) requires addJSON or deleteJSON.")
+    }
     return body
 }
 

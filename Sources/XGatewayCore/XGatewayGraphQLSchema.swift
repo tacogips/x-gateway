@@ -86,6 +86,14 @@ type Query {
   chatConversations(maxResults: Int, paginationToken: String): OpenAPIResult!
   chatConversation(id: ID!): OpenAPIResult!
   chatConversationEvents(id: ID!, maxResults: Int, paginationToken: String): OpenAPIResult!
+  spaces(ids: [ID!]!): SpacePage!
+  spacesByCreatorIds(userIds: [ID!]!): SpacePage!
+  searchSpaces(query: String!, state: String, maxResults: Int): SpacePage!
+  space(id: ID!): Space!
+  spaceBuyers(id: ID!, maxResults: Int, paginationToken: String): UserPage!
+  spacePosts(id: ID!, maxResults: Int): PostPage!
+  streamRules(ids: [ID!], maxResults: Int, paginationToken: String): StreamRulePage!
+  streamRuleCounts: OpenAPIResult!
   downloadChatMedia(id: ID!, mediaHashKey: String!, outputPath: String!): OpenAPIResult!
   downloadDirectMessageMedia(dmId: ID!, mediaId: ID!, resourceId: String!, outputPath: String!): OpenAPIResult!
 }
@@ -118,7 +126,7 @@ type Mutation {
   createDirectMessageInConversation(conversationId: ID!, text: String!, attachments: [PostAttachmentInput!]): DirectMessageEvent!
   createDirectMessageConversation(participantIds: [ID!]!, text: String!, attachments: [PostAttachmentInput!]): DirectMessageEvent!
   deleteDirectMessage(eventId: ID!): DeleteResult!
-  createArticleDraft(title: String!, text: String!): ArticleDraftResult!
+  createArticleDraft(title: String!, text: String, contentStateJSON: String): ArticleDraftResult!
   publishArticle(articleId: ID!): ArticlePublishResult!
   createComplianceJob(type: String!, name: String!, resumable: Boolean): OpenAPIResult!
   createCommunityNote(postId: ID!, classification: String!, text: String!, testMode: Boolean): OpenAPIResult!
@@ -177,6 +185,7 @@ type Mutation {
   uploadMedia(filePath: String!, mediaCategory: String!, mediaType: String, shared: Boolean, additionalOwners: [ID!]): OpenAPIResult!
   appendMediaUpload(mediaId: ID!, segmentIndex: Int!, filePath: String!): OpenAPIResult!
   appendChatMediaUpload(id: ID!, conversationId: ID!, mediaHashKey: String!, segmentIndex: Int!, filePath: String!): OpenAPIResult!
+  updateStreamRules(addJSON: String, deleteJSON: String, dryRun: Boolean, deleteAll: Boolean): StreamRuleUpdateResult!
 }
 
 scalar JSON
@@ -271,6 +280,68 @@ type Trend {
 type TrendPage {
   trends: [Trend!]!
   pageInfo: PageInfo!
+}
+
+type Space {
+  id: ID!
+  state: String
+  title: String
+  creatorId: ID
+  hostIds: [ID!]
+  speakerIds: [ID!]
+  invitedUserIds: [ID!]
+  participantCount: Int
+  subscriberCount: Int
+  createdAt: String
+  startedAt: String
+  endedAt: String
+  scheduledStart: String
+  updatedAt: String
+  lang: String
+  isTicketed: Boolean
+  topicIds: [ID!]
+}
+
+type SpacePage {
+  spaces: [Space!]!
+  pageInfo: PageInfo!
+}
+
+type StreamRule {
+  id: ID!
+  value: String!
+  tag: String
+}
+
+type StreamRuleSummary {
+  created: Int
+  deleted: Int
+  invalid: Int
+  notCreated: Int
+  notDeleted: Int
+  valid: Int
+}
+
+type StreamRuleError {
+  title: String
+  type: String
+  detail: String
+  status: Int
+}
+
+type StreamRulePage {
+  rules: [StreamRule!]!
+  pageInfo: PageInfo!
+  sent: String
+  summary: StreamRuleSummary
+}
+
+type StreamRuleUpdateResult {
+  rules: [StreamRule!]!
+  pageInfo: PageInfo!
+  sent: String
+  summary: StreamRuleSummary
+  errors: [StreamRuleError!]
 }
 
 type MediaAsset {
