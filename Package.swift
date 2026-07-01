@@ -25,13 +25,15 @@ let package = Package(
             targets: ["XGatewaySwiftSmokeTests"]
         )
     ],
+    dependencies: [
+        .package(url: "https://github.com/apple/swift-crypto.git", from: "3.0.0")
+    ],
     targets: [
         .target(
-            name: "XGatewayCrypto"
-        ),
-        .target(
             name: "XGatewayCore",
-            dependencies: ["XGatewayCrypto"]
+            dependencies: [
+                .product(name: "Crypto", package: "swift-crypto")
+            ]
         ),
         .executableTarget(
             name: "XGatewayRead",

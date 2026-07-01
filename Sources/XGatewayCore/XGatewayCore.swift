@@ -116,7 +116,12 @@ private let globalFlagNames: Set<String> = [
     "access-token",
     "access-token-secret",
     "client-id",
-    "client-secret"
+    "client-secret",
+    "redirect-uri",
+    "scopes",
+    "store",
+    "open-browser",
+    "timeout-seconds"
 ]
 
 public struct XGatewayCLI: Sendable {
@@ -230,6 +235,9 @@ public struct XGatewayCLI: Sendable {
             }
             if action == "scopes" {
                 return authScopes(globalFlags: globalFlags, environment: environment)
+            }
+            if action == "oauth2" {
+                return try authOAuth2(parsed: parsed, globalFlags: globalFlags, environment: environment)
             }
             throw unknownCommand("\(group) \(action ?? "")".trimmingCharacters(in: .whitespaces))
         }
@@ -352,6 +360,7 @@ public struct XGatewayCLI: Sendable {
         return [
             "\(commandName) command usage:",
             "  \(commandName) auth verify|scopes",
+            "  \(commandName) auth oauth2 --client-id <id> [--client-secret <secret>] [--store kinko]",
             graphQLLine,
             "  \(commandName) graphql schema",
             "  \(commandName) capabilities list",
@@ -509,6 +518,17 @@ private func assertAllowedFlags(_ parsed: ParsedArgs, group: String?, action: St
     if group == "capabilities" && action == "get" {
         allowed.insert("id")
     }
+    if group == "auth" && action == "oauth2" {
+        allowed.formUnion([
+            "client-id",
+            "client-secret",
+            "redirect-uri",
+            "scopes",
+            "store",
+            "open-browser",
+            "timeout-seconds"
+        ])
+    }
 
     for key in parsed.flags.keys where !allowed.contains(key) {
         throw validation("Unknown flag --\(key).")
@@ -578,6 +598,35 @@ private func booleanFlag(_ parsed: ParsedArgs, key: String) throws -> Bool {
         return false
     default:
         throw validation("Flag --\(key) must be a boolean value ('true' or 'false').")
+    }
+}
+
+private func optionalBooleanFlag(
+    _ parsed: ParsedArgs,
+    key: String,
+    environment: [String: String] = [:],
+    environmentKey: String? = nil,
+    defaultValue: Bool
+) throws -> Bool {
+    let rawValue: String
+    let label: String
+    if let value = parsed.flags[key]?.last {
+        rawValue = value.value
+        label = "Flag --\(key)"
+    } else if let environmentKey,
+              let value = nonBlank(environment[environmentKey]) {
+        rawValue = value
+        label = "Environment variable \(environmentKey)"
+    } else {
+        return defaultValue
+    }
+    switch rawValue.lowercased() {
+    case "true", "1", "yes":
+        return true
+    case "false", "0", "no":
+        return false
+    default:
+        throw validation("\(label) must be a boolean value ('true' or 'false').")
     }
 }
 
@@ -715,10 +764,62 @@ private func authScopes(globalFlags: GlobalFlags, environment: [String: String])
         "authMode": authModes(hasBearer: hasBearer, hasOAuth1: hasOAuth1).joined(separator: ", "),
         "notes": [
             "Swift auth diagnostics only inspect configured credential families.",
-            "OAuth1 signing is available for non-usage Swift live requests; apiUsage remains bearer-only.",
+            "OAuth1 signing is available only for operations that support OAuth1; usage, search/news/trends, and bookmark operations remain bearer-only.",
             "Live scope verification still requires an upstream X API request."
         ]
     ]
+}
+
+private func authOAuth2(
+    parsed: ParsedArgs,
+    globalFlags: GlobalFlags,
+    environment: [String: String]
+) throws -> [String: Any] {
+    try assertNoExtraPositionals(parsed, expectedCount: 2, commandLabel: "auth oauth2")
+    guard let clientId = nonBlank(try optionalStringFlag(parsed, key: "client-id") ?? environment["X_GW_OAUTH2_CLIENT_ID"]) else {
+        throw validation("auth oauth2 requires --client-id or X_GW_OAUTH2_CLIENT_ID.")
+    }
+    let clientSecret = nonBlank(try optionalStringFlag(parsed, key: "client-secret") ?? environment["X_GW_OAUTH2_CLIENT_SECRET"])
+    let redirectURI = nonBlank(try optionalStringFlag(parsed, key: "redirect-uri") ?? environment["X_GW_OAUTH2_REDIRECT_URI"])
+        ?? "http://127.0.0.1:8765/callback"
+    let scopes = XGatewayOAuth2.parseScopes(try optionalStringFlag(parsed, key: "scopes") ?? environment["X_GW_OAUTH2_SCOPES"])
+    let storeValue = try optionalEnumFlag(
+        parsed,
+        key: "store",
+        environment: environment,
+        environmentKey: "X_GW_OAUTH2_STORE",
+        defaultValue: "none",
+        allowed: ["none", "kinko"]
+    )
+    let storeMode = XGatewayOAuth2StoreMode(rawValue: storeValue) ?? .none
+    let openBrowser = try optionalBooleanFlag(
+        parsed,
+        key: "open-browser",
+        environment: environment,
+        environmentKey: "X_GW_OAUTH2_OPEN_BROWSER",
+        defaultValue: true
+    )
+    let timeoutSeconds = try optionalIntFlag(
+        parsed,
+        key: "timeout-seconds",
+        environment: environment,
+        environmentKey: "X_GW_OAUTH2_TIMEOUT_SECONDS",
+        defaultValue: 600,
+        minimum: 1,
+        maximum: 3_600
+    )
+    return try XGatewayOAuth2LoopbackFlow(
+        options: XGatewayOAuth2Options(
+            clientId: clientId,
+            clientSecret: clientSecret,
+            redirectURI: redirectURI,
+            scopes: scopes,
+            storeMode: storeMode,
+            openBrowser: openBrowser,
+            timeoutSeconds: timeoutSeconds,
+            traceId: globalFlags.traceId
+        )
+    ).run()
 }
 
 private func authModes(hasBearer: Bool, hasOAuth1: Bool) -> [String] {
@@ -730,102 +831,6 @@ private func authModes(hasBearer: Bool, hasOAuth1: Bool) -> [String] {
         modes.append("bearer")
     }
     return modes
-}
-
-private func capabilityRows() -> [[String: Any]] {
-    let oauth1PreferredStatus = "swift-oauth1-preferred-bearer-fallback"
-    return [
-        [
-            "id": "account.me",
-            "operation": "accountMe",
-            "access": "read",
-            "status": oauth1PreferredStatus
-        ],
-        [
-            "id": "usage.tweets",
-            "operation": "apiUsage",
-            "access": "read",
-            "status": "swift-bearer-baseline"
-        ],
-        [
-            "id": "timeline.following",
-            "operation": "followingTimeline",
-            "access": "read",
-            "status": oauth1PreferredStatus
-        ],
-        [
-            "id": "post.get",
-            "operation": "post",
-            "access": "read",
-            "status": oauth1PreferredStatus
-        ],
-        [
-            "id": "post.replies",
-            "operation": "Post.replies",
-            "access": "read",
-            "status": oauth1PreferredStatus
-        ],
-        [
-            "id": "timeline.search",
-            "operation": "searchPosts",
-            "access": "read",
-            "status": oauth1PreferredStatus
-        ],
-        [
-            "id": "timeline.user",
-            "operation": "userTimeline",
-            "access": "read",
-            "status": oauth1PreferredStatus
-        ],
-        [
-            "id": "timeline.home",
-            "operation": "homeTimeline",
-            "access": "read",
-            "status": oauth1PreferredStatus
-        ],
-        [
-            "id": "timeline.mentions",
-            "operation": "mentionsTimeline",
-            "access": "read",
-            "status": oauth1PreferredStatus
-        ],
-        [
-            "id": "post.create",
-            "operation": "createPost",
-            "access": "write",
-            "status": oauth1PreferredStatus
-        ],
-        [
-            "id": "post.delete",
-            "operation": "deletePost",
-            "access": "write",
-            "status": oauth1PreferredStatus
-        ],
-        [
-            "id": "post.reply",
-            "operation": "replyToPost",
-            "access": "write",
-            "status": oauth1PreferredStatus
-        ],
-        [
-            "id": "post.quote",
-            "operation": "quotePost",
-            "access": "write",
-            "status": oauth1PreferredStatus
-        ],
-        [
-            "id": "post.repost",
-            "operation": "repostPost",
-            "access": "write",
-            "status": oauth1PreferredStatus
-        ],
-        [
-            "id": "post.unrepost",
-            "operation": "unrepostPost",
-            "access": "write",
-            "status": oauth1PreferredStatus
-        ]
-    ]
 }
 
 private func formatSuccess(_ payload: Any, asJson: Bool, pretty: Bool) -> String {

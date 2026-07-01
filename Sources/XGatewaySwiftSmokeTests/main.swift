@@ -59,6 +59,8 @@ func runSmokeTests() throws {
     try runCryptoAndSurfaceSmokeTests()
     try runSchemaAndFormulaSmokeTests()
     try runRepliesAndMetadataSmokeTests()
+    try runMCPParitySmokeTests()
+    try runOAuth2SmokeTests()
     try runReadAuthSmokeTests()
     try runGraphQLSelectionParsingSmokeTests()
     try runGraphQLArgumentSyntaxSmokeTests()
@@ -175,7 +177,7 @@ func runSchemaAndFormulaSmokeTests() throws {
     try assert(schema.stdout.contains("downloadMedia: Boolean"), "schema should expose downloadMedia arguments")
     try assert(schema.stdout.contains("forceDownload: Boolean"), "schema should expose forceDownload arguments")
     try assert(schema.stdout.contains("replies(maxResults: Int"), "schema should expose nested Post.replies")
-    try assert(schema.stdout.components(separatedBy: "deleted: Boolean!").count == 2, "schema should expose DeletePostResult.deleted once")
+    try assert(schema.stdout.components(separatedBy: "deleted: Boolean!").count == 3, "schema should expose delete result booleans")
 
     let unsafeFormulaURL = try runProcess(
         executable: environmentExecutable,
@@ -295,7 +297,7 @@ func runRepliesAndMetadataSmokeTests() throws {
         environment: [:]
     )
     try assert(oauthScopeNotes.exitCode == 0, "auth scopes should accept explicit OAuth1 flags")
-    try assert(oauthScopeNotes.stdout.contains("apiUsage remains bearer-only"), "auth scopes should document bearer-only usage")
+    try assert(oauthScopeNotes.stdout.contains("bookmark operations remain bearer-only"), "auth scopes should document bearer-only usage")
 
     let createCapability = writeCli.run(
         arguments: ["capabilities", "get", "--id", "post.create", "--json"],
@@ -605,7 +607,7 @@ func runGraphQLArgumentSyntaxSmokeTests() throws {
 func runMutationValidationSmokeTests() throws {
     let writeCli = XGatewayCLI(commandName: "x-gateway-writer", surface: .write)
 
-    let createAttachmentMissingOAuth = writeCli.run(
+    let createAttachmentMissingAuth = writeCli.run(
         arguments: [
             "graphql",
             "query",
@@ -614,9 +616,33 @@ func runMutationValidationSmokeTests() throws {
         ],
         environment: [:]
     )
-    try assert(createAttachmentMissingOAuth.exitCode == 3, "createPost attachments without OAuth1 should fail auth before live posting")
-    try assert(createAttachmentMissingOAuth.stderr.contains("AUTH_MISSING"), "createPost attachments should report missing OAuth1")
-    try assert(createAttachmentMissingOAuth.stderr.contains("OAuth1"), "createPost attachment auth rejection should name OAuth1")
+    try assert(createAttachmentMissingAuth.exitCode == 3, "createPost attachments without credentials should fail auth before live posting")
+    try assert(createAttachmentMissingAuth.stderr.contains("AUTH_MISSING"), "createPost attachments should report missing auth")
+    try assert(createAttachmentMissingAuth.stderr.contains("createPost requires X_GW_TOKEN"), "createPost attachment auth rejection should name bearer auth")
+
+    let createVideoAttachmentMissingAuth = writeCli.run(
+        arguments: [
+            "graphql",
+            "query",
+            "mutation { createPost(text: \"hi\", attachments: [{ kind: \"video\", filePath: \"/tmp/x-gateway-missing-swift-upload-fixture-video.mp4\" }]) { id } }",
+            "--json"
+        ],
+        environment: [:]
+    )
+    try assert(createVideoAttachmentMissingAuth.exitCode == 3, "createPost video attachments should parse and reach auth validation")
+    try assert(createVideoAttachmentMissingAuth.stderr.contains("createPost requires X_GW_TOKEN"), "video attachment auth rejection should name bearer auth")
+
+    let createVideoAttachmentWithAltText = writeCli.run(
+        arguments: [
+            "graphql",
+            "query",
+            "mutation { createPost(text: \"hi\", attachments: [{ kind: \"video\", filePath: \"/tmp/x-gateway-video.mp4\", altText: \"not supported\" }]) { id } }",
+            "--json"
+        ],
+        environment: [:]
+    )
+    try assert(createVideoAttachmentWithAltText.exitCode == 2, "video attachment alt text should fail validation")
+    try assert(createVideoAttachmentWithAltText.stderr.contains("altText"), "video attachment alt text validation should name altText")
 
     let createAttachmentWithCommentedValues = writeCli.run(
         arguments: [
@@ -631,16 +657,13 @@ func runMutationValidationSmokeTests() throws {
         environment: [:]
     )
     try assert(createAttachmentWithCommentedValues.exitCode == 3, "comments inside attachment input should not fail attachment parsing")
-    try assert(createAttachmentWithCommentedValues.stderr.contains("OAuth1"), "commented attachment input should still require OAuth1 before live posting")
+    try assert(createAttachmentWithCommentedValues.stderr.contains("createPost requires X_GW_TOKEN"), "commented attachment input should still require auth before live posting")
 
     let createAttachmentMissingFile = writeCli.run(
         arguments: [
             "graphql", "query",
             "mutation { createPost(text: \"hi\", attachments: [{ kind: \"image\", filePath: \"/tmp/x-gateway-missing-swift-upload-fixture-a.png\", altText: \"example\" }]) { id } }",
-            "--consumer-key", "ck",
-            "--consumer-secret", "cs",
-            "--access-token", "at",
-            "--access-token-secret", "ats",
+            "--token", "bearer",
             "--json"
         ],
         environment: [:]
@@ -719,7 +742,7 @@ func runMutationValidationSmokeTests() throws {
     try assert(mutationWithTrailingToken.exitCode == 2, "trailing mutation tokens should fail validation before auth or execution")
     try assert(mutationWithTrailingToken.stderr.contains("Unexpected GraphQL token 'trailing'"), "trailing mutation token diagnostic should name the unexpected token")
 
-    let replyAttachmentMissingOAuth = writeCli.run(
+    let replyAttachmentMissingAuth = writeCli.run(
         arguments: [
             "graphql",
             "query",
@@ -728,8 +751,8 @@ func runMutationValidationSmokeTests() throws {
         ],
         environment: [:]
     )
-    try assert(replyAttachmentMissingOAuth.exitCode == 3, "replyToPost attachments without OAuth1 should fail auth before live posting")
-    try assert(replyAttachmentMissingOAuth.stderr.contains("replyToPost.attachments"), "reply attachment auth rejection should name the field")
+    try assert(replyAttachmentMissingAuth.exitCode == 3, "replyToPost attachments without credentials should fail auth before live posting")
+    try assert(replyAttachmentMissingAuth.stderr.contains("replyToPost requires X_GW_TOKEN"), "reply attachment auth rejection should name bearer auth")
 
     let quoteMissingAuth = writeCli.run(
         arguments: ["graphql", "query", "mutation { quotePost(text: \"hi\", quotedPostId: \"123\") { id } }", "--json"],
@@ -738,7 +761,7 @@ func runMutationValidationSmokeTests() throws {
     try assert(quoteMissingAuth.exitCode == 3, "quotePost should reach auth validation")
     try assert(quoteMissingAuth.stderr.contains("quotePost requires X_GW_TOKEN"), "quotePost should report missing auth")
 
-    let quoteAttachmentMissingOAuth = writeCli.run(
+    let quoteAttachmentMissingAuth = writeCli.run(
         arguments: [
             "graphql",
             "query",
@@ -747,8 +770,8 @@ func runMutationValidationSmokeTests() throws {
         ],
         environment: [:]
     )
-    try assert(quoteAttachmentMissingOAuth.exitCode == 3, "quotePost attachments without OAuth1 should fail auth before live posting")
-    try assert(quoteAttachmentMissingOAuth.stderr.contains("quotePost.attachments"), "quote attachment auth rejection should name the field")
+    try assert(quoteAttachmentMissingAuth.exitCode == 3, "quotePost attachments without credentials should fail auth before live posting")
+    try assert(quoteAttachmentMissingAuth.stderr.contains("quotePost requires X_GW_TOKEN"), "quote attachment auth rejection should name bearer auth")
 
     let repostMissingAuth = writeCli.run(
         arguments: ["graphql", "query", "mutation { repostPost(postId: \"123\") { id } }", "--json"],

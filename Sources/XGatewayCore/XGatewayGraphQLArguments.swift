@@ -263,6 +263,26 @@ func extractOptionalIntArgument(
     return parsed
 }
 
+func extractRequiredIntArgument(
+    _ name: String,
+    from document: String,
+    minimum: Int,
+    maximum: Int,
+    fieldName: String
+) throws -> Int {
+    guard rangeOfGraphQLArgument(name, in: document) != nil else {
+        throw validation("\(fieldName) requires \(name).")
+    }
+    return try extractOptionalIntArgument(
+        name,
+        from: document,
+        defaultValue: minimum,
+        minimum: minimum,
+        maximum: maximum,
+        fieldName: fieldName
+    )
+}
+
 func extractOptionalBoolArgument(
     _ name: String,
     from document: String,
@@ -321,4 +341,80 @@ func extractStringArgument(_ name: String, from document: String, fieldName: Str
         throw validation("\(fieldName).\(name) must be a string literal.")
     }
     return parsed.value
+}
+
+func extractStringArrayArgument(
+    _ name: String,
+    from document: String,
+    fieldName: String,
+    minimum: Int = 1,
+    maximum: Int
+) throws -> [String] {
+    guard let values = try extractOptionalStringArrayArgument(
+        name,
+        from: document,
+        fieldName: fieldName,
+        minimum: minimum,
+        maximum: maximum
+    ) else {
+        throw validation("\(fieldName) requires \(name).")
+    }
+    return values
+}
+
+func extractOptionalStringArrayArgument(
+    _ name: String,
+    from document: String,
+    fieldName: String,
+    minimum: Int = 1,
+    maximum: Int
+) throws -> [String]? {
+    guard let nameRange = rangeOfGraphQLArgument(name, in: document) else {
+        return nil
+    }
+    var index = skipGraphQLIgnored(in: document, from: nameRange.upperBound)
+    guard index < document.endIndex,
+          document[index] == "[" else {
+        throw validation("\(fieldName).\(name) must be a list of string literals.")
+    }
+    index = document.index(after: index)
+    var values: [String] = []
+    while true {
+        index = skipGraphQLIgnored(in: document, from: index)
+        guard index < document.endIndex else {
+            throw validation("\(fieldName).\(name) must close with ].")
+        }
+        if document[index] == "]" {
+            index = document.index(after: index)
+            break
+        }
+        guard document[index] == "\"" else {
+            throw validation("\(fieldName).\(name) must contain only string literals.")
+        }
+        let parsed = try parseStringLiteral(from: document, at: index, context: "\(fieldName).\(name)")
+        let value = parsed.value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if value.isEmpty {
+            throw validation("\(fieldName).\(name) must not contain empty strings.")
+        }
+        values.append(value)
+        index = skipGraphQLIgnored(in: document, from: parsed.nextIndex)
+        if index < document.endIndex,
+           document[index] == "," {
+            index = document.index(after: index)
+            continue
+        }
+        if index < document.endIndex,
+           document[index] == "]" {
+            continue
+        }
+        throw validation("\(fieldName).\(name) entries must be separated by commas.")
+    }
+    guard isGraphQLValueTerminated(in: document, at: index) else {
+        throw validation("\(fieldName).\(name) must be a list of string literals.")
+    }
+    guard values.count >= minimum,
+          values.count <= maximum else {
+        throw validation("\(fieldName).\(name) must contain between \(minimum) and \(maximum) values.")
+    }
+    return values
 }

@@ -6,6 +6,7 @@ private enum GraphQLInputValue {
 }
 
 private let supportedPostAttachmentFields: Set<String> = ["kind", "filePath", "altText"]
+private let supportedPostAttachmentKinds: Set<String> = ["image", "gif", "video"]
 
 func extractPostAttachmentsIfPresent(
     from document: String,
@@ -112,8 +113,8 @@ private func parsePostAttachmentObject(_ literal: String, index attachmentIndex:
     }
 
     guard case .string(let kind)? = fields["kind"],
-          kind == "image" else {
-        throw validation("attachments[\(attachmentIndex)].kind must be 'image' in the current Swift posting surface.")
+          supportedPostAttachmentKinds.contains(kind) else {
+        throw validation("attachments[\(attachmentIndex)].kind must be one of: image, gif, video.")
     }
 
     guard case .string(let filePath)? = fields["filePath"],
@@ -126,6 +127,9 @@ private func parsePostAttachmentObject(_ literal: String, index attachmentIndex:
     case .none:
         altText = nil
     case .string(let value):
+        guard kind != "video" else {
+            throw validation("attachments[\(attachmentIndex)].altText is supported only for image or gif attachments.")
+        }
         guard !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               value.count <= 1_000 else {
             throw validation("attachments[\(attachmentIndex)].altText must be between 1 and 1000 characters when provided.")

@@ -7,6 +7,13 @@ func urlPathEscape(_ value: String) -> String {
 }
 
 let tweetLookupQuery = timelineQueryItems([:])
+let userLookupQuery = queryItems(["user.fields": "id,name,username"])
+
+func userPageQueryItems(_ additionalItems: [String: String]) -> String {
+    var items = additionalItems
+    items["user.fields"] = "id,name,username"
+    return queryItems(items)
+}
 
 func xAPIURL(path: String, query: String? = nil) throws -> URL {
     return try httpsURL(host: "api.twitter.com", path: path, query: query)
@@ -14,6 +21,10 @@ func xAPIURL(path: String, query: String? = nil) throws -> URL {
 
 func xUsageAPIURL(path: String, query: String? = nil) throws -> URL {
     return try httpsURL(host: "api.x.com", path: path, query: query)
+}
+
+func xArticleAPIURL(path: String, query: String? = nil) throws -> URL {
+    return try httpsURL(host: XGatewayArticleRequestBuilder.apiHost, path: path, query: query)
 }
 
 func xUploadURL(path: String = "/1.1/media/upload.json", query: String? = nil) throws -> URL {

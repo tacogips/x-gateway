@@ -1,5 +1,9 @@
 import Foundation
-import XGatewayCrypto
+#if canImport(CryptoKit)
+import CryptoKit
+#else
+import Crypto
+#endif
 
 public struct XGatewayOAuth1SigningCredentials: Sendable {
     public let consumerKey: String
@@ -96,23 +100,11 @@ public enum XGatewayOAuth1Signer {
     }
 
     public static func hmacSHA1Base64(message: String, key: String) -> String {
-        let keyBytes: [UInt8] = Array(key.utf8)
-        let messageBytes: [UInt8] = Array(message.utf8)
-        var output: [UInt8] = Array(repeating: UInt8(0), count: 20)
-        keyBytes.withUnsafeBufferPointer { keyBuffer in
-            messageBytes.withUnsafeBufferPointer { messageBuffer in
-                output.withUnsafeMutableBufferPointer { outputBuffer in
-                    xgw_hmac_sha1(
-                        keyBuffer.baseAddress,
-                        keyBuffer.count,
-                        messageBuffer.baseAddress,
-                        messageBuffer.count,
-                        outputBuffer.baseAddress
-                    )
-                }
-            }
-        }
-        return Data(output).base64EncodedString()
+        let keyData = Data(key.utf8)
+        let messageData = Data(message.utf8)
+        let symmetricKey = SymmetricKey(data: keyData)
+        let authenticationCode = HMAC<Insecure.SHA1>.authenticationCode(for: messageData, using: symmetricKey)
+        return Data(authenticationCode).base64EncodedString()
     }
 
     private static func baseOAuthParameters(
