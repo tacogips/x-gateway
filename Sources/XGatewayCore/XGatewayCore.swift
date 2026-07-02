@@ -216,7 +216,7 @@ public struct XGatewayCLI: Sendable {
         if group == "version" {
             return [
                 "name": "x-gateway",
-                "version": "0.1.3",
+                "version": "0.1.4",
                 "runtime": "swift"
             ]
         }

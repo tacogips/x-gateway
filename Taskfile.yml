@@ -4,7 +4,7 @@ vars:
   PROJECT_NAME: x-gateway
   TAP_DIR: ../homebrew-tap
   VERSION:
-    sh: tr -d '[:space:]' < VERSION 2>/dev/null || git describe --tags --always --dirty 2>/dev/null || echo 0.1.3
+    sh: tr -d '[:space:]' < VERSION 2>/dev/null || git describe --tags --always --dirty 2>/dev/null || echo 0.1.4
 
 tasks:
   default:

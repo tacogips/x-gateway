@@ -322,15 +322,15 @@ task build:homebrew -- darwin-arm64 darwin-x64
 Render formulae after both platform archives exist:
 
 ```bash
-task homebrew:formula-reader -- 0.1.3
-task homebrew:formula-writer -- 0.1.3
+task homebrew:formula-reader -- 0.1.4
+task homebrew:formula-writer -- 0.1.4
 ```
 
 Render directly into the default sibling tap checkout:
 
 ```bash
-task homebrew:tap-formula-reader -- 0.1.3
-task homebrew:tap-formula-writer -- 0.1.3
+task homebrew:tap-formula-reader -- 0.1.4
+task homebrew:tap-formula-writer -- 0.1.4
 ```
 
 Install from the tap after the formula is published:

@@ -19,8 +19,8 @@ Environment:
 
 Example:
   scripts/build-homebrew-release.sh darwin-arm64 darwin-x64
-  scripts/render-homebrew-formula.sh 0.1.3 reader Formula/x-gateway-reader.rb
-  scripts/render-homebrew-formula.sh 0.1.3 writer Formula/x-gateway-writer.rb
+  scripts/render-homebrew-formula.sh 0.1.4 reader Formula/x-gateway-reader.rb
+  scripts/render-homebrew-formula.sh 0.1.4 writer Formula/x-gateway-writer.rb
 
 This renderer expects Swift macOS release archives. Linux archives are
 unsupported until the project defines a reviewed Swift Linux build contract.
