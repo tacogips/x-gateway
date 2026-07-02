@@ -46,6 +46,15 @@ Stable read behavior is exposed through `x-gateway-reader graphql query
 them through reviewed capabilities instead of exposing raw X web GraphQL
 transport details.
 
+## Transport Retry Policy
+
+Transport retry flags (`--retry`, `--retry-backoff`, `--retry-base-ms`, and
+`--retry-max-ms`) apply to retryable read `GET` requests. Write mutations and
+other non-`GET` requests do not automatically retry, even when the upstream
+failure is otherwise classified as retryable, because X v2 write endpoints do
+not provide idempotency keys. Callers that choose to retry a failed write must
+first confirm the side effect did not already apply.
+
 ## Codex Reference And Cursor CLI Mapping
 
 Step 2 design work records Codex-agent process behavior only as a reference for

@@ -2,6 +2,32 @@ import XCTest
 @testable import XGatewayCore
 
 final class XGatewayCoreTests: XCTestCase {
+    func testAutomaticRetryPolicyKeepsReadsAndDisablesMutationRetries() throws {
+        XCTAssertEqual(
+            XGatewayRetryPolicy.automaticRetryCount(forHTTPMethod: "GET", configuredRetryCount: 2),
+            2
+        )
+        XCTAssertEqual(
+            XGatewayRetryPolicy.automaticRetryCount(forHTTPMethod: " get ", configuredRetryCount: 3),
+            3
+        )
+        XCTAssertEqual(
+            XGatewayRetryPolicy.automaticRetryCount(forHTTPMethod: "GET", configuredRetryCount: -1),
+            0
+        )
+
+        for mutationMethod in ["POST", "PUT", "PATCH", "DELETE"] {
+            XCTAssertEqual(
+                XGatewayRetryPolicy.automaticRetryCount(
+                    forHTTPMethod: mutationMethod,
+                    configuredRetryCount: 2
+                ),
+                0,
+                "\(mutationMethod) must not be automatically retried because X v2 write endpoints do not provide idempotency keys."
+            )
+        }
+    }
+
     func testOAuthFixtures() throws {
         XCTAssertEqual(
             XGatewayOAuth1Signer.hmacSHA1Base64(

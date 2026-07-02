@@ -25,6 +25,16 @@ struct XGatewayLiveExecutor {
     let transport: TransportSettings
 }
 
+enum XGatewayRetryPolicy {
+    static func automaticRetryCount(forHTTPMethod method: String, configuredRetryCount: Int) -> Int {
+        let normalizedMethod = method.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        guard normalizedMethod == "GET" else {
+            return 0
+        }
+        return max(0, configuredRetryCount)
+    }
+}
+
 extension XGatewayLiveExecutor {
     func executeGraphQL(document: String, operationType: XGatewayGraphQLOperationType) throws -> [String: Any] {
         let operation = try parseSupportedOperation(document: document, operationType: operationType)
@@ -413,7 +423,7 @@ extension XGatewayLiveExecutor {
         authorization: XGatewayRequestAuthorization,
         body: [String: Any]?
     ) throws -> Any {
-        return try performRequestWithRetry {
+        return try performRequestWithRetry(method: method) {
             try performSingleJSONRequest(method: method, url: url, authorization: authorization, body: body)
         }
     }
@@ -424,7 +434,7 @@ extension XGatewayLiveExecutor {
         authorization: XGatewayRequestAuthorization,
         parameters: [(String, String)]
     ) throws -> Any {
-        return try performRequestWithRetry {
+        return try performRequestWithRetry(method: method) {
             let body = formURLEncodedData(parameters)
             return try performSingleRequest(
                 method: method,
@@ -443,7 +453,7 @@ extension XGatewayLiveExecutor {
         authorization: XGatewayRequestAuthorization,
         parts: [MultipartPart]
     ) throws -> Any {
-        return try performRequestWithRetry {
+        return try performRequestWithRetry(method: method) {
             let boundary = "x-gateway-\(UUID().uuidString)"
             let body = multipartData(parts: parts, boundary: boundary)
             return try performSingleRequest(
@@ -462,29 +472,23 @@ extension XGatewayLiveExecutor {
         url: URL,
         authorization: XGatewayRequestAuthorization
     ) throws -> (data: Data, contentType: String?) {
-        var attempt = 0
-        while true {
-            do {
-                return try performSingleBinaryDownloadRequest(method: method, url: url, authorization: authorization)
-            } catch let error as XGatewayErrorPayload {
-                guard error.retryable,
-                      attempt < transport.retryCount else {
-                    throw error
-                }
-                sleepBeforeRetry(attempt: attempt)
-                attempt += 1
-            }
+        return try performRequestWithRetry(method: method) {
+            try performSingleBinaryDownloadRequest(method: method, url: url, authorization: authorization)
         }
     }
 
-    private func performRequestWithRetry(_ perform: () throws -> Any) throws -> Any {
+    private func performRequestWithRetry<T>(method: String, _ perform: () throws -> T) throws -> T {
+        let retryCount = XGatewayRetryPolicy.automaticRetryCount(
+            forHTTPMethod: method,
+            configuredRetryCount: transport.retryCount
+        )
         var attempt = 0
         while true {
             do {
                 return try perform()
             } catch let error as XGatewayErrorPayload {
                 guard error.retryable,
-                      attempt < transport.retryCount else {
+                      attempt < retryCount else {
                     throw error
                 }
                 sleepBeforeRetry(attempt: attempt)
