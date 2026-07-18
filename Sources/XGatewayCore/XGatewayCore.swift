@@ -216,9 +216,35 @@ public struct XGatewayCLI: Sendable {
         if group == "version" {
             return [
                 "name": "x-gateway",
-                "version": "0.1.4",
+                "version": "0.1.5",
                 "runtime": "swift"
             ]
+        }
+
+        if group == "doctor" {
+            try assertNoExtraPositionals(parsed, expectedCount: 1, commandLabel: "doctor")
+            let credentialVariables: [(String, String?)] = [
+                ("X_GW_TOKEN", globalFlags.token ?? environment["X_GW_TOKEN"]),
+                ("X_GW_APP_TOKEN", globalFlags.appToken ?? environment["X_GW_APP_TOKEN"]),
+                ("X_GW_CONSUMER_KEY", globalFlags.consumerKey ?? environment["X_GW_CONSUMER_KEY"]),
+                ("X_GW_CONSUMER_SECRET", globalFlags.consumerSecret ?? environment["X_GW_CONSUMER_SECRET"]),
+                ("X_GW_ACCESS_TOKEN", globalFlags.accessToken ?? environment["X_GW_ACCESS_TOKEN"]),
+                ("X_GW_ACCESS_TOKEN_SECRET", globalFlags.accessTokenSecret ?? environment["X_GW_ACCESS_TOKEN_SECRET"])
+            ]
+            let configuredVariables = Set(credentialVariables.compactMap { name, value in
+                nonBlank(value) == nil ? nil : name
+            })
+            return XGatewayDoctor(
+                surface: surface,
+                environment: environment,
+                token: nonBlank(globalFlags.token ?? environment["X_GW_TOKEN"]),
+                appToken: nonBlank(globalFlags.appToken ?? environment["X_GW_APP_TOKEN"]),
+                oauth1Credentials: resolveOAuth1Credentials(globalFlags: globalFlags, environment: environment),
+                configuredCredentialVariables: configuredVariables,
+                transport: globalFlags.transport,
+                traceId: globalFlags.traceId,
+                online: try optionalBooleanFlag(parsed, key: "online", defaultValue: true)
+            ).run()
         }
 
         if group == "graphql" {
@@ -382,29 +408,7 @@ public struct XGatewayCLI: Sendable {
     }
 
     private func usage() -> String {
-        let graphQLLine: String
-        if surface == .read {
-            graphQLLine = "  \(commandName) graphql query '<query>'"
-        } else {
-            graphQLLine = "  \(commandName) graphql query '<mutation>'"
-        }
-        return [
-            "\(commandName) command usage:",
-            "  \(commandName) auth verify|scopes",
-            "  \(commandName) auth oauth2 --client-id <id> [--client-secret <secret>] [--store kinko]",
-            graphQLLine,
-            "  \(commandName) graphql schema",
-            surface == .read ? "  \(commandName) stream sample|filtered [--max-events 100] [--duration-seconds 30]" : nil,
-            "  \(commandName) capabilities list",
-            "  \(commandName) capabilities get --id <capabilityId>",
-            "  \(commandName) health",
-            "  \(commandName) version",
-            "",
-            "Notes:",
-            "  - Swift read and write commands are separate installable products.",
-            "  - 'graphql' refers to the owned x-gateway contract, not direct upstream X GraphQL.",
-            "  - Live X API execution is ported behind XGatewayCore capability adapters."
-        ].compactMap { $0 }.joined(separator: "\n")
+        xGatewayUsage(commandName: commandName, surface: surface)
     }
 }
 
@@ -569,6 +573,9 @@ private func assertAllowedFlags(_ parsed: ParsedArgs, group: String?, action: St
             "reconnect"
         ])
     }
+    if group == "doctor" {
+        allowed.insert("online")
+    }
 
     for key in parsed.flags.keys where !allowed.contains(key) {
         throw validation("Unknown flag --\(key).")
@@ -576,7 +583,7 @@ private func assertAllowedFlags(_ parsed: ParsedArgs, group: String?, action: St
 }
 
 private func assertSupportedCommand(group: String, action: String?) throws {
-    let supported: Set<String> = ["health", "version", "graphql", "auth", "capabilities", "stream"]
+    let supported: Set<String> = ["health", "version", "doctor", "graphql", "auth", "capabilities", "stream"]
     if supported.contains(group) {
         return
     }

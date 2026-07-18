@@ -24,7 +24,7 @@ struct ProcessResult {
 }
 
 let environmentExecutable = "/usr/bin/env"
-let formulaSmokeVersion = "0.1.4"
+let formulaSmokeVersion = "0.1.5"
 
 func runProcess(
     executable: String,

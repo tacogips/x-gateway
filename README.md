@@ -124,6 +124,17 @@ Common environment variables:
 - `X_GW_OAUTH2_SCOPES` (defaults to all known X OAuth2 scopes, including
   `media.write` for media upload)
 
+Check configuration completeness, OAuth2 expiry metadata, and credential status
+without printing any secret values:
+
+```bash
+x-gateway-reader doctor
+x-gateway-writer doctor --json --pretty
+```
+
+`doctor` performs read-only requests to X for each configured credential family.
+Use `--online false` to inspect only local environment and expiry configuration.
+
 OAuth1 credentials are required for OAuth1-backed posting and attachment upload.
 OAuth2 user-context bearer credentials are required for user/private endpoints
 such as bookmarks, search users/news/trends, usage, Lists, DMs, likes, mutes,
@@ -322,15 +333,15 @@ task build:homebrew -- darwin-arm64 darwin-x64
 Render formulae after both platform archives exist:
 
 ```bash
-task homebrew:formula-reader -- 0.1.4
-task homebrew:formula-writer -- 0.1.4
+task homebrew:formula-reader -- 0.1.5
+task homebrew:formula-writer -- 0.1.5
 ```
 
 Render directly into the default sibling tap checkout:
 
 ```bash
-task homebrew:tap-formula-reader -- 0.1.4
-task homebrew:tap-formula-writer -- 0.1.4
+task homebrew:tap-formula-reader -- 0.1.5
+task homebrew:tap-formula-writer -- 0.1.5
 ```
 
 Install from the tap after the formula is published:

@@ -2,6 +2,49 @@ import XCTest
 @testable import XGatewayCore
 
 final class XGatewayCoreTests: XCTestCase {
+    func testDoctorReportsMissingAndPartialCredentialsWithoutLeakingValues() throws {
+        let cli = XGatewayCLI(commandName: "x-gateway-reader", surface: .read)
+        let result = cli.run(
+            arguments: ["doctor", "--online", "false", "--json"],
+            environment: [
+                "X_GW_CONSUMER_KEY": "super-secret-consumer-key",
+                "X_GW_TIMEOUT_MS": "1234"
+            ]
+        )
+
+        XCTAssertEqual(result.exitCode, 0)
+        XCTAssertTrue(result.stdout.contains("\"status\":\"warning\""))
+        XCTAssertTrue(result.stdout.contains("oauth1-user-context"))
+        XCTAssertTrue(result.stdout.contains("partial"))
+        XCTAssertTrue(result.stdout.contains("\"timeoutMs\":1234"))
+        XCTAssertFalse(result.stdout.contains("super-secret-consumer-key"))
+        XCTAssertTrue(result.stdout.contains("Online checks were disabled"))
+    }
+
+    func testDoctorReportsExpiredOAuth2TokenFromMetadata() throws {
+        let cli = XGatewayCLI(commandName: "x-gateway-writer", surface: .write)
+        let result = cli.run(
+            arguments: ["doctor", "--online", "false", "--json"],
+            environment: [
+                "X_GW_TOKEN": "secret-token",
+                "X_GW_OAUTH2_EXPIRES_AT": "1"
+            ]
+        )
+
+        XCTAssertEqual(result.exitCode, 0)
+        XCTAssertTrue(result.stdout.contains("\"status\":\"error\""))
+        XCTAssertTrue(result.stdout.contains("expired"))
+        XCTAssertFalse(result.stdout.contains("secret-token"))
+    }
+
+    func testDoctorRejectsInvalidOnlineFlag() throws {
+        let cli = XGatewayCLI(commandName: "x-gateway-reader", surface: .read)
+        let result = cli.run(arguments: ["doctor", "--online", "sometimes", "--json"], environment: [:])
+
+        XCTAssertEqual(result.exitCode, 2)
+        XCTAssertTrue(result.stderr.contains("--online"))
+    }
+
     func testAutomaticRetryPolicyKeepsReadsAndDisablesMutationRetries() throws {
         XCTAssertEqual(
             XGatewayRetryPolicy.automaticRetryCount(forHTTPMethod: "GET", configuredRetryCount: 2),
