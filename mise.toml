@@ -1,0 +1,157 @@
+min_version = "2026.8.3"
+
+[[hooks.enter]]
+shell = "bash"
+script = '''
+if command -v kinko >/dev/null 2>&1 && kinko hook --help >/dev/null 2>&1; then
+  eval "$(kinko --path "$MISE_PROJECT_ROOT" hook enter bash)"
+fi
+'''
+
+[[hooks.leave]]
+shell = "bash"
+script = '''
+if command -v kinko >/dev/null 2>&1 && kinko hook --help >/dev/null 2>&1; then
+  eval "$(kinko hook leave bash)"
+fi
+'''
+
+[tools]
+swift = "6.3.3"
+swiftlint = "latest"
+gitleaks = "latest"
+github-cli = "latest"
+
+[tasks."default"]
+description = "Show available tasks"
+run = '''
+VERSION=$(tr -d '[:space:]' < VERSION 2>/dev/null || git describe --tags --always --dirty 2>/dev/null || echo 0.1.5)
+mise tasks ls
+'''
+
+[tasks."build"]
+description = "Build all Swift products"
+run = '''
+VERSION=$(tr -d '[:space:]' < VERSION 2>/dev/null || git describe --tags --always --dirty 2>/dev/null || echo 0.1.5)
+swift build -c release
+'''
+
+[tasks."build-reader"]
+description = "Build the Swift read-only command product"
+run = '''
+VERSION=$(tr -d '[:space:]' < VERSION 2>/dev/null || git describe --tags --always --dirty 2>/dev/null || echo 0.1.5)
+swift build -c release --product x-gateway-reader
+'''
+
+[tasks."build-writer"]
+description = "Build the Swift write command product"
+run = '''
+VERSION=$(tr -d '[:space:]' < VERSION 2>/dev/null || git describe --tags --always --dirty 2>/dev/null || echo 0.1.5)
+swift build -c release --product x-gateway-writer
+'''
+
+[tasks."test"]
+description = "Run Swift smoke tests"
+run = '''
+VERSION=$(tr -d '[:space:]' < VERSION 2>/dev/null || git describe --tags --always --dirty 2>/dev/null || echo 0.1.5)
+swift run x-gateway-swift-smoke-tests
+'''
+
+[tasks."ci"]
+description = "Run Swift verification"
+run = '''
+VERSION=$(tr -d '[:space:]' < VERSION 2>/dev/null || git describe --tags --always --dirty 2>/dev/null || echo 0.1.5)
+mise run build
+mise run test
+'''
+
+[tasks."clean"]
+description = "Clean build and release artifacts"
+run = '''
+VERSION=$(tr -d '[:space:]' < VERSION 2>/dev/null || git describe --tags --always --dirty 2>/dev/null || echo 0.1.5)
+rm -rf .build dist release
+'''
+
+[tasks."lint"]
+description = "Run SwiftLint when available"
+run = '''
+VERSION=$(tr -d '[:space:]' < VERSION 2>/dev/null || git describe --tags --always --dirty 2>/dev/null || echo 0.1.5)
+swiftlint
+'''
+
+[tasks."install-reader"]
+description = "Install only the Swift read-only command"
+run = '''
+VERSION=$(tr -d '[:space:]' < VERSION 2>/dev/null || git describe --tags --always --dirty 2>/dev/null || echo 0.1.5)
+swift build -c release --product x-gateway-reader
+mkdir -p "${PREFIX:-/usr/local}/bin"
+install .build/release/x-gateway-reader "${PREFIX:-/usr/local}/bin/x-gateway-reader"
+'''
+
+[tasks."install-writer"]
+description = "Install only the Swift write command"
+run = '''
+VERSION=$(tr -d '[:space:]' < VERSION 2>/dev/null || git describe --tags --always --dirty 2>/dev/null || echo 0.1.5)
+swift build -c release --product x-gateway-writer
+mkdir -p "${PREFIX:-/usr/local}/bin"
+install .build/release/x-gateway-writer "${PREFIX:-/usr/local}/bin/x-gateway-writer"
+'''
+
+[tasks."build:homebrew"]
+description = "Build Homebrew formula archives containing read and write commands"
+run = '''
+VERSION=$(tr -d '[:space:]' < VERSION 2>/dev/null || git describe --tags --always --dirty 2>/dev/null || echo 0.1.5)
+scripts/build-homebrew-release.sh "$@"
+'''
+
+[tasks."homebrew:formula-reader"]
+description = "Render Formula/x-gateway-reader.rb from dist/homebrew checksums"
+run = '''
+VERSION=$(tr -d '[:space:]' < VERSION 2>/dev/null || git describe --tags --always --dirty 2>/dev/null || echo 0.1.5)
+set -euo pipefail
+if [ -z "$*" ]; then
+  echo "usage: mise run homebrew:formula-reader -- <version>" >&2
+  exit 2
+fi
+scripts/render-homebrew-formula.sh "$*" reader "Formula/x-gateway-reader.rb"
+
+'''
+
+[tasks."homebrew:formula-writer"]
+description = "Render Formula/x-gateway-writer.rb from dist/homebrew checksums"
+run = '''
+VERSION=$(tr -d '[:space:]' < VERSION 2>/dev/null || git describe --tags --always --dirty 2>/dev/null || echo 0.1.5)
+set -euo pipefail
+if [ -z "$*" ]; then
+  echo "usage: mise run homebrew:formula-writer -- <version>" >&2
+  exit 2
+fi
+scripts/render-homebrew-formula.sh "$*" writer "Formula/x-gateway-writer.rb"
+
+'''
+
+[tasks."homebrew:tap-formula-reader"]
+description = "Render the read-only formula into the default sibling Homebrew tap checkout"
+run = '''
+VERSION=$(tr -d '[:space:]' < VERSION 2>/dev/null || git describe --tags --always --dirty 2>/dev/null || echo 0.1.5)
+set -euo pipefail
+if [ -z "$*" ]; then
+  echo "usage: mise run homebrew:tap-formula-reader -- <version>" >&2
+  exit 2
+fi
+scripts/render-homebrew-formula.sh "$*" reader "../homebrew-tap/Formula/x-gateway-reader.rb"
+
+'''
+
+[tasks."homebrew:tap-formula-writer"]
+description = "Render the write formula into the default sibling Homebrew tap checkout"
+run = '''
+VERSION=$(tr -d '[:space:]' < VERSION 2>/dev/null || git describe --tags --always --dirty 2>/dev/null || echo 0.1.5)
+set -euo pipefail
+if [ -z "$*" ]; then
+  echo "usage: mise run homebrew:tap-formula-writer -- <version>" >&2
+  exit 2
+fi
+scripts/render-homebrew-formula.sh "$*" writer "../homebrew-tap/Formula/x-gateway-writer.rb"
+
+'''

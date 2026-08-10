@@ -334,13 +334,13 @@ default. Least-privilege default (for example read scopes plus
 `offline.access`) with `--scopes all` as the explicit opt-in would match the
 reader/writer separation philosophy of the product.
 
-### P2-15: `task test`/`task ci` do not run the XCTest suite
+### P2-15: `mise run test`/`mise run ci` do not run the XCTest suite
 
 `Tests/XGatewayCoreTests` (469 lines, including the valuable
 `CapabilityCoverageTests` registry-alignment check) is only exercised by
-`swift test`, which no Taskfile target invokes. `task test` runs the separate
-smoke executable and `task ci` runs build plus smoke. CLAUDE.md instructs
-running `task test` after modifications, so the XCTest suite can silently rot.
+`swift test`, which no Taskfile target invokes. `mise run test` runs the separate
+smoke executable and `mise run ci` runs build plus smoke. CLAUDE.md instructs
+running `mise run test` after modifications, so the XCTest suite can silently rot.
 Add `swift test` to `ci` (and/or `test`), or fold the smoke executable into
 XCTest to have one harness (see P3-6).
 

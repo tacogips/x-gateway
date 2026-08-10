@@ -41,8 +41,8 @@ If scope is ambiguous, default to full release contract.
 
 1. Validate working tree and branch state.
 2. Validate release version from `VERSION`.
-3. Run quality gates (`task ci`).
-4. Build macOS Swift binary archives with `task build:homebrew -- darwin-arm64 darwin-x64`.
+3. Run quality gates (`mise run ci`).
+4. Build macOS Swift binary archives with `mise run build:homebrew -- darwin-arm64 darwin-x64`.
 5. Publish GitHub release assets for the tag.
 6. Render and publish Homebrew formulae for `x-gateway-reader` and `x-gateway-writer`.
 7. Validate Nix reproducibility (`nix flake check`) and command-specific package/app outputs.
@@ -75,7 +75,7 @@ nix --version
 
 ## Failure Handling
 
-1. If `task ci` fails, stop release and surface failing command and file path.
+1. If `mise run ci` fails, stop release and surface failing command and file path.
 2. If git tag already exists, verify tag target commit before creating release.
 3. If GitHub release already exists, use upload/verify mode instead of recreate.
 4. If Homebrew formula rendering references missing archives or checksums, rebuild artifacts before committing the tap.

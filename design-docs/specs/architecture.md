@@ -86,7 +86,7 @@ Rollout constraints for this issue:
   adapters.
 - `XGatewayRead`: read-only command entry point.
 - `XGatewayWrite`: write command entry point.
-- `XGatewaySwiftSmokeTests`: executable smoke-test harness used by `task test`.
+- `XGatewaySwiftSmokeTests`: executable smoke-test harness used by `mise run test`.
 
 ## Capability Matrix Implementation Target
 

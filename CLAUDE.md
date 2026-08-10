@@ -158,9 +158,9 @@ This is x-gateway - a Swift Package Manager project with Nix flake development e
 ## Development Environment
 - **Language**: Swift
 - **Runtime/Package Manager**: Swift Package Manager
-- **Build Tool**: SwiftPM (with go-task for automation)
+- **Build Tool**: SwiftPM (with mise for automation)
 - **Environment Manager**: Nix flakes + direnv
-- **Development Shell**: Run `nix develop` or use direnv to activate
+- **Development Shell**: Run `mise install` or use direnv to activate
 
 ## Project Structure
 ```
@@ -168,7 +168,7 @@ This is x-gateway - a Swift Package Manager project with Nix flake development e
 ├── flake.nix          # Nix flake configuration for Swift development
 ├── flake.lock         # Locked flake dependencies
 ├── Package.swift      # Swift package manifest
-├── Taskfile.yml       # Build/test/release automation
+├── mise.toml       # Build/test/release automation
 ├── Sources/           # Swift and C source code
 │   ├── XGatewayCore/  # Shared Swift library code
 │   ├── XGatewayRead/  # Read-only CLI executable
@@ -179,13 +179,13 @@ This is x-gateway - a Swift Package Manager project with Nix flake development e
 
 ## Development Tools Available
 - `swift` - Swift compiler, package manager, and test/build driver
-- `task` - Task runner (go-task)
+- `task` - Task runner (mise)
 
 ## Swift Code Development
 
 **IMPORTANT**: When writing or reviewing Swift code, use the available Swift coding guidance.
 
-After modifying Swift source files, run the relevant Swift verification command, normally `task test` for smoke coverage and `task ci` when release-build coverage is needed.
+After modifying Swift source files, run the relevant Swift verification command, normally `mise run test` for smoke coverage and `mise run ci` when release-build coverage is needed.
 
 ## Design Documentation
 
@@ -270,7 +270,7 @@ When implementing from a plan:
 
 ## Task Management
 - Use `task` command for build automation
-- Define tasks in `Taskfile.yml` (to be created as needed)
+- Define tasks in `mise.toml` (to be created as needed)
 
 ## Git Workflow
 - Create meaningful commit messages

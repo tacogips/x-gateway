@@ -19,7 +19,7 @@ Use this skill to build compiled Swift binaries for `x-gateway-reader` and `x-ga
 
 1. Quality gates before packaging:
 ```bash
-task ci
+mise run ci
 ```
 2. Resolve version:
 ```bash
@@ -31,7 +31,7 @@ VERSION=$(tr -d '[:space:]' < VERSION)
 Build macOS Homebrew archives containing both remaining binaries:
 
 ```bash
-task build:homebrew -- darwin-arm64 darwin-x64
+mise run build:homebrew -- darwin-arm64 darwin-x64
 ```
 
 ## Integrity File

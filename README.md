@@ -16,9 +16,9 @@ import XGatewayCore
 ## Development
 
 ```bash
-nix develop
-task build
-task test
+mise install
+mise run build
+mise run test
 swift run x-gateway-reader -- help
 swift run x-gateway-writer -- help
 ```
@@ -38,14 +38,14 @@ swift build -c release --product x-gateway-writer
 ```
 
 ```bash
-task install-reader PREFIX="$HOME/.local"
-task install-writer PREFIX="$HOME/.local"
+mise run install-reader PREFIX="$HOME/.local"
+mise run install-writer PREFIX="$HOME/.local"
 ```
 
 Swift smoke tests run through an executable harness:
 
 ```bash
-task test
+mise run test
 ```
 
 ## Implemented Surface
@@ -327,21 +327,21 @@ schema.
 Build local formula archives. The archive contains both command binaries:
 
 ```bash
-task build:homebrew -- darwin-arm64 darwin-x64
+mise run build:homebrew -- darwin-arm64 darwin-x64
 ```
 
 Render formulae after both platform archives exist:
 
 ```bash
-task homebrew:formula-reader -- 0.1.5
-task homebrew:formula-writer -- 0.1.5
+mise run homebrew:formula-reader -- 0.1.5
+mise run homebrew:formula-writer -- 0.1.5
 ```
 
 Render directly into the default sibling tap checkout:
 
 ```bash
-task homebrew:tap-formula-reader -- 0.1.5
-task homebrew:tap-formula-writer -- 0.1.5
+mise run homebrew:tap-formula-reader -- 0.1.5
+mise run homebrew:tap-formula-writer -- 0.1.5
 ```
 
 Install from the tap after the formula is published:
@@ -350,20 +350,4 @@ Install from the tap after the formula is published:
 brew tap tacogips/homebrew-tap
 brew install tacogips/homebrew-tap/x-gateway-reader
 brew install tacogips/homebrew-tap/x-gateway-writer
-```
-
-## Nix
-
-Install commands:
-
-```bash
-nix profile install github:tacogips/x-gateway#x-gateway-reader
-nix profile install github:tacogips/x-gateway#x-gateway-writer
-```
-
-Run without installing:
-
-```bash
-nix run github:tacogips/x-gateway#x-gateway-reader -- version
-nix run github:tacogips/x-gateway#x-gateway-writer -- version
 ```

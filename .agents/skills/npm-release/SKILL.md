@@ -14,7 +14,7 @@ Use this skill to publish `x-gateway` package versions to npm.
 
 1. Build and tests pass:
 ```bash
-task ci
+mise run ci
 ```
 2. Dist artifacts exist:
 ```bash

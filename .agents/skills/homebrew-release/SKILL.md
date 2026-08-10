@@ -1,6 +1,6 @@
 ---
 name: homebrew-release
-description: Use when building, validating, publishing, or tap-rendering Homebrew formula tarball releases for this Swift project, including scripts/build-homebrew-release.sh, scripts/render-homebrew-formula.sh, and task build:homebrew, homebrew:formula-reader, or homebrew:formula-writer commands.
+description: Use when building, validating, publishing, or tap-rendering Homebrew formula tarball releases for this Swift project, including scripts/build-homebrew-release.sh, scripts/render-homebrew-formula.sh, and mise run build:homebrew, homebrew:formula-reader, or homebrew:formula-writer commands.
 ---
 
 # Homebrew Release
@@ -47,25 +47,25 @@ contract.
 Build:
 
 ```bash
-task build
-task test
-task build:homebrew -- darwin-arm64 darwin-x64
+mise run build
+mise run test
+mise run build:homebrew -- darwin-arm64 darwin-x64
 ```
 
 Render locally:
 
 ```bash
 version="$(tr -d '[:space:]' < VERSION)"
-task homebrew:formula-reader -- "$version"
-task homebrew:formula-writer -- "$version"
+mise run homebrew:formula-reader -- "$version"
+mise run homebrew:formula-writer -- "$version"
 ```
 
 Render into the default sibling tap:
 
 ```bash
 version="$(tr -d '[:space:]' < VERSION)"
-task homebrew:tap-formula-reader -- "$version"
-task homebrew:tap-formula-writer -- "$version"
+mise run homebrew:tap-formula-reader -- "$version"
+mise run homebrew:tap-formula-writer -- "$version"
 ```
 
 For a custom tap path:
@@ -120,3 +120,12 @@ brew test tacogips/homebrew-tap/x-gateway-writer
 
 If online audit fails because of local GitHub credentials or rate limits, run a
 non-online audit and report the limitation.
+
+## Tap API Metadata Gate
+
+After pushing both Formula files, require `tacogips/homebrew-tap`'s
+`update-api-metadata.yml` workflow to succeed for that commit. Verify the
+GitHub Raw JSON for `x-gateway-reader` and `x-gateway-writer`. Each
+`.versions.stable` must equal the release version, and each
+`.ruby_source_checksum.sha256` must equal the SHA-256 of its committed Formula.
+Do not consider the release complete while either endpoint is missing or stale.
