@@ -23,6 +23,8 @@ struct XGatewayLiveExecutor {
     let mediaRootDir: String?
     let traceId: String?
     let transport: TransportSettings
+    var tokenSource = "INJECTED_TOKEN"
+    var appTokenSource = "INJECTED_APP_TOKEN"
 }
 
 enum XGatewayRetryPolicy {
@@ -39,8 +41,22 @@ extension XGatewayLiveExecutor {
     func executeGraphQL(document: String, operationType: XGatewayGraphQLOperationType) throws -> [String: Any] {
         let operation = try parseSupportedOperation(document: document, operationType: operationType)
         let authorization = try requireAuthorization(operation: operation)
-        let response = try execute(operation: operation, authorization: authorization)
-        return ["data": response]
+        do {
+            let response = try execute(operation: operation, authorization: authorization)
+            return ["data": response]
+        } catch let error as XGatewayErrorPayload {
+            throw error.withTokenSource(tokenSourceDescription(operation: operation, authorization: authorization))
+        }
+    }
+
+    func tokenSourceDescription(operation: SupportedGraphQLOperation, authorization: XGatewayRequestAuthorization) -> String {
+        switch authorization {
+        case .oauth1:
+            return "OAUTH1 (X_GW_CONSUMER_KEY, X_GW_CONSUMER_SECRET, X_GW_ACCESS_TOKEN, X_GW_ACCESS_TOKEN_SECRET)"
+        case .bearer:
+            if operation.prefersBearerAuthorization, token?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false { return tokenSource }
+            return operation.prefersAppOnlyAuthorization && appToken?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? appTokenSource : tokenSource
+        }
     }
 
     private func requireAuthorization(operation: SupportedGraphQLOperation) throws -> XGatewayRequestAuthorization {

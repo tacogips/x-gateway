@@ -211,6 +211,9 @@ public struct XGatewayOAuth2LoopbackFlow {
             ]
         } else {
             result["storedKeys"] = storedKeys(for: token)
+            result["tokenSource"] = "KINKO"
+            result["tokenEnvironmentVariable"] = "X_GW_TOKEN"
+            result["tokenSourceHint"] = "Refresh X_GW_TOKEN from kinko in the calling environment before the next command; login does not update existing shell values. Remove stale --token overrides. Complete OAuth1 credentials or X_GW_APP_TOKEN can take precedence depending on the operation."
         }
         return result
     }

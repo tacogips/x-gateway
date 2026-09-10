@@ -1,5 +1,11 @@
 # x-gateway
 
+After `auth oauth2 --store kinko`, refresh `X_GW_TOKEN` from kinko in the calling
+environment: login cannot replace existing shell values. Remove stale `--token`
+overrides. Depending on the operation, complete OAuth1 credentials or
+`X_GW_APP_TOKEN` may select a different grant. Login output explains this selection,
+and GraphQL authentication errors identify the source actually used.
+
 AI-oriented command-line and Swift library gateway for X API operations.
 
 The Swift package exposes two executable products:

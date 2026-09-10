@@ -3,16 +3,6 @@ import Foundation
 import FoundationNetworking
 #endif
 
-public enum XGatewaySurface: String, Sendable {
-    case read
-    case write
-}
-
-public enum XGatewayGraphQLOperationType: String, Sendable {
-    case query
-    case mutation
-}
-
 public struct XGatewayCommandResult: Sendable {
     public let exitCode: Int32
     public let stdout: String
@@ -216,7 +206,7 @@ public struct XGatewayCLI: Sendable {
         if group == "version" {
             return [
                 "name": "x-gateway",
-                "version": "0.1.5",
+                "version": "0.1.6",
                 "runtime": "swift"
             ]
         }
@@ -262,7 +252,9 @@ public struct XGatewayCLI: Sendable {
                     oauth1Credentials: resolveOAuth1Credentials(globalFlags: globalFlags, environment: environment),
                     mediaRootDir: resolveMediaRootDir(globalFlags: globalFlags, environment: environment),
                     traceId: globalFlags.traceId,
-                    transport: globalFlags.transport
+                    transport: globalFlags.transport,
+                    tokenSource: globalFlags.token != nil ? "COMMAND_LINE (--token)" : "ENVIRONMENT_TOKEN (X_GW_TOKEN)",
+                    appTokenSource: globalFlags.appToken != nil ? "COMMAND_LINE (--token)" : "ENVIRONMENT_TOKEN (X_GW_APP_TOKEN)"
                 ).executeGraphQL(document: document, operationType: operationType)
             }
             throw unknownCommand("\(group) \(action ?? "")".trimmingCharacters(in: .whitespaces))
