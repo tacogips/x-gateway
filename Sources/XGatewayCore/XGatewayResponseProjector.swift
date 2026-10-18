@@ -210,6 +210,15 @@ private struct ProjectionContext {
     }
 }
 
+private func postText(_ tweet: [String: Any]) -> String {
+    if let note = tweet["note_tweet"] as? [String: Any],
+       let text = note["text"] as? String,
+       !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        return text
+    }
+    return stringValue(tweet["text"])
+}
+
 private func postObject(
     _ tweet: [String: Any],
     context: ProjectionContext,
@@ -227,7 +236,7 @@ private func postObject(
     }
     var post: [String: Any] = [
         "id": stringValue(tweet["id"]),
-        "text": stringValue(tweet["text"]),
+        "text": postText(tweet),
         "promotionStatus": promotionStatus,
         "metrics": metricsObject(tweet)
     ]

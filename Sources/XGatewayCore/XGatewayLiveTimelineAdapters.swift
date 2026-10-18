@@ -64,21 +64,25 @@ extension XGatewayLiveExecutor {
             authorization: authorization,
             body: nil
         )
-        guard let root = payload as? [String: Any],
-              let data = root["data"] as? [String: Any],
-              let id = data["id"] as? String,
-              !id.isEmpty else {
-            throw XGatewayErrorPayload(
-                code: .upstreamFailure,
-                summary: "Authenticated user id was missing",
-                details: "The Swift adapter could not read data.id from GET /2/users/me.",
-                likelyCauses: ["Unexpected X API response shape", "Bearer token is not user-context capable"],
-                remediations: ["Verify X_GW_TOKEN user context and retry.", "Inspect the upstream user lookup response."],
-                classification: "upstream",
-                retryable: false,
-                traceId: traceId
-            )
-        }
-        return id
+        return try authenticatedUserIdFromPayload(payload, traceId: traceId)
     }
+}
+
+func authenticatedUserIdFromPayload(_ payload: Any, traceId: String? = nil) throws -> String {
+    guard let root = payload as? [String: Any],
+          let data = root["data"] as? [String: Any],
+          let id = data["id"] as? String,
+          !id.isEmpty else {
+        throw XGatewayErrorPayload(
+            code: .upstreamFailure,
+            summary: "Authenticated user id was missing",
+            details: "The Swift adapter could not read data.id from GET /2/users/me.",
+            likelyCauses: ["Unexpected X API response shape", "Bearer token is not user-context capable"],
+            remediations: ["Verify X_GW_TOKEN user context and retry.", "Inspect the upstream user lookup response."],
+            classification: "upstream",
+            retryable: false,
+            traceId: traceId
+        )
+    }
+    return id
 }

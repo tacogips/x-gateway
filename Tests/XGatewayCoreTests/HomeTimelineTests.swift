@@ -56,4 +56,62 @@ final class HomeTimelineTests: XCTestCase {
         let info = try XCTUnwrap(page["pageInfo"] as? [String: Any])
         XCTAssertEqual(info["nextToken"] as? String, "page-two")
     }
+    func testVerifiedUserIdSkipsAccountLookupAndKeepsCursorAndFullTextFields() throws {
+        for suppliedId in [nil, "123"] as [String?] {
+            let idArgument = suppliedId.map { "userId: \"\($0)\", " } ?? ""
+            let operation = try parseSupportedOperation(
+                document: "{ homeTimeline(\(idArgument)maxResults: 5, paginationToken: \"page-two\") { posts { id } } }",
+                operationType: .query
+            )
+            guard case .homeTimeline(let maximum, let options, _, _) = operation else { return XCTFail("Expected home timeline") }
+            var urls: [URL] = []
+            let result = try homeTimelinePayload(maxResults: maximum, options: options) { url in
+                urls.append(url)
+                if url.path == "/2/users/me" { return ["data": ["id": "123"]] }
+                return ["data": [["id": "456", "text": "fixture"]]]
+            }
+            XCTAssertEqual(urls.map(\.path), suppliedId == nil
+                ? ["/2/users/me", "/2/users/123/timelines/reverse_chronological"]
+                : ["/2/users/123/timelines/reverse_chronological"])
+            let url = try XCTUnwrap(urls.last)
+            let components = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false))
+            let values = Dictionary(uniqueKeysWithValues: (components.queryItems ?? []).map { ($0.name, $0.value ?? "") })
+            XCTAssertEqual(values["pagination_token"], "page-two")
+            XCTAssertEqual(values["max_results"], "5")
+            XCTAssertTrue((values["tweet.fields"] ?? "").split(separator: ",").contains("note_tweet"))
+            XCTAssertNil(values["userId"])
+            XCTAssertEqual((result as? [String: Any])?["data"] as? [[String: String]], [["id": "456", "text": "fixture"]])
+        }
+    }
+
+    func testInvalidUserIdFailsBeforeAnyRequestOrCredentialResolution() throws {
+        for value in ["\"\"", "\" \"", "\"12/34\"", "\"abc\"", "\"１２３\"", "\"-1\"", "123", "true", "[\"123\"]"] {
+            var calls = 0
+            XCTAssertThrowsError(try {
+                let operation = try parseSupportedOperation(document: "{ homeTimeline(userId: \(value)) { posts { id } } }", operationType: .query)
+                guard case .homeTimeline(let maximum, let options, _, _) = operation else { return }
+                _ = try homeTimelinePayload(maxResults: maximum, options: options) { _ in calls += 1; return [:] }
+            }())
+            XCTAssertEqual(calls, 0)
+            let result = XGatewayCLI(commandName: "x-gateway-reader", surface: .read).run(
+                arguments: ["graphql", "query", "{ homeTimeline(userId: \(value)) { posts { id } } }", "--json"], environment: [:]
+            )
+            XCTAssertEqual(result.exitCode, 2, value)
+        }
+    }
+
+    func testFailedAccountLookupStopsBeforeTimelineAndPreservesTrace() throws {
+        let options = try HomeTimelineRequestOptions(arguments: "")
+        var paths: [String] = []
+        XCTAssertThrowsError(try homeTimelinePayload(maxResults: 5, options: options, traceId: "fixture-trace") { url in
+            paths.append(url.path)
+            return ["data": ["username": "missing-id"]]
+        }) { error in
+            let payload = error as? XGatewayErrorPayload
+            XCTAssertEqual(payload?.code, .upstreamFailure)
+            XCTAssertEqual(payload?.traceId, "fixture-trace")
+        }
+        XCTAssertEqual(paths, ["/2/users/me"])
+    }
+
 }

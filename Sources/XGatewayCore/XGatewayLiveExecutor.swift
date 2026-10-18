@@ -209,16 +209,9 @@ extension XGatewayLiveExecutor {
             return [operation.fieldName: try hydrateReplies(inPage: page, expansion: replyExpansion, authorization: authorization)]
         case .homeTimeline(let maxResults, let requestOptions, let readOptions, let replyExpansion):
             let options = readOptions.withDefaultMediaRootDir(mediaRootDir)
-            let userId = try authenticatedUserId(authorization: authorization)
-            let payload = try performJSONRequest(
-                method: "GET",
-                url: try xAPIURL(
-                    path: "/2/users/\(urlPathEscape(userId))/timelines/reverse_chronological",
-                    query: timelineQueryItems(requestOptions.parameters(maxResults: maxResults))
-                ),
-                authorization: authorization,
-                body: nil
-            )
+            let payload = try homeTimelinePayload(maxResults: maxResults, options: requestOptions, traceId: traceId) { url in
+                try performJSONRequest(method: "GET", url: url, authorization: authorization, body: nil)
+            }
             let page = try XGatewayResponseProjector.postPage(payload, options: options)
             return [operation.fieldName: try hydrateReplies(inPage: page, expansion: replyExpansion, authorization: authorization)]
         case .followingTimeline(let maxResults, let maxUsers, let maxResultsPerUser, let readOptions, let replyExpansion):

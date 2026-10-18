@@ -407,3 +407,17 @@ caller's per-query state. Recent search retains X's recent-history window.
 `likedPosts` uses complete OAuth1 user credentials when available, including when a bearer token is also configured; bearer-only authentication remains supported. `Post` and `ReferencedPost` expose `references { id relation }` from upstream `referenced_tweets`, even when an expanded body is absent. Relations are `quoted`, `retweeted`, or `replied_to`. Consumers can perform bounded `posts(ids:)` hydration for missing references without mistaking absent expansions for absent relationships. The existing two-level body projection limit is unchanged.
 
 HTTP failures include an optional numeric `error.httpStatus`; provider details remain separate so callers can retain bounded diagnostics without forwarding raw response text.
+
+### Long post text and verified home timeline pagination
+
+Post reads request `note_tweet` and expose its full nonblank text as `Post.text`,
+including original posts and quoted references within the existing two-level
+reference limit. Missing or malformed long-text fields fall back to ordinary
+post text; no additional fetch is performed.
+
+`homeTimeline(userId: "123", paginationToken: "...")` accepts an optional ASCII
+numeric user ID already verified by the caller against `accountMe`. Supplying
+that ID avoids the repeated `/2/users/me` lookup on each page. Omit it to retain
+automatic account lookup. The timeline request still uses the same authenticated
+credentials and X enforces access; this argument does not grant access to another
+account. Pagination and date bounds are unchanged.

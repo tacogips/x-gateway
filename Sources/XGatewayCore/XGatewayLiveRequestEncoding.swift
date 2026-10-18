@@ -71,7 +71,7 @@ func timelineQueryItems(
 ) -> String {
     var items = additionalItems
     if includeTweetFields {
-        var tweetFields = "attachments,author_id,conversation_id,created_at,in_reply_to_user_id,public_metrics,referenced_tweets"
+        var tweetFields = "attachments,author_id,conversation_id,created_at,in_reply_to_user_id,note_tweet,public_metrics,referenced_tweets"
         if includeOwnerMetrics {
             tweetFields += ",organic_metrics,promoted_metrics"
         }

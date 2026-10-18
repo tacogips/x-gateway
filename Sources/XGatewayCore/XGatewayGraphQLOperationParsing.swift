@@ -438,7 +438,7 @@ private enum SupportedGraphQLFieldArguments {
     static let bookmarksByFolder = GraphQLArgumentSet.postReadOptions.union(["folderId"])
     static let searchPosts = GraphQLArgumentSet.pagedPostReadOptions.union(["query", "sinceId", "nextToken"])
     static let timeline = GraphQLArgumentSet.pagedPostReadOptions
-    static let homeTimeline = timeline.union(["startTime", "endTime", "sinceId", "untilId", "paginationToken"])
+    static let homeTimeline = timeline.union(["userId", "startTime", "endTime", "sinceId", "untilId", "paginationToken"])
     static let followingTimeline = GraphQLArgumentSet.pagedPostReadOptions.union([
         "maxUsers",
         "maxResultsPerUser"
