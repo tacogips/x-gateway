@@ -38,7 +38,7 @@ enum SupportedGraphQLOperation {
     case dmEvent(eventId: String)
     case dmConversationEvents(participantId: String, maxResults: Int, paginationToken: String?, eventTypes: [String]?)
     case dmConversationEventsById(conversationId: String, maxResults: Int, paginationToken: String?, eventTypes: [String]?)
-    case searchPosts(query: String, maxResults: Int, readOptions: XGatewayPostReadOptions, replyExpansion: ReplyExpansionRequest?)
+    case searchPosts(query: String, maxResults: Int, sinceId: String?, nextToken: String?, readOptions: XGatewayPostReadOptions, replyExpansion: ReplyExpansionRequest?)
     case homeTimeline(maxResults: Int, readOptions: XGatewayPostReadOptions, replyExpansion: ReplyExpansionRequest?)
     case followingTimeline(maxResults: Int, maxUsers: Int, maxResultsPerUser: Int, readOptions: XGatewayPostReadOptions, replyExpansion: ReplyExpansionRequest?)
     case userTimeline(userId: String, maxResults: Int, readOptions: XGatewayPostReadOptions, replyExpansion: ReplyExpansionRequest?)
@@ -436,7 +436,7 @@ private enum SupportedGraphQLFieldArguments {
     static let bookmarks = GraphQLArgumentSet.pagedPostReadOptions
     static let bookmarkFolders: Set<String> = ["maxResults", "paginationToken"]
     static let bookmarksByFolder = GraphQLArgumentSet.postReadOptions.union(["folderId"])
-    static let searchPosts = GraphQLArgumentSet.pagedPostReadOptions.union(["query"])
+    static let searchPosts = GraphQLArgumentSet.pagedPostReadOptions.union(["query", "sinceId", "nextToken"])
     static let timeline = GraphQLArgumentSet.pagedPostReadOptions
     static let followingTimeline = GraphQLArgumentSet.pagedPostReadOptions.union([
         "maxUsers",
@@ -604,6 +604,8 @@ private func parseNativeGraphQLQueryOperation(
         return .searchPosts(
             query: try extractStringArgument("query", from: arguments, fieldName: "searchPosts"),
             maxResults: try extractOptionalIntArgument("maxResults", from: arguments, defaultValue: 10, minimum: 10, maximum: 100, fieldName: "searchPosts"),
+            sinceId: try extractOptionalStringArgument("sinceId", from: arguments, fieldName: "searchPosts"),
+            nextToken: try extractOptionalStringArgument("nextToken", from: arguments, fieldName: "searchPosts"),
             readOptions: try extractPostReadOptions(from: arguments, fieldName: "searchPosts"),
             replyExpansion: try extractReplyExpansion(
                 from: document,

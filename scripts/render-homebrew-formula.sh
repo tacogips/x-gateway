@@ -144,7 +144,6 @@ main() {
 class $class_name < Formula
   desc "$desc"
   homepage "https://github.com/tacogips/x-gateway"
-  version "$version"
   license "MIT"
 
   livecheck do

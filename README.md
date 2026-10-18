@@ -357,3 +357,22 @@ brew tap tacogips/homebrew-tap
 brew install tacogips/homebrew-tap/x-gateway-reader
 brew install tacogips/homebrew-tap/x-gateway-writer
 ```
+
+### Incremental recent search
+
+`searchPosts` accepts optional `sinceId` and `nextToken` strings. These map to
+X's recent-search `since_id` and `next_token` request parameters. For example:
+
+```graphql
+query {
+  searchPosts(query: "from:example", maxResults: 100, sinceId: "123", downloadMedia: false) {
+    posts { id text }
+    pageInfo { nextToken newestId oldestId }
+  }
+}
+```
+
+Keep the same query and `sinceId` while following `pageInfo.nextToken`. Persist
+the newest ID as the next run's watermark only after every page succeeds; keep
+the previous watermark and page cursor if interrupted. Watermarks belong to the
+caller's per-query state. Recent search retains X's recent-history window.

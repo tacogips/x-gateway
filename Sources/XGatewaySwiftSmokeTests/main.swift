@@ -24,7 +24,7 @@ struct ProcessResult {
 }
 
 let environmentExecutable = "/usr/bin/env"
-let formulaSmokeVersion = "0.1.7"
+let formulaSmokeVersion = "0.1.8"
 
 func runProcess(
     executable: String,
@@ -485,12 +485,12 @@ func runGraphQLSelectionParsingSmokeTests() throws {
     try assert(supportedNameAsUnsupportedArgument.stderr.contains("UNSUPPORTED"), "unsupported root field should keep the unsupported-field diagnostic")
 
     let searchQueryWithUnexpectedRootArgument = readCli.run(
-        arguments: ["graphql", "query", "query { searchPosts(query: \"swift\", maxResults: 10, sinceId: \"1\") { posts { id } } }", "--json"],
+        arguments: ["graphql", "query", "query { searchPosts(query: \"swift\", maxResults: 10, unsupportedCursor: \"1\") { posts { id } } }", "--json"],
         environment: [:]
     )
     try assert(searchQueryWithUnexpectedRootArgument.exitCode == 2, "unexpected root query arguments should fail validation")
     try assert(searchQueryWithUnexpectedRootArgument.stderr.contains("searchPosts"), "unexpected root query argument should name the public field")
-    try assert(searchQueryWithUnexpectedRootArgument.stderr.contains("sinceId"), "unexpected root query argument should name the unsupported argument")
+    try assert(searchQueryWithUnexpectedRootArgument.stderr.contains("unsupportedCursor"), "unexpected root query argument should name the unsupported argument")
 }
 
 func runGraphQLArgumentSyntaxSmokeTests() throws {
