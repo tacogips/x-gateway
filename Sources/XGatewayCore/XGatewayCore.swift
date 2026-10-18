@@ -130,6 +130,15 @@ public struct XGatewayCLI: Sendable {
 
     public func run(arguments: [String], environment: [String: String]) -> XGatewayCommandResult {
         var asJson = environment["X_GW_OUTPUT"] == "json"
+        // Help must not validate credentials, contact X, or start OAuth. Keep
+        // the original no-argument usage and add conventional help aliases.
+        if arguments.contains("--help") || arguments.contains("-h") || arguments.first == "help" {
+            return XGatewayCommandResult(
+                exitCode: 0,
+                stdout: formatSuccess(usage(), asJson: asJson || arguments.contains("--json"), pretty: arguments.contains("--pretty")),
+                stderr: ""
+            )
+        }
         var pretty = false
         var traceId: String?
 
@@ -206,7 +215,7 @@ public struct XGatewayCLI: Sendable {
         if group == "version" {
             return [
                 "name": "x-gateway",
-                "version": "0.1.6",
+                "version": "0.1.7",
                 "runtime": "swift"
             ]
         }
