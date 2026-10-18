@@ -39,7 +39,7 @@ enum SupportedGraphQLOperation {
     case dmConversationEvents(participantId: String, maxResults: Int, paginationToken: String?, eventTypes: [String]?)
     case dmConversationEventsById(conversationId: String, maxResults: Int, paginationToken: String?, eventTypes: [String]?)
     case searchPosts(query: String, maxResults: Int, sinceId: String?, nextToken: String?, readOptions: XGatewayPostReadOptions, replyExpansion: ReplyExpansionRequest?)
-    case homeTimeline(maxResults: Int, readOptions: XGatewayPostReadOptions, replyExpansion: ReplyExpansionRequest?)
+    case homeTimeline(maxResults: Int, options: HomeTimelineRequestOptions, readOptions: XGatewayPostReadOptions, replyExpansion: ReplyExpansionRequest?)
     case followingTimeline(maxResults: Int, maxUsers: Int, maxResultsPerUser: Int, readOptions: XGatewayPostReadOptions, replyExpansion: ReplyExpansionRequest?)
     case userTimeline(userId: String, maxResults: Int, readOptions: XGatewayPostReadOptions, replyExpansion: ReplyExpansionRequest?)
     case mentionsTimeline(userId: String, maxResults: Int, readOptions: XGatewayPostReadOptions, replyExpansion: ReplyExpansionRequest?)
@@ -438,6 +438,7 @@ private enum SupportedGraphQLFieldArguments {
     static let bookmarksByFolder = GraphQLArgumentSet.postReadOptions.union(["folderId"])
     static let searchPosts = GraphQLArgumentSet.pagedPostReadOptions.union(["query", "sinceId", "nextToken"])
     static let timeline = GraphQLArgumentSet.pagedPostReadOptions
+    static let homeTimeline = timeline.union(["startTime", "endTime", "sinceId", "untilId", "paginationToken"])
     static let followingTimeline = GraphQLArgumentSet.pagedPostReadOptions.union([
         "maxUsers",
         "maxResultsPerUser"
@@ -617,11 +618,12 @@ private func parseNativeGraphQLQueryOperation(
     if fieldName == "homeTimeline" {
         try validateGraphQLArguments(
             in: arguments,
-            allowed: SupportedGraphQLFieldArguments.timeline,
+            allowed: SupportedGraphQLFieldArguments.homeTimeline,
             fieldName: "homeTimeline"
         )
         return .homeTimeline(
             maxResults: try extractOptionalIntArgument("maxResults", from: arguments, defaultValue: 10, minimum: 5, maximum: 100, fieldName: "homeTimeline"),
+            options: try HomeTimelineRequestOptions(arguments: arguments),
             readOptions: try extractPostReadOptions(from: arguments, fieldName: "homeTimeline"),
             replyExpansion: try extractReplyExpansion(
                 from: document,

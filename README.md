@@ -376,3 +376,16 @@ Keep the same query and `sinceId` while following `pageInfo.nextToken`. Persist
 the newest ID as the next run's watermark only after every page succeeds; keep
 the previous watermark and page cursor if interrupted. Watermarks belong to the
 caller's per-query state. Recent search retains X's recent-history window.
+
+### Bounded home timeline reads
+
+`homeTimeline` reads the authenticated account's reverse chronological home feed. It accepts optional `startTime`, `endTime`, `sinceId`, `untilId`, and `paginationToken`, matching the [X timeline endpoint](https://docs.x.com/x-api/users/get-timeline). Use RFC 3339 UTC date bounds and pass `pageInfo.nextToken` back as `paginationToken`, keeping the same bounds on every page. X enforces date/ID ordering and its timeline retention limits.
+
+```graphql
+{
+  homeTimeline(maxResults: 100, startTime: "2026-10-16T15:00:00Z", endTime: "2026-10-17T15:00:00Z") {
+    posts { id createdAt text }
+    pageInfo { nextToken }
+  }
+}
+```
