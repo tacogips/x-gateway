@@ -25,7 +25,7 @@ public struct XGatewayErrorPayload: Error, Sendable {
     public let classification: String
     public let retryable: Bool
     public let traceId: String?
-    public var httpStatus: Int? = nil
+    public var httpStatus: Int?
 
     func jsonObject() -> [String: Any] {
         var object: [String: Any] = [
@@ -44,4 +44,3 @@ public struct XGatewayErrorPayload: Error, Sendable {
         return object
     }
 }
-
