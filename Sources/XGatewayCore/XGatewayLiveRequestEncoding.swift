@@ -67,7 +67,7 @@ func queryItems(_ items: [String: String]) -> String {
 func timelineQueryItems(
     _ additionalItems: [String: String],
     includeTweetFields: Bool = true,
-    includeOwnerMetrics: Bool = true
+    includeOwnerMetrics: Bool = false
 ) -> String {
     var items = additionalItems
     if includeTweetFields {

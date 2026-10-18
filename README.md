@@ -101,6 +101,12 @@ provided, and post with `media.media_ids`. Direct Message mutations also accept
 the same local `attachments` input and upload files as DM media with OAuth2
 `media.write` before sending `attachments { media_id }` to X.
 
+Ordinary post reads request public metrics only, including liked posts, lists,
+searches, timelines and single/batch lookups. Private organic/promoted metrics
+are not requested implicitly because X restricts them to eligible owned posts
+created within the last 30 days. Public historical reads have no SDK-imposed
+30-day cutoff; availability still depends on the upstream endpoint.
+
 Swift read projections include stable post metrics, authors, media asset URLs,
 and referenced-post shortcuts when those expansions are present in X API
 responses. Read projections honor `includePromoted`, filtering promoted posts by

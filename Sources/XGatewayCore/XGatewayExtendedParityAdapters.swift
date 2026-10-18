@@ -479,7 +479,7 @@ private func extendedUserPageQuery(maxResults: Int, paginationToken: String?) ->
     return userPageQueryItems(items)
 }
 
-private func extendedPostPageQuery(maxResults: Int, paginationToken: String?) -> String {
+func extendedPostPageQuery(maxResults: Int, paginationToken: String?) -> String {
     var items = ["max_results": String(maxResults)]
     extendedCopyIfPresent(paginationToken, to: "pagination_token", into: &items)
     return timelineQueryItems(items)
