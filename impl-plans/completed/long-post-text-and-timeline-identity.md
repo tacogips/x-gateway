@@ -24,3 +24,13 @@ build/smoke and both macOS archives pass; each archived reader/writer reports 0.
 Independent source review found no blockers. Public release verification follows.
 Nix validation is unavailable: this checkout has no flake.nix and this host has no
 nix executable. No Nix output or live provider validation is claimed.
+
+Released v0.1.12 at f91fae662e45606cfd6847e884e170c02d8e83cd:
+https://github.com/tacogips/x-gateway/releases/tag/v0.1.12
+All four public assets match their local SHA-256 digests. Both arm64 and x64
+archives contain reader/writer executables that report 0.1.12.
+Tap commit 70dfb7846be6801861a859401f6574cb5d7b6a47 passed Ruby syntax,
+strict audits, fetch, upgrade and both brew tests. Metadata workflow 39126442897
+succeeded; public raw reader/writer JSON reports 0.1.12 and hashes matching the
+committed formulae. Issue 7 is closed. Riela/container rollout is coordinated
+separately; this release performed no provider requests or container operations.
