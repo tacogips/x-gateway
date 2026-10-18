@@ -26,6 +26,9 @@ public struct XGatewayErrorPayload: Error, Sendable {
     public let retryable: Bool
     public let traceId: String?
     public var httpStatus: Int?
+    public var providerProblem: XGatewayProviderProblem?
+    public var providerReason: XGatewayProviderReason?
+    public var providerErrorCode: Int?
 
     func jsonObject() -> [String: Any] {
         var object: [String: Any] = [
@@ -41,6 +44,9 @@ public struct XGatewayErrorPayload: Error, Sendable {
             object["traceId"] = traceId
         }
         if let httpStatus { object["httpStatus"] = httpStatus }
+        if let providerProblem { object["providerProblem"] = providerProblem.rawValue }
+        if let providerReason { object["providerReason"] = providerReason.rawValue }
+        if let providerErrorCode { object["providerErrorCode"] = providerErrorCode }
         return object
     }
 }

@@ -767,6 +767,10 @@ extension XGatewayLiveExecutor {
     }
 
     func mapHTTPError(statusCode: Int, payload: Any) -> XGatewayErrorPayload {
+        classifiedHTTPError(statusCode: statusCode, payload: payload).withProviderDiagnostics(payload)
+    }
+
+    private func classifiedHTTPError(statusCode: Int, payload: Any) -> XGatewayErrorPayload {
         let detail = jsonString(payload, pretty: false)
         if statusCode == 401 {
             return XGatewayErrorPayload(

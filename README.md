@@ -101,6 +101,12 @@ provided, and post with `media.media_ids`. Direct Message mutations also accept
 the same local `attachments` input and upload files as DM media with OAuth2
 `media.write` before sending `attachments { media_id }` to X.
 
+HTTP errors expose optional finite `providerProblem` and `providerReason` values,
+plus an integer `providerErrorCode` bounded to 0...99999. These fields contain
+only recognized machine values; unknown provider strings become `unknown`.
+Callers with a private data boundary should allowlist these fields and exclude
+free-form `details`, `summary`, messages, resource identifiers and URLs.
+
 Ordinary post reads request public metrics only, including liked posts, lists,
 searches, timelines and single/batch lookups. Private organic/promoted metrics
 are not requested implicitly because X restricts them to eligible owned posts
