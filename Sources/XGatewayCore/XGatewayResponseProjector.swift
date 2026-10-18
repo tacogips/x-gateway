@@ -250,6 +250,12 @@ private func postObject(
         post["media"] = media
     }
     if maxReferenceDepth > 0 {
+        post["references"] = ((tweet["referenced_tweets"] as? [[String: Any]]) ?? []).compactMap { reference -> [String: String]? in
+            guard let id = reference["id"] as? String, !id.isEmpty,
+                  let relation = reference["type"] as? String,
+                  ["replied_to", "quoted", "retweeted"].contains(relation) else { return nil }
+            return ["id": id, "relation": relation]
+        }
         let referencedPosts = try referencedPostObjects(
             tweet,
             context: context,

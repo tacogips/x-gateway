@@ -234,7 +234,7 @@ enum SupportedGraphQLOperation {
         switch self {
         case .apiUsage, .searchAllPosts, .searchUsers, .searchNews, .news, .trendsByWoeid,
              .bookmarks, .bookmarkFolders, .bookmarksByFolder, .bookmarkPost, .removeBookmark,
-             .likedPosts, .mutedUsers, .blockedUsers, .likePost, .unlikePost, .followUser,
+             .mutedUsers, .blockedUsers, .likePost, .unlikePost, .followUser,
              .unfollowUser, .muteUser, .unmuteUser, .list, .ownedLists, .followedLists,
              .listMemberships, .pinnedLists, .listFollowers, .listMembers, .listPosts,
              .createList, .updateList, .deleteList, .addListMember, .removeListMember,

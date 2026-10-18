@@ -13,6 +13,8 @@ final class TokenSourceDiagnosticsTests: XCTestCase {
         let error = executor.mapHTTPError(statusCode: 401, payload: ["error": "Unauthorized"]).withTokenSource(source)
         XCTAssertEqual(error.code, .authInvalid)
         XCTAssertEqual(error.traceId, "trace")
+        XCTAssertEqual(error.httpStatus, 401)
+        XCTAssertEqual(error.jsonObject()["httpStatus"] as? Int, 401)
         XCTAssertTrue(error.details.contains("COMMAND_LINE (--token)"))
         XCTAssertTrue(error.remediations.joined().contains("X_GW_TOKEN"))
         XCTAssertFalse(error.details.contains("secret-sentinel"))

@@ -18,7 +18,7 @@ func capabilityRows() -> [[String: Any]] {
         capabilityRow(id: "timeline.following", operation: "followingTimeline", access: "read", status: oauth1PreferredStatus),
         capabilityRow(id: "post.get", operation: "post", access: "read", status: oauth1PreferredStatus),
         capabilityRow(id: "post.batch.get", operation: "posts", access: "read", status: oauth1PreferredStatus),
-        capabilityRow(id: "post.likedByUser", operation: "likedPosts", access: "read", status: bearerStatus),
+        capabilityRow(id: "post.likedByUser", operation: "likedPosts", access: "read", status: oauth1PreferredStatus),
         capabilityRow(id: "post.replies", operation: "Post.replies", access: "read", status: oauth1PreferredStatus),
         capabilityRow(id: "post.likingUsers", operation: "postLikingUsers", access: "read", status: oauth1PreferredStatus),
         capabilityRow(id: "post.repostingUsers", operation: "postRepostingUsers", access: "read", status: oauth1PreferredStatus),

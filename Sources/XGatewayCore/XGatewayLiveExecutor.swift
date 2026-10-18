@@ -59,7 +59,7 @@ extension XGatewayLiveExecutor {
         }
     }
 
-    private func requireAuthorization(operation: SupportedGraphQLOperation) throws -> XGatewayRequestAuthorization {
+    func requireAuthorization(operation: SupportedGraphQLOperation) throws -> XGatewayRequestAuthorization {
         if operation.requiresOAuth1 {
             guard let oauth1Credentials else {
                 throw XGatewayErrorPayload(
@@ -777,7 +777,8 @@ extension XGatewayLiveExecutor {
                 remediations: ["Re-issue X_GW_TOKEN and retry", "Confirm token/app pairing and auth mode"],
                 classification: "auth",
                 retryable: false,
-                traceId: traceId
+                traceId: traceId,
+                httpStatus: statusCode
             )
         }
         if statusCode == 403 {
@@ -789,7 +790,8 @@ extension XGatewayLiveExecutor {
                 remediations: ["Grant required read/write scope", "Use credentials for an app with the required access"],
                 classification: "permission",
                 retryable: false,
-                traceId: traceId
+                traceId: traceId,
+                httpStatus: statusCode
             )
         }
         if statusCode == 404 {
@@ -801,7 +803,8 @@ extension XGatewayLiveExecutor {
                 remediations: ["Verify the resource identifier", "Check resource visibility"],
                 classification: "upstream",
                 retryable: false,
-                traceId: traceId
+                traceId: traceId,
+                httpStatus: statusCode
             )
         }
         if statusCode == 429 {
@@ -813,7 +816,8 @@ extension XGatewayLiveExecutor {
                 remediations: ["Retry after the rate-limit window", "Lower request frequency"],
                 classification: "rate_limit",
                 retryable: true,
-                traceId: traceId
+                traceId: traceId,
+                httpStatus: statusCode
             )
         }
         return XGatewayErrorPayload(
@@ -824,7 +828,8 @@ extension XGatewayLiveExecutor {
             remediations: ["Verify credential scopes and X app permissions", "Review X developer portal app/token status"],
             classification: "upstream",
             retryable: statusCode >= 500,
-            traceId: traceId
+            traceId: traceId,
+            httpStatus: statusCode
         )
     }
 }

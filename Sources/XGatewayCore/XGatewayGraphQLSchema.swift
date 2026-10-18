@@ -364,6 +364,11 @@ type PostMetrics {
   impressionCount: Int
 }
 
+type PostReference {
+  id: ID!
+  relation: String!
+}
+
 type ReferencedPost {
   id: ID!
   text: String!
@@ -375,6 +380,7 @@ type ReferencedPost {
   author: AccountProfile
   media: [MediaAsset!]
   relation: String!
+  references: [PostReference!]!
   replyTo: ReferencedPostLevel2
   quote: ReferencedPostLevel2
   repost: ReferencedPostLevel2
@@ -403,6 +409,7 @@ type Post {
   replyToUserId: String
   author: AccountProfile
   media: [MediaAsset!]
+  references: [PostReference!]!
   referencedPosts: [ReferencedPost!]
   replies(maxResults: Int, paginationToken: String, mediaRootDir: String, downloadMedia: Boolean, forceDownload: Boolean, includePromoted: Boolean): PostPage!
   replyTo: ReferencedPost

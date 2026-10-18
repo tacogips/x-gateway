@@ -389,3 +389,9 @@ caller's per-query state. Recent search retains X's recent-history window.
   }
 }
 ```
+
+### Liked post archive reads
+
+`likedPosts` uses complete OAuth1 user credentials when available, including when a bearer token is also configured; bearer-only authentication remains supported. `Post` and `ReferencedPost` expose `references { id relation }` from upstream `referenced_tweets`, even when an expanded body is absent. Relations are `quoted`, `retweeted`, or `replied_to`. Consumers can perform bounded `posts(ids:)` hydration for missing references without mistaking absent expansions for absent relationships. The existing two-level body projection limit is unchanged.
+
+HTTP failures include an optional numeric `error.httpStatus`; provider details remain separate so callers can retain bounded diagnostics without forwarding raw response text.
