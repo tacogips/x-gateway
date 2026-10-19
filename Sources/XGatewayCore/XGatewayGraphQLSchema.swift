@@ -364,6 +364,13 @@ type PostMetrics {
   impressionCount: Int
 }
 
+type PostURLEntity {
+  url: String!
+  expandedUrl: String
+  displayUrl: String
+  source: String!
+}
+
 type PostReference {
   id: ID!
   relation: String!
@@ -372,6 +379,7 @@ type PostReference {
 type ReferencedPost {
   id: ID!
   text: String!
+  urlEntities: [PostURLEntity!]!
   promotionStatus: String!
   metrics: PostMetrics!
   createdAt: String
@@ -389,6 +397,7 @@ type ReferencedPost {
 type ReferencedPostLevel2 {
   id: ID!
   text: String!
+  urlEntities: [PostURLEntity!]!
   promotionStatus: String!
   metrics: PostMetrics!
   createdAt: String
@@ -402,6 +411,7 @@ type ReferencedPostLevel2 {
 type Post {
   id: ID!
   text: String!
+  urlEntities: [PostURLEntity!]!
   promotionStatus: String!
   metrics: PostMetrics!
   createdAt: String

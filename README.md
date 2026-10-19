@@ -421,3 +421,16 @@ that ID avoids the repeated `/2/users/me` lookup on each page. Omit it to retain
 automatic account lookup. The timeline request still uses the same authenticated
 credentials and X enforces access; this argument does not grant access to another
 account. Pagination and date bounds are unchanged.
+
+### Provider URL metadata
+
+Post and both referenced-post levels expose `urlEntities { url expandedUrl displayUrl source }`.
+The shared read request asks for `entities` alongside `note_tweet`; no extra API requests are made.
+`source` is `entities` or `note_tweet.entities`, preserving where X supplied the metadata.
+Original text is unchanged. Exact duplicate entries within each source are deduplicated.
+Missing/malformed URL entities are omitted; invalid optional fields are absent. URL values must be
+absolute HTTP(S), without credentials/whitespace/control characters and at most 8192 UTF-8 bytes;
+display labels are control-free and at most 2048 bytes. These are untrusted provider metadata,
+not verified destinations or permission to fetch. The gateway never follows t.co redirects.
+
+Reference: https://docs.x.com/x-api/fundamentals/data-dictionary

@@ -67,6 +67,7 @@ final class LongPostTextTests: XCTestCase {
             let values = Dictionary(uniqueKeysWithValues: (components.queryItems ?? []).map { ($0.name, $0.value ?? "") })
             let fields = Set((values["tweet.fields"] ?? "").split(separator: ",").map(String.init))
             XCTAssertTrue(fields.contains("note_tweet"), path)
+            XCTAssertTrue(fields.contains("entities"), path)
             XCTAssertTrue(fields.isDisjoint(with: ["organic_metrics", "promoted_metrics", "non_public_metrics"]), path)
             XCTAssertEqual(values["expansions"], "author_id,attachments.media_keys,referenced_tweets.id", path)
         }

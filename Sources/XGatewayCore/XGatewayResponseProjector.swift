@@ -237,6 +237,7 @@ private func postObject(
     var post: [String: Any] = [
         "id": stringValue(tweet["id"]),
         "text": postText(tweet),
+        "urlEntities": postURLEntities(tweet),
         "promotionStatus": promotionStatus,
         "metrics": metricsObject(tweet)
     ]
