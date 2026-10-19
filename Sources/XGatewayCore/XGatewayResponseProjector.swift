@@ -257,8 +257,8 @@ private func postObject(
         post["relation"] = relation
     }
     let media = try mediaAssets(for: tweet, context: context, options: options)
-    if !media.isEmpty {
-        post["media"] = media
+    if !media.assets.isEmpty {
+        post["media"] = media.assets
     }
     if maxReferenceDepth > 0 {
         post["references"] = ((tweet["referenced_tweets"] as? [[String: Any]]) ?? []).compactMap { reference -> [String: String]? in
@@ -286,6 +286,9 @@ private func postObject(
             post["repost"] = repost
         }
     }
+    post.merge(postCoverage(tweet, returnedMediaKeys: media.keys, includedMediaKeys: Set(context.mediaByKey.keys),
+        projectedReferences: (post["referencedPosts"] as? [[String: Any]]) ?? [],
+        includedReferenceIDs: Set(context.tweetsById.keys), depth: maxReferenceDepth)) { _, new in new }
     return post
 }
 
@@ -321,9 +324,10 @@ private func mediaAssets(
     for tweet: [String: Any],
     context: ProjectionContext,
     options: XGatewayPostReadOptions
-) throws -> [[String: Any]] {
+) throws -> (assets: [[String: Any]], keys: Set<String>) {
     let mediaKeys = ((tweet["attachments"] as? [String: Any])?["media_keys"] as? [String]) ?? []
     var assets: [[String: Any]] = []
+    var returnedKeys = Set<String>()
     for mediaKey in mediaKeys {
         guard let media = context.mediaByKey[mediaKey],
               let source = mediaSource(media) else {
@@ -335,6 +339,7 @@ private func mediaAssets(
             "sourceUrl": source.sourceUrl
         ]
         copyString(media, from: "preview_image_url", to: "previewImageUrl", into: &asset)
+        returnedKeys.insert(mediaKey)
         assets.append(try materializeMediaAsset(
             asset,
             mediaKey: mediaKey,
@@ -342,7 +347,7 @@ private func mediaAssets(
             options: options
         ))
     }
-    return assets
+    return (assets, returnedKeys)
 }
 
 private func mediaKind(_ value: Any?) -> String {

@@ -371,6 +371,19 @@ type PostURLEntity {
   source: String!
 }
 
+type PostMediaAvailability {
+  mediaKey: String!
+  status: String!
+  reason: String!
+}
+
+type PostReferenceAvailability {
+  postId: ID!
+  relation: String!
+  status: String!
+  reason: String!
+}
+
 type PostReference {
   id: ID!
   relation: String!
@@ -380,6 +393,10 @@ type ReferencedPost {
   id: ID!
   text: String!
   urlEntities: [PostURLEntity!]!
+  mediaAvailability: [PostMediaAvailability!]!
+  mediaCoverageComplete: Boolean!
+  referenceAvailability: [PostReferenceAvailability!]!
+  referenceCoverageComplete: Boolean!
   promotionStatus: String!
   metrics: PostMetrics!
   createdAt: String
@@ -398,6 +415,10 @@ type ReferencedPostLevel2 {
   id: ID!
   text: String!
   urlEntities: [PostURLEntity!]!
+  mediaAvailability: [PostMediaAvailability!]!
+  mediaCoverageComplete: Boolean!
+  referenceAvailability: [PostReferenceAvailability!]!
+  referenceCoverageComplete: Boolean!
   promotionStatus: String!
   metrics: PostMetrics!
   createdAt: String
@@ -412,6 +433,10 @@ type Post {
   id: ID!
   text: String!
   urlEntities: [PostURLEntity!]!
+  mediaAvailability: [PostMediaAvailability!]!
+  mediaCoverageComplete: Boolean!
+  referenceAvailability: [PostReferenceAvailability!]!
+  referenceCoverageComplete: Boolean!
   promotionStatus: String!
   metrics: PostMetrics!
   createdAt: String

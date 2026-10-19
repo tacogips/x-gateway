@@ -77,7 +77,7 @@ func timelineQueryItems(
         }
         items["tweet.fields"] = tweetFields
         items["expansions"] = "author_id,attachments.media_keys,referenced_tweets.id"
-        items["media.fields"] = "alt_text,duration_ms,height,media_key,preview_image_url,type,url,width"
+        items["media.fields"] = "alt_text,duration_ms,height,media_key,preview_image_url,type,url,variants,width"
     }
     items["user.fields"] = "id,name,username"
     return queryItems(items)

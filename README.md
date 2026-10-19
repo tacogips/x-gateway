@@ -443,3 +443,23 @@ provider error supports not-found/forbidden. Missing IDs without that evidence
 remain unknown; no result proves permanent deletion. Provider error text is never
 included, and the original posts are unchanged. Other `PostPage` operations return
 null for this field (not evaluated). No additional provider request is made.
+
+### Declared media and reference coverage
+
+Post, ReferencedPost and ReferencedPostLevel2 expose additive `mediaAvailability`,
+`mediaCoverageComplete`, `referenceAvailability` and `referenceCoverageComplete` fields.
+Availability describes only identifiers declared in the provider response. `available`
+means their metadata was projected, not that image bytes were downloaded or inspected.
+Empty declarations can be complete for this narrow scope; this does not attest that a
+post has no visual content. Malformed or oversized declarations remain incomplete.
+
+Unresolved entries use `unknown` with `missing`, `unsupported`, `filtered` or
+`depth-limit`; none proves deletion or permanent unavailability. Quoted media omitted
+from expansions and references beyond the two-level projection are explicit gaps.
+Callers may resolve those gaps using their own bounded, account-bound exact-ID lookup
+budget and cache. The SDK performs no additional requests automatically. Original
+post text, including available note_tweet full text, is unchanged.
+
+The shared request includes the documented `variants` media field so video/GIF
+metadata can retain a usable source. It does not add undocumented nested expansion
+values to the exact-ID endpoint. See the [official lookup field reference](https://docs.x.com/x-api/posts/get-posts-by-ids).
