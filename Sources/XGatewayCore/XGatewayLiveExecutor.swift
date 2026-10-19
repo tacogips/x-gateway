@@ -551,7 +551,7 @@ extension XGatewayLiveExecutor {
             if let error {
                 result = .failure(error)
             } else {
-                result = .success((data ?? Data(), response ?? URLResponse()))
+                result = .success((data ?? Data(), response ?? URLResponse(url: url, mimeType: nil, expectedContentLength: 0, textEncodingName: nil)))
             }
             semaphore.signal()
         }
@@ -576,7 +576,7 @@ extension XGatewayLiveExecutor {
         let data: Data
         let response: URLResponse
         do {
-            (data, response) = try result?.get() ?? (Data(), URLResponse())
+            (data, response) = try result?.get() ?? (Data(), URLResponse(url: url, mimeType: nil, expectedContentLength: 0, textEncodingName: nil))
         } catch {
             throw XGatewayErrorPayload(
                 code: .networkFailure,
@@ -642,7 +642,7 @@ extension XGatewayLiveExecutor {
             if let error {
                 result = .failure(error)
             } else {
-                result = .success((data ?? Data(), response ?? URLResponse()))
+                result = .success((data ?? Data(), response ?? URLResponse(url: url, mimeType: nil, expectedContentLength: 0, textEncodingName: nil)))
             }
             semaphore.signal()
         }
@@ -667,7 +667,7 @@ extension XGatewayLiveExecutor {
         let data: Data
         let response: URLResponse
         do {
-            (data, response) = try result?.get() ?? (Data(), URLResponse())
+            (data, response) = try result?.get() ?? (Data(), URLResponse(url: url, mimeType: nil, expectedContentLength: 0, textEncodingName: nil))
         } catch {
             throw XGatewayErrorPayload(
                 code: .networkFailure,
