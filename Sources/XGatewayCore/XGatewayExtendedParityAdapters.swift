@@ -236,7 +236,7 @@ extension XGatewayLiveExecutor {
             authorization: authorization,
             body: nil
         )
-        return try XGatewayResponseProjector.postPage(payload, options: readOptions)
+        return try XGatewayResponseProjector.postPage(payload, options: readOptions, requestedIDs: ids)
     }
 
     func likedPosts(

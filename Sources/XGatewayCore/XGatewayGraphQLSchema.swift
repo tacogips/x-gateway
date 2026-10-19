@@ -434,6 +434,13 @@ type PostLookupResult {
 type PostPage {
   posts: [Post!]!
   pageInfo: PageInfo!
+  lookupAvailability: [PostLookupAvailability!]
+}
+
+type PostLookupAvailability {
+  postId: ID!
+  status: String!
+  reason: String!
 }
 
 type PageInfo {

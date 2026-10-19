@@ -434,3 +434,12 @@ display labels are control-free and at most 2048 bytes. These are untrusted prov
 not verified destinations or permission to fetch. The gateway never follows t.co redirects.
 
 Reference: https://docs.x.com/x-api/fundamentals/data-dictionary
+
+Exact `posts(ids: ...)` reads can select `lookupAvailability { postId status reason }`.
+The list has one entry per distinct requested ID in request order. Status is
+`available`, `unavailable`, or `unknown`; reason is `returned`, `filtered`,
+`missing`, `not-found`, `forbidden`, or `unknown`. Only a matching structured
+provider error supports not-found/forbidden. Missing IDs without that evidence
+remain unknown; no result proves permanent deletion. Provider error text is never
+included, and the original posts are unchanged. Other `PostPage` operations return
+null for this field (not evaluated). No additional provider request is made.

@@ -59,7 +59,7 @@ public enum XGatewayResponseProjector {
         return try post(payload, options: XGatewayPostReadOptions(includePromoted: includePromoted))
     }
 
-    public static func postPage(_ payload: Any, options: XGatewayPostReadOptions = XGatewayPostReadOptions()) throws -> [String: Any] {
+    public static func postPage(_ payload: Any, options: XGatewayPostReadOptions = XGatewayPostReadOptions(), requestedIDs: [String]? = nil) throws -> [String: Any] {
         let root = object(payload)
         let context = ProjectionContext(root: root)
         let tweets = (root["data"] as? [[String: Any]]) ?? []
@@ -85,10 +85,11 @@ public enum XGatewayResponseProjector {
         } else {
             copyString(meta, from: "oldest_id", to: "oldestId", into: &pageInfo)
         }
-        return [
-            "posts": posts,
-            "pageInfo": pageInfo
-        ]
+        var result: [String: Any] = ["posts": posts, "pageInfo": pageInfo]
+        if let requestedIDs {
+            result["lookupAvailability"] = lookupAvailability(root: root, posts: posts, requestedIDs: requestedIDs)
+        }
+        return result
     }
 
     public static func postPage(_ payload: Any, includePromoted: Bool) throws -> [String: Any] {
