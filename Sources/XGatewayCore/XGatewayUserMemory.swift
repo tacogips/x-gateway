@@ -1,6 +1,6 @@
 import Foundation
 
-/// A bounded exchange with the embedding runtime's durable user memory.
+/// A bounded exchange with the embedding runtime's user metadata cache.
 /// The SDK owns no files and never stores credentials. Only missing authors
 /// are looked up; the caller persists the returned metadata between runs.
 final class XGatewayUserMemory {
@@ -56,7 +56,12 @@ final class XGatewayUserMemory {
               expansions.split(separator: ",").contains(where: { $0 == "author_id" || $0.hasSuffix(".author_id") }) else { return try request(url) }
         // Keep referenced posts and media in the original read, but resolve
         // names separately so known authors are never requested again.
-        let retained = expansions.split(separator: ",").filter { $0 != "author_id" && !$0.hasSuffix(".author_id") }.joined(separator: ",")
+        var retainedFields = expansions.split(separator: ",").filter { $0 != "author_id" && !$0.hasSuffix(".author_id") }.map(String.init)
+        for field in expansions.split(separator: ",") where field.hasSuffix(".author_id") {
+            let parent = String(field.dropLast(".author_id".count))
+            if !retainedFields.contains(parent) { retainedFields.append(parent) }
+        }
+        let retained = retainedFields.joined(separator: ",")
         let otherUsers = retained.split(separator: ",").contains { $0.contains("mentions") || $0 == "in_reply_to_user_id" }
         components.queryItems = components.queryItems?.filter { $0.name != "expansions" && (otherUsers || $0.name != "user.fields") }
         if !retained.isEmpty { components.queryItems?.append(URLQueryItem(name: "expansions", value: retained)) }

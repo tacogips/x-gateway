@@ -70,7 +70,7 @@ final class UserMemoryTests: XCTestCase {
         ]))
         let result = try memory.read(url: url) { target in
             let values = Dictionary(uniqueKeysWithValues: (URLComponents(url: target, resolvingAgainstBaseURL: false)?.queryItems ?? []).map { ($0.name, $0.value ?? "") })
-            XCTAssertEqual(values["expansions"], "entities.mentions.username")
+            XCTAssertEqual(values["expansions"], "entities.mentions.username,referenced_tweets.id")
             XCTAssertEqual(values["user.fields"], "username,verified")
             XCTAssertEqual(values["tweet.fields"], "text,author_id")
             return ["data": [["id": "10", "author_id": "1"]], "includes": ["users": [["id": "2", "username": "mention", "verified": true]]]]
