@@ -29,6 +29,7 @@ public struct XGatewayErrorPayload: Error, Sendable {
     public var providerProblem: XGatewayProviderProblem?
     public var providerReason: XGatewayProviderReason?
     public var providerErrorCode: Int?
+    public var retryDiagnostics: XGatewayRetryDiagnostics?
 
     func jsonObject() -> [String: Any] {
         var object: [String: Any] = [
@@ -47,6 +48,12 @@ public struct XGatewayErrorPayload: Error, Sendable {
         if let providerProblem { object["providerProblem"] = providerProblem.rawValue }
         if let providerReason { object["providerReason"] = providerReason.rawValue }
         if let providerErrorCode { object["providerErrorCode"] = providerErrorCode }
+        if let retry = retryDiagnostics {
+            object["requestAttempts"] = retry.requestAttempts
+            object["retryAttempts"] = retry.retryAttempts
+            object["backoffMs"] = retry.backoffMs
+            object["retryStopReason"] = retry.stopReason.rawValue
+        }
         return object
     }
 }

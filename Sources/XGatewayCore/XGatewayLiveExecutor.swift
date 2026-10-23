@@ -43,7 +43,13 @@ enum XGatewayRetryPolicy {
 extension XGatewayLiveExecutor {
     func executeGraphQL(document: String, operationType: XGatewayGraphQLOperationType) throws -> [String: Any] {
         let operation = try parseSupportedOperation(document: document, operationType: operationType)
-        let authorization = try requireAuthorization(operation: operation)
+        let authorization: XGatewayRequestAuthorization
+        do {
+            authorization = try requireAuthorization(operation: operation)
+        } catch var error as XGatewayErrorPayload {
+            error.retryDiagnostics = .notStarted
+            throw error
+        }
         do {
             let response = try execute(operation: operation, authorization: authorization)
             return ["data": response]
@@ -490,23 +496,7 @@ extension XGatewayLiveExecutor {
     }
 
     private func performRequestWithRetry<T>(method: String, _ perform: () throws -> T) throws -> T {
-        let retryCount = XGatewayRetryPolicy.automaticRetryCount(
-            forHTTPMethod: method,
-            configuredRetryCount: transport.retryCount
-        )
-        var attempt = 0
-        while true {
-            do {
-                return try perform()
-            } catch let error as XGatewayErrorPayload {
-                guard error.retryable,
-                      attempt < retryCount else {
-                    throw error
-                }
-                sleepBeforeRetry(attempt: attempt)
-                attempt += 1
-            }
-        }
+        try XGatewayRetryPolicy.perform(method: method, transport: transport, perform: perform)
     }
 
     private func performSingleJSONRequest(
@@ -721,24 +711,6 @@ extension XGatewayLiveExecutor {
                 ),
                 forHTTPHeaderField: "Authorization"
             )
-        }
-    }
-
-    private func sleepBeforeRetry(attempt: Int) {
-        let delayMs: Int
-        switch transport.retryBackoff {
-        case "none":
-            delayMs = 0
-        case "fixed":
-            delayMs = transport.retryBaseMs
-        default:
-            let exponent = min(attempt, 10)
-            let uncapped = transport.retryBaseMs * (1 << exponent)
-            let capped = min(uncapped, transport.retryMaxMs)
-            delayMs = capped == 0 ? 0 : Int(Double(capped) * Double.random(in: 0.5...1.0))
-        }
-        if delayMs > 0 {
-            Thread.sleep(forTimeInterval: TimeInterval(delayMs) / 1_000)
         }
     }
 

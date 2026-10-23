@@ -463,3 +463,15 @@ post text, including available note_tweet full text, is unchanged.
 The shared request includes the documented `variants` media field so video/GIF
 metadata can retain a usable source. It does not add undocumented nested expansion
 values to the exact-ID endpoint. See the [official lookup field reference](https://docs.x.com/x-api/posts/get-posts-by-ids).
+
+### Failed-request retry diagnostics
+
+Instrumented JSON errors include `requestAttempts`, `retryAttempts`, `backoffMs`, and
+`retryStopReason` alongside `httpStatus` and `retryable`. Counts and cumulative
+sleep milliseconds describe the failed HTTP request, including its automatic
+retries, rather than all requests in a compound operation. `not-started` means
+failure occurred before the retry-managed HTTP transport was entered;
+`non-retryable`, `retry-disabled`, `method-not-retryable`, and `retry-exhausted`
+explain why it stopped. These fields contain no URLs, credentials, or content.
+Errors outside this instrumented boundary omit counts rather than inventing zero attempts.
+Successful responses retain their existing format and do not report HTTP counts.

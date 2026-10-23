@@ -11,7 +11,8 @@ extension XGatewayErrorPayload {
                 "Remove a stale --token override. Complete OAuth1 credentials or X_GW_APP_TOKEN may select a different authentication mode for this operation."
             ],
             classification: classification, retryable: retryable, traceId: traceId, httpStatus: httpStatus,
-            providerProblem: providerProblem, providerReason: providerReason, providerErrorCode: providerErrorCode
+            providerProblem: providerProblem, providerReason: providerReason, providerErrorCode: providerErrorCode,
+            retryDiagnostics: retryDiagnostics
         )
     }
 }
