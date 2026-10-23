@@ -16,7 +16,7 @@ final class UserMemoryTests: XCTestCase {
             }
             reads += 1
             XCTAssertEqual(fields["pagination_token"], "opaque+/=")
-            XCTAssertTrue(target.absoluteString.contains("pagination_token=opaque%2B%2F%3D"))
+            XCTAssertTrue(target.absoluteString.contains("pagination_token=opaque%2B/%3D"))
             XCTAssertNil(fields["user.fields"])
             XCTAssertFalse(fields["expansions", default: ""].split(separator: ",").contains("author_id"))
             XCTAssertTrue(fields["expansions", default: ""].contains("attachments.media_keys"))
