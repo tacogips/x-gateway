@@ -12,7 +12,7 @@ extension XGatewayErrorPayload {
             ],
             classification: classification, retryable: retryable, traceId: traceId, httpStatus: httpStatus,
             providerProblem: providerProblem, providerReason: providerReason, providerErrorCode: providerErrorCode,
-            retryDiagnostics: retryDiagnostics
+            retryDiagnostics: retryDiagnostics, resourceUsage: resourceUsage
         )
     }
 }

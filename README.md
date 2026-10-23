@@ -486,3 +486,7 @@ failure occurred before the retry-managed HTTP transport was entered;
 explain why it stopped. These fields contain no URLs, credentials, or content.
 Errors outside this instrumented boundary omit counts rather than inventing zero attempts.
 Successful responses retain their existing format and do not report HTTP counts.
+
+### Resource observations
+
+GraphQL success `extensions.resourceUsage` and errors `error.resourceUsage` report bounded upstream HTTP response observations, before projection and user-cache restoration. They include returned post/user/media identifiers as SHA-256 hashes with UTC response days, successful response counts, and unclassified/unknown observations. Raw IDs, text, tokens and request URLs are excluded. Cached author restoration does not count as a new upstream user read. These are not billed units or an invoice: provider deduplication, owned-read discounts, adjustments, transport uncertainty and unclassified resources remain distinct.

@@ -30,6 +30,7 @@ public struct XGatewayErrorPayload: Error, Sendable {
     public var providerReason: XGatewayProviderReason?
     public var providerErrorCode: Int?
     public var retryDiagnostics: XGatewayRetryDiagnostics?
+    public var resourceUsage: XGatewayResourceUsageSnapshot?
 
     func jsonObject() -> [String: Any] {
         var object: [String: Any] = [
@@ -54,6 +55,7 @@ public struct XGatewayErrorPayload: Error, Sendable {
             object["backoffMs"] = retry.backoffMs
             object["retryStopReason"] = retry.stopReason.rawValue
         }
+        if let resourceUsage { object["resourceUsage"] = resourceUsage.jsonObject() }
         return object
     }
 }

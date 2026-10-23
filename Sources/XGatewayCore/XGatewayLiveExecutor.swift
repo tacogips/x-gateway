@@ -29,6 +29,7 @@ struct XGatewayLiveExecutor {
     var tokenSource = "INJECTED_TOKEN"
     var appTokenSource = "INJECTED_APP_TOKEN"
     var userMemory: XGatewayUserMemory?
+    var resourceUsage = XGatewayResourceUsage()
 }
 
 enum XGatewayRetryPolicy {
@@ -57,8 +58,12 @@ extension XGatewayLiveExecutor {
             if let userMemory {
                 result["extensions"] = ["userMemory": userMemory.delta, "userMemoryUnavailableCount": userMemory.unavailableCount]
             }
+            var extensions = result["extensions"] as? [String: Any] ?? [:]
+            extensions["resourceUsage"] = resourceUsage.snapshot.jsonObject()
+            result["extensions"] = extensions
             return result
-        } catch let error as XGatewayErrorPayload {
+        } catch var error as XGatewayErrorPayload {
+            error.resourceUsage = resourceUsage.snapshot
             throw error.withTokenSource(tokenSourceDescription(operation: operation, authorization: authorization))
         }
     }
@@ -520,14 +525,19 @@ extension XGatewayLiveExecutor {
         } else {
             bodyData = nil
         }
-        return try performSingleRequest(
-            method: method,
-            url: url,
-            authorization: authorization,
-            contentType: body == nil ? nil : "application/json",
-            body: bodyData,
-            signatureParameters: []
-        )
+        do {
+            return try performSingleRequest(
+                method: method,
+                url: url,
+                authorization: authorization,
+                contentType: body == nil ? nil : "application/json",
+                body: bodyData,
+                signatureParameters: []
+            )
+        } catch let error as XGatewayErrorPayload {
+            if error.code == .networkFailure { resourceUsage.markUnknownRequest() }
+            throw error
+        }
     }
 
     private func performSingleBinaryDownloadRequest(
@@ -693,7 +703,12 @@ extension XGatewayLiveExecutor {
             )
         }
 
-        let parsed = try parseJSON(data: data)
+        let parsed: Any
+        do { parsed = try parseJSON(data: data) } catch {
+            resourceUsage.record(method: method, url: url, status: http.statusCode, payload: NSNull())
+            throw error
+        }
+        resourceUsage.record(method: method, url: url, status: http.statusCode, payload: parsed)
         if (200...299).contains(http.statusCode) {
             return parsed
         }
