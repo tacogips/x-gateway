@@ -19,6 +19,17 @@ It also exposes the `XGatewayCore` Swift library:
 import XGatewayCore
 ```
 
+Embedding runtimes can persist author metadata with the optional user-memory
+exchange. Supply a JSON array of `{id, username, name}` through
+`X_GW_USER_MEMORY_JSON`, or bounded parts named `X_GW_USER_MEMORY_JSON_0`, etc.
+with `X_GW_USER_MEMORY_PARTS`. Post reads omit author expansions, restore known
+users locally, and look up only missing IDs in groups of at most 100. Successful
+additions are returned in GraphQL `extensions.userMemory`; the SDK writes no
+files. The runtime must merge these additions into durable memory. The exchange
+is bounded to 10,000 users and 800 KB; capacity or optional lookup failures leave
+posts readable and increment `userMemoryUnavailableCount`. Names remain as last
+recorded until the embedding runtime explicitly updates its memory.
+
 ## Development
 
 ```bash

@@ -172,7 +172,7 @@ public struct XGatewayCLI: Sendable {
         if group == "version" {
             return [
                 "name": "x-gateway",
-                "version": "0.1.18",
+                "version": "0.1.19",
                 "runtime": "swift"
             ]
         }
@@ -220,7 +220,8 @@ public struct XGatewayCLI: Sendable {
                     traceId: globalFlags.traceId,
                     transport: globalFlags.transport,
                     tokenSource: globalFlags.token != nil ? "COMMAND_LINE (--token)" : "ENVIRONMENT_TOKEN (X_GW_TOKEN)",
-                    appTokenSource: globalFlags.appToken != nil ? "COMMAND_LINE (--token)" : "ENVIRONMENT_TOKEN (X_GW_APP_TOKEN)"
+                    appTokenSource: globalFlags.appToken != nil ? "COMMAND_LINE (--token)" : "ENVIRONMENT_TOKEN (X_GW_APP_TOKEN)",
+                    userMemory: try XGatewayUserMemory.from(environment: environment)
                 ).executeGraphQL(document: document, operationType: operationType)
             }
             throw unknownCommand("\(group) \(action ?? "")".trimmingCharacters(in: .whitespaces))

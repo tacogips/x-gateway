@@ -28,6 +28,7 @@ struct XGatewayLiveExecutor {
     let transport: TransportSettings
     var tokenSource = "INJECTED_TOKEN"
     var appTokenSource = "INJECTED_APP_TOKEN"
+    var userMemory: XGatewayUserMemory?
 }
 
 enum XGatewayRetryPolicy {
@@ -52,7 +53,11 @@ extension XGatewayLiveExecutor {
         }
         do {
             let response = try execute(operation: operation, authorization: authorization)
-            return ["data": response]
+            var result: [String: Any] = ["data": response]
+            if let userMemory {
+                result["extensions"] = ["userMemory": userMemory.delta, "userMemoryUnavailableCount": userMemory.unavailableCount]
+            }
+            return result
         } catch let error as XGatewayErrorPayload {
             throw error.withTokenSource(tokenSourceDescription(operation: operation, authorization: authorization))
         }
@@ -441,9 +446,13 @@ extension XGatewayLiveExecutor {
         authorization: XGatewayRequestAuthorization,
         body: [String: Any]?
     ) throws -> Any {
-        return try performRequestWithRetry(method: method) {
-            try performSingleJSONRequest(method: method, url: url, authorization: authorization, body: body)
+        let request: (URL) throws -> Any = { target in
+            try performRequestWithRetry(method: method) {
+                try performSingleJSONRequest(method: method, url: target, authorization: authorization, body: body)
+            }
         }
+        if method == "GET", body == nil, let userMemory { return try userMemory.read(url: url, request: request) }
+        return try request(url)
     }
 
     func performFormRequest(
