@@ -8,6 +8,7 @@ public enum XGatewayProviderProblem: String, Sendable {
     case unsupportedAuthentication = "unsupported-authentication"
     case insufficientScope = "insufficient-scope"
     case usageCapped = "usage-capped"
+    case spendCapReached = "spend-cap-reached"
     case rateLimited = "rate-limit-exceeded"
     case invalidRequest = "invalid-request"
     case resourceNotFound = "resource-not-found"

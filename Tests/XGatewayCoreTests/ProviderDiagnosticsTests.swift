@@ -10,7 +10,7 @@ final class ProviderDiagnosticsTests: XCTestCase {
 
     func testKnownProblemsAndReasonsSurviveTokenAnnotationWithoutCopyingText() throws {
         for host in ["api.x.com", "api.twitter.com"] {
-            for problem in ["client-forbidden", "unsupported-authentication", "insufficient-scope", "usage-capped", "not-authorized-for-resource"] {
+            for problem in ["client-forbidden", "unsupported-authentication", "insufficient-scope", "usage-capped", "not-authorized-for-resource", "spend-cap-reached"] {
                 let error = executor.mapHTTPError(statusCode: 403, payload: [
                     "type": "https://\(host)/2/problems/\(problem)", "reason": "client-not-enrolled",
                     "detail": "secret-access-token", "title": "private post", "client_id": "private-client"
