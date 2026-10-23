@@ -5,7 +5,7 @@ import XCTest
 final class UserMemoryTests: XCTestCase {
     func testKnownAuthorsNeverAppearInLookupAndSecondReadReusesNewUsers() throws {
         let memory = try XGatewayUserMemory(json: #"[{"id":"1","username":"known","name":"Known"}]"#)
-        let url = try xAPIURL(path: "/2/users/9/timelines/reverse_chronological", query: timelineQueryItems(["pagination_token": "unchanged"]))
+        let url = try xAPIURL(path: "/2/users/9/timelines/reverse_chronological", query: timelineQueryItems(["pagination_token": "opaque+/="]))
         var lookupIDs: [String] = []
         var reads = 0
         let request: (URL) throws -> Any = { target in
@@ -15,7 +15,8 @@ final class UserMemoryTests: XCTestCase {
                 return ["data": [["id": "2", "username": "new_user", "name": "New"]]]
             }
             reads += 1
-            XCTAssertEqual(fields["pagination_token"], "unchanged")
+            XCTAssertEqual(fields["pagination_token"], "opaque+/=")
+            XCTAssertTrue(target.absoluteString.contains("pagination_token=opaque%2B%2F%3D"))
             XCTAssertNil(fields["user.fields"])
             XCTAssertFalse(fields["expansions", default: ""].split(separator: ",").contains("author_id"))
             XCTAssertTrue(fields["expansions", default: ""].contains("attachments.media_keys"))

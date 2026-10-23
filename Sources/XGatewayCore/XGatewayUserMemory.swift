@@ -69,6 +69,12 @@ final class XGatewayUserMemory {
         if !fields.contains("author_id") { fields.append("author_id") }
         components.queryItems?.removeAll { $0.name == "tweet.fields" }
         components.queryItems?.append(URLQueryItem(name: "tweet.fields", value: fields.joined(separator: ",")))
+        // URLComponents leaves literal '+' in query values. X decodes it as a
+        // form-space while OAuth signs the literal plus, invalidating opaque
+        // continuation tokens. Reuse the SDK's strict wire encoder.
+        var wireValues: [String: String] = [:]
+        for item in components.queryItems ?? [] { wireValues[item.name] = item.value ?? "" }
+        components.percentEncodedQuery = queryItems(wireValues)
         guard let reducedURL = components.url else { throw validation("Invalid X author-memory request URL.") }
         guard var payload = try request(reducedURL) as? [String: Any] else {
             throw validation("Invalid X post response for author memory.")
