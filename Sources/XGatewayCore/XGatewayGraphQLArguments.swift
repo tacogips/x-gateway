@@ -312,6 +312,13 @@ func extractOptionalStringArgument(_ name: String, from document: String, fieldN
         return nil
     }
     let index = skipGraphQLIgnored(in: document, from: nameRange.upperBound)
+    if document[index...].hasPrefix("null") {
+        let end = document.index(index, offsetBy: 4)
+        guard isGraphQLValueTerminated(in: document, at: end) else {
+            throw validation("\(fieldName).\(name) must be a string literal or null.")
+        }
+        return nil
+    }
     guard index < document.endIndex,
           document[index] == "\"" else {
         throw validation("\(fieldName).\(name) must be a string literal.")

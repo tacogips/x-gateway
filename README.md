@@ -30,6 +30,11 @@ is bounded to 10,000 users and 800 KB; capacity or optional lookup failures leav
 posts readable and increment `userMemoryUnavailableCount`. Names remain as last
 recorded until the embedding runtime expires or refreshes the cached profile.
 
+Optional GraphQL string arguments accept `null` as omission, including the first
+page's `nextToken`. Post-page responses include `pageInfo.nextToken: null` at the
+end of a scan, including empty pages, so declarative workflows can distinguish
+completion without a script.
+
 ## Development
 
 ```bash

@@ -71,7 +71,8 @@ public enum XGatewayResponseProjector {
         }
         let meta = (root["meta"] as? [String: Any]) ?? [:]
         var pageInfo: [String: Any] = [
-            "resultCount": intValue(meta["result_count"], fallback: posts.count)
+            "resultCount": intValue(meta["result_count"], fallback: posts.count),
+            "nextToken": NSNull()
         ]
         copyString(meta, from: "next_token", to: "nextToken", into: &pageInfo)
         copyString(meta, from: "previous_token", to: "previousToken", into: &pageInfo)
