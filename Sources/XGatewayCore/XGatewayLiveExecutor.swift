@@ -213,13 +213,13 @@ extension XGatewayLiveExecutor {
             )
             let post = try XGatewayResponseProjector.post(payload, options: options)
             return [operation.fieldName: try hydrateReplies(in: post, expansion: replyExpansion, authorization: authorization)]
-        case .searchPosts(let query, let maxResults, let sinceId, let nextToken, let readOptions, let replyExpansion):
+        case .searchPosts(let query, let maxResults, let sinceId, let nextToken, let startTime, let endTime, let readOptions, let replyExpansion):
             let options = readOptions.withDefaultMediaRootDir(mediaRootDir)
             let payload = try performJSONRequest(
                 method: "GET",
                 url: try xAPIURL(
                     path: "/2/tweets/search/recent",
-                    query: timelineQueryItems(recentSearchParameters(query: query, maxResults: maxResults, sinceId: sinceId, nextToken: nextToken))
+                    query: timelineQueryItems(recentSearchParameters(query: query, maxResults: maxResults, sinceId: sinceId, nextToken: nextToken, startTime: startTime, endTime: endTime))
                 ),
                 authorization: authorization,
                 body: nil

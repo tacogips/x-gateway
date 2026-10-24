@@ -8,7 +8,7 @@ final class RecentSearchTests: XCTestCase {
             document: #"query { searchPosts(query: "from:example", maxResults: 20, sinceId: "123", nextToken: "opaque+/=") { posts { id } pageInfo { nextToken newestId } } }"#,
             operationType: .query
         )
-        guard case .searchPosts(let query, let maximum, let sinceId, let nextToken, _, _) = operation else {
+        guard case .searchPosts(let query, let maximum, let sinceId, let nextToken, _, _, _, _) = operation else {
             return XCTFail("Expected recent search")
         }
         let url = try xAPIURL(
@@ -28,7 +28,7 @@ final class RecentSearchTests: XCTestCase {
 
     func testExistingSearchOmitsCursorsAndBadCursorTypeFailsBeforeAuthentication() throws {
         let operation = try parseSupportedOperation(document: #"{ searchPosts(query: "swift") { posts { id } } }"#, operationType: .query)
-        guard case .searchPosts(let query, let maximum, let sinceId, let nextToken, _, _) = operation else {
+        guard case .searchPosts(let query, let maximum, let sinceId, let nextToken, _, _, _, _) = operation else {
             return XCTFail("Expected recent search")
         }
         XCTAssertEqual(recentSearchParameters(query: query, maxResults: maximum, sinceId: sinceId, nextToken: nextToken), ["query": "swift", "max_results": "10"])
@@ -39,6 +39,23 @@ final class RecentSearchTests: XCTestCase {
             XCTAssertEqual(result.exitCode, 2)
             XCTAssertTrue(result.stderr.contains(argument))
         }
+    }
+
+    func testBoundedSearchParametersDoNotCombineSinceIdAndStartTime() throws {
+        let operation = try parseSupportedOperation(
+            document: #"{ searchPosts(query: "from:OpenAI", startTime: "2026-10-23T15:00:00Z", endTime: "2026-10-24T01:00:00Z") { posts { id } } }"#,
+            operationType: .query
+        )
+        guard case .searchPosts(let query, let maximum, let sinceId, let token, let start, let end, _, _) = operation else {
+            return XCTFail("Expected bounded recent search")
+        }
+        let parameters = recentSearchParameters(query: query, maxResults: maximum, sinceId: sinceId, nextToken: token, startTime: start, endTime: end)
+        XCTAssertEqual(parameters["start_time"], "2026-10-23T15:00:00Z")
+        XCTAssertEqual(parameters["end_time"], "2026-10-24T01:00:00Z")
+        let incremental = recentSearchParameters(query: query, maxResults: maximum, sinceId: "123", nextToken: "page", startTime: start, endTime: end)
+        XCTAssertNil(incremental["start_time"])
+        XCTAssertEqual(incremental["since_id"], "123")
+        XCTAssertEqual(incremental["next_token"], "page")
     }
 
     func testPageCursorAndWatermarkRemainAvailableWithNoPosts() throws {

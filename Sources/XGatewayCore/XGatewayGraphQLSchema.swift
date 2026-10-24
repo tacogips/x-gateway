@@ -51,7 +51,7 @@ type Query {
   dmEvent(id: ID!): DirectMessageEvent!
   dmConversationEvents(participantId: ID!, maxResults: Int, paginationToken: String, eventTypes: [String!]): DirectMessageEventPage!
   dmConversationEventsById(conversationId: ID!, maxResults: Int, paginationToken: String, eventTypes: [String!]): DirectMessageEventPage!
-  searchPosts(query: String!, maxResults: Int, sinceId: String, nextToken: String, mediaRootDir: String, downloadMedia: Boolean, forceDownload: Boolean, includePromoted: Boolean): PostPage!
+  searchPosts(query: String!, maxResults: Int, sinceId: String, nextToken: String, startTime: String, endTime: String, mediaRootDir: String, downloadMedia: Boolean, forceDownload: Boolean, includePromoted: Boolean): PostPage!
   homeTimeline(
     userId: ID, maxResults: Int, startTime: String, endTime: String, sinceId: String, untilId: String, paginationToken: String,
     mediaRootDir: String, downloadMedia: Boolean, forceDownload: Boolean, includePromoted: Boolean
