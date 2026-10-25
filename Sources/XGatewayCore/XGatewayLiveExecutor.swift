@@ -550,10 +550,9 @@ extension XGatewayLiveExecutor {
         applyAuthorizationHeader(to: &request, method: method, url: url, authorization: authorization, signatureParameters: [])
         request.setValue("application/octet-stream", forHTTPHeaderField: "Accept")
 
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.timeoutIntervalForRequest = transport.timeoutSeconds
-        configuration.timeoutIntervalForResource = transport.timeoutSeconds
-        let session = URLSession(configuration: configuration)
+        request.timeoutInterval = transport.timeoutSeconds
+        request.httpShouldHandleCookies = false
+        let session = XGatewayHTTPSession.processLifetime
         let semaphore = DispatchSemaphore(value: 0)
         var result: Result<(Data, URLResponse), Error>?
         let task = session.dataTask(with: request) { data, response, error in
@@ -568,7 +567,6 @@ extension XGatewayLiveExecutor {
         let waitResult = semaphore.wait(timeout: .now() + .milliseconds(max(1, transport.timeoutMs) + 1_000))
         if waitResult == .timedOut {
             task.cancel()
-            session.invalidateAndCancel()
             throw XGatewayErrorPayload(
                 code: .networkFailure,
                 summary: "Network request timed out",
@@ -580,7 +578,6 @@ extension XGatewayLiveExecutor {
                 traceId: traceId
             )
         }
-        session.finishTasksAndInvalidate()
 
         let data: Data
         let response: URLResponse
@@ -641,10 +638,9 @@ extension XGatewayLiveExecutor {
         }
         request.httpBody = body
 
-        let configuration = URLSessionConfiguration.ephemeral
-        configuration.timeoutIntervalForRequest = transport.timeoutSeconds
-        configuration.timeoutIntervalForResource = transport.timeoutSeconds
-        let session = URLSession(configuration: configuration)
+        request.timeoutInterval = transport.timeoutSeconds
+        request.httpShouldHandleCookies = false
+        let session = XGatewayHTTPSession.processLifetime
         let semaphore = DispatchSemaphore(value: 0)
         var result: Result<(Data, URLResponse), Error>?
         let task = session.dataTask(with: request) { data, response, error in
@@ -659,7 +655,6 @@ extension XGatewayLiveExecutor {
         let waitResult = semaphore.wait(timeout: .now() + .milliseconds(max(1, transport.timeoutMs) + 1_000))
         if waitResult == .timedOut {
             task.cancel()
-            session.invalidateAndCancel()
             throw XGatewayErrorPayload(
                 code: .networkFailure,
                 summary: "Network request timed out",
@@ -671,7 +666,6 @@ extension XGatewayLiveExecutor {
                 traceId: traceId
             )
         }
-        session.finishTasksAndInvalidate()
 
         let data: Data
         let response: URLResponse
