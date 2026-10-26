@@ -52,6 +52,14 @@ The package uses Swift Package Manager with:
 - Write executable target: `XGatewayWrite`
 - Installed executables: `x-gateway-reader`, `x-gateway-writer`
 
+The only direct dependency is `apple/swift-crypto`, required as
+`from: "5.0.3"`. `Package.resolved` pins swift-crypto 5.x. swift-crypto 5.x
+declares `swift-tools-version:6.2`, so building x-gateway, or a package that
+embeds `XGatewayCore`, needs Swift 6.2 or later. The root manifest still
+declares `swift-tools-version: 5.8` and `.macOS(.v13)`. Refresh the pin with
+`swift package update swift-crypto` only; a bare `swift package update` also
+re-pins unrelated packages.
+
 Build or install each command independently:
 
 ```bash

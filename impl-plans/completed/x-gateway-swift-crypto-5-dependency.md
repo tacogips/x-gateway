@@ -1,6 +1,6 @@
 # swift-crypto 5.x Dependency Upgrade
 
-**Status**: Ready
+**Status**: Completed
 **Plan ID**: `swift-crypto-5-dependency`
 **Wave**: 1 (no dependencies; runs in parallel with `version-bump-0-1-27`)
 **Design Reference**: `design-docs/specs/architecture.md#third-party-dependency-baseline`
@@ -27,13 +27,13 @@ swift-crypto 5 introduces. Hashing and signing output must not change.
 
 ## Deliverables
 
-- [ ] `Package.swift`: the swift-crypto requirement is exactly `.package(url: "https://github.com/apple/swift-crypto.git", from: "5.0.3")`.
-- [ ] `Package.resolved`: swift-crypto pin `version` is 5.x with a value of at least `5.0.3`. swift-asn1 changes only if SwiftPM changes it.
-- [ ] Compile fixes in the crypto call sites, only if `swift build` or `swift test` fails or warns because of swift-crypto 5:
+- [x] `Package.swift`: the swift-crypto requirement is exactly `.package(url: "https://github.com/apple/swift-crypto.git", from: "5.0.3")`.
+- [x] `Package.resolved`: swift-crypto pin `version` is 5.x with a value of at least `5.0.3`. swift-asn1 changes only if SwiftPM changes it.
+- [x] Compile fixes in the crypto call sites, only if `swift build` or `swift test` fails or warns because of swift-crypto 5 (no source edit was required):
   - `Sources/XGatewayCore/OAuth1.swift`: `XGatewayOAuth1Signer.hmacSHA1Base64(message:key:)`, which uses `SymmetricKey(data:)` and `HMAC<Insecure.SHA1>.authenticationCode(for:using:)`
   - `Sources/XGatewayCore/XGatewayOAuth2.swift`: `XGatewayOAuth2.codeChallenge(for:)`, which uses `SHA256.hash(data:)`
   - `Sources/XGatewayCore/XGatewayResourceUsage.swift`: line ~85 `SHA256.hash(data:)` with lowercase `%02x` hex join
-- [ ] Recorded evidence of the resolved swift-crypto 5.x manifest facts (see TASK-002).
+- [x] Recorded evidence of the resolved swift-crypto 5.x manifest facts (see TASK-002).
 
 ## Invariants
 
@@ -61,9 +61,9 @@ Pitfalls:
 - Do not hand-edit `Package.resolved`. It must be SwiftPM-generated.
 
 **Completion Criteria**:
-- [ ] `grep -n 'swift-crypto' Package.swift` shows exactly `from: "5.0.3"` and no `..<`.
-- [ ] `Package.resolved` swift-crypto `version` matches `^5\.` and is at least 5.0.3.
-- [ ] `git diff --stat Package.swift` shows a 1-line change.
+- [x] `grep -n 'swift-crypto' Package.swift` shows exactly `from: "5.0.3"` and no `..<`.
+- [x] `Package.resolved` swift-crypto `version` matches `^5\.` and is at least 5.0.3.
+- [x] `git diff --stat Package.swift` shows a 1-line change.
 
 ### TASK-002: Record the resolved 5.x manifest facts
 
@@ -82,7 +82,7 @@ Apply the design's rules:
 Also record `swift --version` output.
 
 **Completion Criteria**:
-- [ ] The Progress Log contains swift-crypto 5.x tools-version, platforms (or "none"), swift-asn1 requirement, and `swift --version`.
+- [x] The Progress Log contains swift-crypto 5.x tools-version, platforms (or "none"), swift-asn1 requirement, and `swift --version`.
 
 ### TASK-003: Fix swift-crypto 5 compile errors or deprecations (only if any)
 
@@ -97,9 +97,9 @@ Pitfalls:
 - On macOS, OAuth1 and OAuth2 compile the CryptoKit branch, so the `import Crypto` branch is not compiled there. Do not edit the `#else` branch speculatively. If it is left unverified, record a Linux-build verification gap.
 
 **Completion Criteria**:
-- [ ] `swift build` exits 0.
-- [ ] `swift build 2>&1 | grep -i 'deprecat' | grep -i -E 'crypto|HMAC|SHA|SymmetricKey'` produces no output.
-- [ ] Either no source file changed, or each changed line is justified in the Progress Log by the exact compiler message.
+- [x] `swift build` exits 0.
+- [x] `swift build 2>&1 | grep -i 'deprecat' | grep -i -E 'crypto|HMAC|SHA|SymmetricKey'` produces no output.
+- [x] Either no source file changed, or each changed line is justified in the Progress Log by the exact compiler message.
 
 ### TASK-004: Verify outputs unchanged
 
@@ -111,9 +111,9 @@ Test cases (existing tests; add none):
 - The smoke OAuth1 header contains `oauth_signature="tR3%2BTy81lMeYAr%2FFid0kMTYa%2FWM%3D"`.
 
 **Completion Criteria**:
-- [ ] `swift test` exits 0, with the log path recorded.
-- [ ] `mise run test` exits 0, with the log path recorded.
-- [ ] `git diff --exit-code -- Tests Sources/XGatewaySwiftSmokeTests` exits 0.
+- [x] `swift test` exits 0, with the log path recorded.
+- [x] `mise run test` exits 0, with the log path recorded.
+- [x] `git diff --exit-code -- Tests Sources/XGatewaySwiftSmokeTests` exits 0.
 
 ## Verification Commands (scoped to this plan)
 
@@ -139,3 +139,10 @@ Run serially. Never run them concurrently with another `swift` command in this w
 ## Progress Log
 
 - 2026-10-27: Plan created from the accepted design (Step 3 accepted, no findings).
+- 2026-10-27: TASK-001 changed only the swift-crypto requirement in `Package.swift` from the 3..<5 range to `from: "5.0.3"`; `Package.resolved` was refreshed by the targeted `swift package update swift-crypto` (exit 0) and pins swift-crypto 5.0.3 with swift-asn1 1.7.1. The swift-crypto 5.0.3 manifest declares `swift-tools-version:6.2`, no `platforms` declaration, and swift-asn1 `from: "1.2.0"`. `swift --version`: `swift-driver version: 1.148.6 Apple Swift version 6.3.3 (swiftlang-6.3.3.1.3 clang-2100.1.1.101)`; `Target: arm64-apple-macosx26.0`. No toolchain or deployment-target blocker applies.
+- 2026-10-27: TASK-003 required no source call-site changes: `swift build` exited 0 and emitted no crypto-related deprecation warnings. CryptoKit/Crypto imports and public signatures remain unchanged.
+- 2026-10-27: TASK-004 verification: `swift test` exited 0 (68 tests, 0 failures) using `tmp/x-gateway-swift-crypto-5-upgrade-20261027/swift-crypto-5-dependency/004-swift-test.log`; `mise run test` exited 0 using `tmp/x-gateway-swift-crypto-5-upgrade-20261027/swift-crypto-5-dependency/005-mise-run-test.log`; oracle diff check exited 0. Build log: `tmp/x-gateway-swift-crypto-5-upgrade-20261027/swift-crypto-5-dependency/003-swift-build.log`; targeted update log: `tmp/x-gateway-swift-crypto-5-upgrade-20261027/swift-crypto-5-dependency/002-swift-package-update-swift-crypto.log`.
+- 2026-10-27: Additional acceptance checks all exited 0: requirement grep (`006-manifest-requirement.log`), resolved pin grep (`007-resolved-pin.log`), one-line manifest diff stat (`008-manifest-diff-stat.log`), oracle diff (`009-oracle-diff.log`), and build-log crypto deprecation scan (`010-crypto-deprecation-check.log`), all under `tmp/x-gateway-swift-crypto-5-upgrade-20261027/swift-crypto-5-dependency/`.
+- 2026-10-27: Combined-tree integration rerun: `swift build` exited 0 (`011-integration-swift-build.log`); `swift test` exited 0 (68 tests, 0 failures; `012-integration-swift-test.log`); `mise run test` exited 0 and printed “Swift smoke tests passed” (`013-integration-mise-test.log`; the task reports no test count); `mise run lint` exited 0 (`014-integration-mise-lint.log`) with one unrelated existing line-length warning at `Sources/XGatewayCore/XGatewayGraphQLSchema.swift:54`; oracle diff exited 0 (`015-integration-oracle-diff.log`); resolved pin and requirement/version checks passed (`016-integration-resolved-pin.log`, `017-integration-requirement-version.log`); old-version grep found no matches as expected (exit 1; `018-integration-no-old-version.log`); selected-file strict SwiftLint for `Sources/XGatewayCore/XGatewayCore.swift` exited 0 (`019-integration-selected-swiftlint.log`). Logs are under `tmp/x-gateway-swift-crypto-5-upgrade-20261027/swift-crypto-5-dependency/`.
+- 2026-10-27: `swift run x-gateway-reader version` exited 0 and returned version `0.1.27` (`021-integration-version-runtime.log`). The smoke runner's `runSmokeTests()` executes 11 named smoke groups; the `mise run test` task itself emits only a pass summary, without an individual assertion count.
+- 2026-10-27: Step 7 adversarial review and test-integrity review accepted the plan with no findings. Step 7b skipped browser E2E because the repo has none and the change has no browser surface. Step 8 marked the plan Completed and requested an archive to `impl-plans/completed/x-gateway-swift-crypto-5-dependency.md`. The commit, the push to `origin/main` and tag `v0.1.27` are finalization steps outside this plan.

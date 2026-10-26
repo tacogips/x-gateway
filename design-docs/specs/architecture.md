@@ -157,6 +157,10 @@ a single swift-crypto 5.x across its dependency graph.
     accepted value and record that as a finding.
   - If 5.x requires a macOS deployment target above 13, report it as a blocker
     that needs a maintainer decision. Do not raise `.macOS(.v13)` on your own.
+  - Outcome (0.1.27): swift-crypto 5.0.3 resolved with swift-asn1 1.7.1. It
+    declares `swift-tools-version:6.2` with no `platforms` floor, so consumers
+    need Swift 6.2 or later. The root 5.8 tools-version and `.macOS(.v13)`
+    were kept, and no crypto call site changed.
 - Upgrade blocker rule: if any dependency caps swift-crypto below 5, report the
   exact constraint as a blocker and make no workaround.
 - Verification: `swift package update swift-crypto`, `swift build`,
