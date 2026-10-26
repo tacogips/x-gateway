@@ -1,0 +1,136 @@
+{
+  "taskId": "x-gateway-swift-crypto-5-upgrade-20261027",
+  "workflowMode": "issue-resolution",
+  "implementationBranch": "main",
+  "baseBranch": "main",
+  "remote": "origin",
+  "originalHead": "7586732c011e23f0acb259cc5d548f18bb2dd109",
+  "designDocPaths": [
+    "design-docs/specs/architecture.md"
+  ],
+  "evidenceRoot": "tmp/x-gateway-swift-crypto-5-upgrade-20261027",
+  "reviewContext": {
+    "issueReference": "workflowInput:issueTitle='x-gateway: move to swift-crypto 5.x' (no issueUrl/issueNumber; workflowInput issueBody is authoritative)",
+    "userProblem": "Riela pins x-gateway with an exact version tag and must resolve one apple/swift-crypto 5.x version across its dependency graph. x-gateway currently requires \"3.0.0\"..<\"5.0.0\" (Package.swift:29), and Package.resolved pins swift-crypto 4.5.2.",
+    "requiredOutcomes": [
+      "Package.swift requires .package(url: \"https://github.com/apple/swift-crypto.git\", from: \"5.0.3\")",
+      "Package.resolved, refreshed by 'swift package update swift-crypto', pins swift-crypto 5.x >= 5.0.3",
+      "Any compile error or deprecation that swift-crypto 5 introduces is fixed without behavior change",
+      "Hashing and signing output stays byte-for-byte identical against the existing oracles",
+      "VERSION and the XGatewayCore.swift version constant are both bumped from 0.1.26 to 0.1.27",
+      "swift build, swift test, mise run test and mise run lint pass",
+      "The final commit is pushed to origin/main, then tag v0.1.27 is created on that pushed commit and pushed"
+    ],
+    "nonGoals": [
+      "Do not publish a GitHub release, Homebrew/Cask formula, npm package or Nix release",
+      "Do not add swift-asn1 or any other direct dependency",
+      "Do not add crypto wrapper or abstraction layers",
+      "Do not fix non-crypto deprecations",
+      "Do not edit the test or smoke-test oracle expectations"
+    ],
+    "constraints": [
+      "Use only the targeted 'swift package update swift-crypto'; no bare 'swift package update' and no hand-editing of Package.resolved",
+      "Keep swift-tools-version 5.8 and .macOS(.v13) unless the design's blocker or finding rules require a change",
+      "If any dependency caps swift-crypto below 5, report the exact constraint as a blocker and make no workaround",
+      "If the local toolchain is too old for swift-crypto 5.x, or 5.x needs macOS above 13, report a blocker and stop",
+      "Run SwiftPM commands serially; the version-bump plan runs no swift commands during wave 1",
+      "Workers do not run git write operations; finalization commits, pushes and tags serially"
+    ],
+    "designDecisionsAndRationale": [
+      "Requirement is from: \"5.0.3\", which admits all 5.x and rejects 3.x/4.x, so Riela can unify on a single 5.x version (architecture.md#third-party-dependency-baseline)",
+      "Keep the CryptoKit/Crypto import split in OAuth1.swift and XGatewayOAuth2.swift, and the unconditional import Crypto in XGatewayResourceUsage.swift, unless 5.x fails to compile without a change",
+      "A dependency-only change bumps the patch version in both VERSION and XGatewayCore.swift, and the tag is created on the pushed main HEAD (architecture.md#versioning-and-tagging)"
+    ],
+    "intentionalTradeoffs": [
+      "The Linux 'import Crypto' branch in OAuth1.swift and XGatewayOAuth2.swift is not compiled on macOS. This is accepted as a recorded verification gap instead of requiring a Linux build.",
+      "The version bump runs in parallel with the dependency plan and does not build on its own. Integration covers build and test of the version constant."
+    ],
+    "supportedEdgeCases": [
+      "No source change needed when swift-crypto 5 compiles cleanly",
+      "Minimal call-site edit when swift-crypto 5 renames or deprecates an API used at the three crypto sites",
+      "swift-asn1 transitive pin moves only if SwiftPM moves it",
+      "Root tools-version raised only to the minimum SwiftPM accepts, recorded as a finding"
+    ],
+    "outOfScopeEdgeCases": [
+      "Linux build verification of the #else import Crypto branch",
+      "macOS deployment target above 13 (blocker for a maintainer decision)",
+      "Installing a newer Swift toolchain",
+      "Release packaging surfaces (dist/, Formula/, packaging/, scripts/, flake.nix, mise.toml)"
+    ],
+    "sourcePaths": [
+      "Package.swift",
+      "Package.resolved",
+      "Sources/XGatewayCore/OAuth1.swift",
+      "Sources/XGatewayCore/XGatewayOAuth2.swift",
+      "Sources/XGatewayCore/XGatewayResourceUsage.swift",
+      "Sources/XGatewayCore/XGatewayCore.swift",
+      "VERSION",
+      "Tests/XGatewayCoreTests/XGatewayCoreTests.swift",
+      "Sources/XGatewaySwiftSmokeTests/main.swift",
+      "Sources/XGatewaySwiftSmokeTests/OAuth2SmokeTests.swift",
+      "design-docs/specs/architecture.md"
+    ]
+  },
+  "plans": [
+    {
+      "planId": "swift-crypto-5-dependency",
+      "planPath": "impl-plans/active/x-gateway-swift-crypto-5-dependency.md",
+      "dependsOn": [],
+      "writePaths": [
+        "Package.swift",
+        "Package.resolved",
+        "Sources/XGatewayCore/OAuth1.swift",
+        "Sources/XGatewayCore/XGatewayOAuth2.swift",
+        "Sources/XGatewayCore/XGatewayResourceUsage.swift",
+        "impl-plans/active/x-gateway-swift-crypto-5-dependency.md",
+        ".build"
+      ],
+      "sharedPaths": [],
+      "artifactRoots": [
+        ".build"
+      ],
+      "acceptanceCriteria": [
+        "Package.swift swift-crypto requirement is exactly from: \"5.0.3\" with no '..<' range; one-line diff",
+        "Package.resolved swift-crypto version matches ^5\\. and is >= 5.0.3, generated by 'swift package update swift-crypto'",
+        "Progress Log records swift-crypto 5.x tools-version, platforms (or none), swift-asn1 requirement and 'swift --version'",
+        "swift build exits 0 with no crypto-related deprecation warnings",
+        "Crypto call-site edits exist only where justified by an exact compiler message; public signatures unchanged",
+        "swift test and mise run test exit 0 with log paths and exit statuses recorded",
+        "Tests and Sources/XGatewaySwiftSmokeTests are unchanged (git diff --exit-code)"
+      ],
+      "verification": [
+        "swift package update swift-crypto",
+        "grep -A6 '\"swift-crypto\"' Package.resolved",
+        "swift build",
+        "swift test",
+        "mise run test",
+        "git diff --exit-code -- Tests Sources/XGatewaySwiftSmokeTests"
+      ]
+    },
+    {
+      "planId": "version-bump-0-1-27",
+      "planPath": "impl-plans/active/x-gateway-version-bump-0-1-27.md",
+      "dependsOn": [],
+      "writePaths": [
+        "VERSION",
+        "Sources/XGatewayCore/XGatewayCore.swift",
+        "impl-plans/active/x-gateway-version-bump-0-1-27.md"
+      ],
+      "sharedPaths": [],
+      "artifactRoots": [],
+      "acceptanceCriteria": [
+        "VERSION contains exactly 0.1.27 with one trailing newline",
+        "Sources/XGatewayCore/XGatewayCore.swift has exactly one '\"version\": \"0.1.27\"' in the version group and no other change",
+        "grep -rn '0\\.1\\.26' VERSION Sources produces no output",
+        "git diff --stat shows 2 files changed, 2 insertions(+), 2 deletions(-)",
+        "No swift build/test is run in wave 1"
+      ],
+      "verification": [
+        "cat VERSION",
+        "grep -n '\"version\": \"0.1.27\"' Sources/XGatewayCore/XGatewayCore.swift",
+        "grep -rn '0\\.1\\.26' VERSION Sources",
+        "git diff --stat -- VERSION Sources/XGatewayCore/XGatewayCore.swift"
+      ]
+    }
+  ]
+}
