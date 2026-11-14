@@ -1,0 +1,24 @@
+{
+  "variables": {
+    "DESCRIPTION": "X API client and gateway CLI",
+    "EXECUTABLE_NAME": "x-gateway",
+    "GITHUB_REPOSITORY": "tacogips/x-gateway",
+    "HOMEBREW_FORMULA_CLASS": "XGateway",
+    "HOMEBREW_TAP": "tacogips/homebrew-tap",
+    "HOMEBREW_TAP_DIR": "../homebrew-tap",
+    "HOMEPAGE": "https://github.com/tacogips/x-gateway",
+    "LICENSE": "MIT",
+    "MACOS_VERSION": "v13",
+    "PROJECT_NAME": "x-gateway",
+    "SWIFT_COMMAND_TYPE": "XGatewayCLI",
+    "SWIFT_EXECUTABLE_TARGET": "XGatewayRead",
+    "SWIFT_LIBRARY_TARGET": "XGatewayCore",
+    "SWIFT_READER_EXECUTABLE_NAME": "x-gateway-reader",
+    "SWIFT_READER_EXECUTABLE_TARGET": "XGatewayRead",
+    "SWIFT_SMOKE_TEST_TARGET": "XGatewaySwiftSmokeTests",
+    "SWIFT_TOOLS_VERSION": "5.8",
+    "SWIFT_WRITER_EXECUTABLE_NAME": "x-gateway-writer",
+    "SWIFT_WRITER_EXECUTABLE_TARGET": "XGatewayWrite",
+    "VERSION": "0.1.2"
+  }
+}
