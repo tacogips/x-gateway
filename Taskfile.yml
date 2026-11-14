@@ -1,0 +1,114 @@
+version: '3'
+
+vars:
+  PROJECT_NAME: x-gateway
+  TAP_DIR: ../homebrew-tap
+  VERSION:
+    sh: tr -d '[:space:]' < VERSION 2>/dev/null || git describe --tags --always --dirty 2>/dev/null || echo 0.1.1
+
+tasks:
+  default:
+    desc: Show available tasks
+    cmds:
+      - task --list
+
+  build:
+    desc: Build all Swift products
+    cmds:
+      - swift build -c release
+
+  build-read:
+    desc: Build the Swift read-only command product
+    cmds:
+      - swift build -c release --product x-gateway-read
+
+  build-write:
+    desc: Build the Swift write command product
+    cmds:
+      - swift build -c release --product x-gateway-write
+
+  test:
+    desc: Run Swift smoke tests
+    cmds:
+      - swift run x-gateway-swift-smoke-tests
+
+  ci:
+    desc: Run Swift verification
+    cmds:
+      - task: build
+      - task: test
+
+  clean:
+    desc: Clean build and release artifacts
+    cmds:
+      - rm -rf .build dist release
+
+  lint:
+    desc: Run SwiftLint when available
+    cmds:
+      - swiftlint
+
+  install-read:
+    desc: Install only the Swift read-only command
+    vars:
+      INSTALL_PREFIX: '{{default "/usr/local" .PREFIX}}'
+    cmds:
+      - swift build -c release --product x-gateway-read
+      - mkdir -p "{{.INSTALL_PREFIX}}/bin"
+      - install .build/release/x-gateway-read "{{.INSTALL_PREFIX}}/bin/x-gateway-read"
+
+  install-write:
+    desc: Install only the Swift write command
+    vars:
+      INSTALL_PREFIX: '{{default "/usr/local" .PREFIX}}'
+    cmds:
+      - swift build -c release --product x-gateway-write
+      - mkdir -p "{{.INSTALL_PREFIX}}/bin"
+      - install .build/release/x-gateway-write "{{.INSTALL_PREFIX}}/bin/x-gateway-write"
+
+  build:homebrew:
+    desc: Build Homebrew formula archives containing read and write commands
+    cmds:
+      - scripts/build-homebrew-release.sh {{.CLI_ARGS}}
+
+  homebrew:formula:
+    desc: Render Formula/x-gateway.rb from dist/homebrew checksums
+    cmds:
+      - scripts/render-homebrew-formula.sh {{.CLI_ARGS}}
+
+  homebrew:tap-formula:
+    desc: Render the formula into the default sibling Homebrew tap checkout
+    cmds:
+      - |
+        set -euo pipefail
+        if [ -z "{{.CLI_ARGS}}" ]; then
+          echo "usage: task homebrew:tap-formula -- <version>" >&2
+          exit 2
+        fi
+        scripts/render-homebrew-formula.sh "{{.CLI_ARGS}}" "{{.TAP_DIR}}/Formula/x-gateway.rb"
+
+  build:homebrew-cask:
+    desc: Build signed and notarized Homebrew Cask DMGs, or pass targets after --
+    cmds:
+      - scripts/build-homebrew-cask-release.sh {{.CLI_ARGS}}
+
+  homebrew:cask:
+    desc: Render Casks/x-gateway.rb from dist/homebrew-cask checksums
+    cmds:
+      - scripts/render-homebrew-cask.sh {{.CLI_ARGS}}
+
+  homebrew:tap-cask:
+    desc: Render the cask into the default sibling Homebrew tap checkout
+    cmds:
+      - |
+        set -euo pipefail
+        if [ -z "{{.CLI_ARGS}}" ]; then
+          echo "usage: task homebrew:tap-cask -- <version>" >&2
+          exit 2
+        fi
+        scripts/render-homebrew-cask.sh "{{.CLI_ARGS}}" "{{.TAP_DIR}}/Casks/x-gateway.rb"
+
+  release:homebrew-cask-local:
+    desc: Build, notarize, upload, and render the sibling tap cask for a v<version> tag
+    cmds:
+      - scripts/release-homebrew-cask-local.sh {{.CLI_ARGS}}

@@ -1,0 +1,44 @@
+# Swift Package Manager
+.build/
+Package.resolved
+
+# Release artifacts
+release/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Nix
+.direnv/
+result
+result-*
+
+# Logs
+logs/
+*.log
+
+# Temporary files
+tmp/
+temp/
+.cache/
+
+# Implementation progress lock file
+impl-plans/.progress.lock
+
+# Private files
+**/.envrc.private*
+.private*/
+data/**
