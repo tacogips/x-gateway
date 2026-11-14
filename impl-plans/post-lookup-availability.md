@@ -1,0 +1,9 @@
+# Exact post lookup availability
+
+The current `posts(ids:)` projection discards provider partial errors in an otherwise successful response. Preserve original posts/pageInfo and add optional `lookupAvailability` only for exact-ID batch lookup. Return one entry per distinct requested ID, in request order. `available/returned` means a projected post exists; provider-returned but omitted data is `unknown/filtered`. A missing post is `unavailable/not-found` or `unavailable/forbidden` only when a structured error binds the exact tweet ID and known problem URI. Missing, malformed, conflicting, wrong-resource, or future error details remain unknown. Never copy provider title/detail, infer deletion, perform additional requests, or retry missing IDs automatically.
+
+Official primary documentation: https://docs.x.com/x-api/fundamentals/response-codes-and-errors (Partial errors documents HTTP200 with data and resource_id/resource_type/type errors). Not-found is an observation of this lookup, not proof of permanent deletion.
+
+GraphQL: `PostPage.lookupAvailability: [PostLookupAvailability!]`, fields `postId: ID!`, `status: String!`, `reason: String!`. Status is available/unavailable/unknown; reason is returned/filtered/missing/not-found/forbidden/unknown. Other page operations leave the field null because no requested-ID set was evaluated. Swift exposes closed Codable enums and value type. The repository's TypeScript directory is an unused greeting scaffold, not a gateway SDK; no fictitious TS network client is introduced.
+
+Verify offline partial/full/unknown/filtered/malformed/binding fixtures, GraphQL selection, smoke suite, SwiftLint, and existing package tests. Release patch 0.1.15 using the existing four macOS formula archives; public Riela release remains separately held by its private dependency.
